@@ -1,0 +1,41 @@
+# Copy to config/config.yaml. Validated at start-up.
+
+sources:
+  telegram:
+    enabled: true
+    chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]  # `jobradar chats` lists ids
+    backfill_days: 3
+  bot_forward: { enabled: true }
+  whatsapp: { enabled: false, port: 8765 }   # experimental, unofficial client — ban risk
+
+llm:
+  extract_model: "gemini/gemini-flash-latest"     # extraction + scoring
+  writer_model: "gemini/gemini-pro-latest"        # resumes + form answers
+  # Groq alternative:
+  # extract_model: "groq/llama-3.1-8b-instant"
+  # writer_model:  "groq/llama-3.3-70b-versatile"
+  daily_budget_inr: 15
+
+filters:
+  batch_years: [2025, 2026]
+  degrees: ["B.Tech", "BE", "MCA"]
+  locations: ["Bengaluru", "Hyderabad", "Pune", "Remote"]
+  max_experience_years: 1
+  exclude_companies: []
+
+scoring:
+  hide_below: 40          # below → Hidden
+  alert_above: 85         # at or above → Telegram alert
+  auto_resume_above: 85   # at or above → resume + kit built automatically; null = only on Shortlisted
+
+resume:
+  template: classic
+  max_pages: 1
+
+storage:
+  local_dir: ./output
+  gdrive: true            # Notion "Resume" is the Drive link; with false, Resume stays empty
+
+notify:
+  digest_times: ["09:00", "19:00"]
+  timezone: Asia/Kolkata

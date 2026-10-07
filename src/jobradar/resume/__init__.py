@@ -1,0 +1,1 @@
+"""Tailored LaTeX resume builder."""

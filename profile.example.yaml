@@ -1,0 +1,52 @@
+# Copy to config/profile.yaml. The ONLY source of resume facts:
+# JobRadar may rephrase these, never add to them. Every item and bullet needs a unique id.
+
+basics:
+  name: Your Name
+  email: you@example.com
+  phone: "+91-90000-00000"
+  location: Patna, Bihar
+  links:
+    github: https://github.com/yourname
+    linkedin: https://www.linkedin.com/in/yourname
+    portfolio: https://yourname.dev
+
+education:
+  - degree: B.Tech, Computer Science
+    school: Example Institute of Technology
+    years: 2022-2026
+    cgpa: 8.1
+
+skills:
+  languages: [Python, Java, JavaScript, SQL]
+  frameworks: [FastAPI, React]
+  tools: [Git, Docker, Linux]
+
+experience:
+  - id: intern-acme
+    title: Software Intern
+    company: Acme
+    dates: May 2025 - Jul 2025
+    bullets:
+      - id: b1
+        text: Built a REST API with FastAPI and PostgreSQL, cutting response time by 40%
+        tags: [python, fastapi, backend]
+      - id: b2
+        text: Wrote integration tests that raised coverage from 55% to 85%
+        tags: [python, testing]
+
+projects:
+  - id: jobradar
+    name: JobRadar
+    bullets:
+      - id: p1
+        text: Self-hosted agent that ranks Telegram job posts and builds tailored LaTeX resumes
+        tags: [python, llm, automation]
+    tags: [python, llm, automation]
+
+answers:                  # reused for application forms
+  notice_period: Immediate
+  expected_ctc: As per company norms
+  relocate: "Yes"
+  why_hire_me: >-
+    I build and ship working software end to end, from APIs to tests to deployment.

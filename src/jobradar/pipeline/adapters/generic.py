@@ -1,0 +1,1 @@
+"""Generic main-text adapter."""

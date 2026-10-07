@@ -1,0 +1,41 @@
+# Secrets and personal data — never commit
+.env
+.env.*
+!.env.example
+*.session
+*.session-journal
+config/*
+!config/.gitkeep
+data/*
+!data/.gitkeep
+output/*
+!output/.gitkeep
+gdrive_token.json
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# LaTeX build artefacts
+*.aux
+*.log
+*.out
+*.synctex.gz
+
+# Node (wa-bridge)
+node_modules/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
