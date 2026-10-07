@@ -24,7 +24,7 @@ jobradar/
 │   ├── sources/
 │   │   ├── base.py              # Source protocol
 │   │   ├── telegram.py          # Telethon client
-│   │   ├── bot_forward.py       # messages forwarded to the bot
+│   │   ├── email_forward.py     # jobs you forward by email (IMAP folder)
 │   │   └── whatsapp.py          # HTTP receiver for the Node sidecar
 │   ├── pipeline/
 │   │   ├── links.py             # extract, expand, canonicalise
@@ -41,7 +41,7 @@ jobradar/
 │   │   └── validate.py          # page count, unknown-skill check
 │   ├── kit/answers.py           # form answers + cover letter
 │   ├── storage/                 # local.py, gdrive.py
-│   ├── sinks/                   # notion.py, telegram_bot.py
+│   ├── sinks/                   # notion.py, email_notify.py
 │   ├── llm.py                   # LiteLLM wrapper, cache, budget
 │   └── prompts/                 # extract.md, score.md, tailor.md, kit.md
 ├── templates/                   # classic.tex.j2, modern.tex.j2
@@ -65,8 +65,9 @@ Three files, all validated at start-up; a bad value stops the app with a clear m
 ```dotenv
 TG_API_ID=123456
 TG_API_HASH=xxxxxxxx
-TG_BOT_TOKEN=123:abc
-TG_OWNER_CHAT_ID=987654321
+EMAIL_ADDRESS=you@gmail.com      # account JobRadar sends from and reads forwards from
+EMAIL_APP_PASSWORD=xxxxxxxx      # app password (Gmail: Google Account → Security → App passwords)
+NOTIFY_TO=you@gmail.com          # where alerts and digests go; defaults to EMAIL_ADDRESS
 NOTION_TOKEN=secret_xxx
 NOTION_DATABASE_ID=xxxxxxxx
 GEMINI_API_KEY=xxxxxxxx          # default provider (Google AI Studio)
@@ -84,7 +85,10 @@ sources:
     enabled: true
     chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]
     backfill_days: 3
-  bot_forward: { enabled: true }
+  email_forward:
+    enabled: true
+    folder: JobRadar              # forward jobs here (e.g. a Gmail label + filter)
+    poll_minutes: 2
   whatsapp: { enabled: false, port: 8765 }   # experimental
 
 llm:
@@ -115,7 +119,14 @@ storage:
   local_dir: ./output
   gdrive: true                  # Notion "Resume" is the Drive link; with false, Resume stays empty
 
+email:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587                # STARTTLS
+  imap_host: imap.gmail.com
+
 notify:
+  alerts: true
+  alert_batch_minutes: 10       # alerts inside this window are sent as one email
   digest_times: ["09:00", "19:00"]
   timezone: Asia/Kolkata
 ```
@@ -172,7 +183,7 @@ erDiagram
 
     source {
         INTEGER id PK
-        TEXT platform "telegram | bot | whatsapp"
+        TEXT platform "telegram | email | whatsapp"
         TEXT chat_id
         TEXT title
         INTEGER enabled
@@ -242,7 +253,7 @@ erDiagram
 ```sql
 CREATE TABLE source (
    id           INTEGER PRIMARY KEY,
-   platform     TEXT NOT NULL CHECK (platform IN ('telegram','bot','whatsapp')),
+   platform     TEXT NOT NULL CHECK (platform IN ('telegram','email','whatsapp')),
    chat_id      TEXT NOT NULL,
    title        TEXT,
    enabled      INTEGER NOT NULL DEFAULT 1,
@@ -449,7 +460,7 @@ flowchart LR
 | `extract` | job.id | fetch | `score` (or `needs_review` / `discarded`) |
 | `score` | job.id | extract | `notion_upsert`, maybe `notify_alert`, maybe `build_resume` + `build_kit` (score ≥ `auto_resume_above`) |
 | `notion_upsert` | job.id | any job change | none |
-| `notify_alert` | job.id | score | none |
+| `notify_alert` | job.id | score | none (sends or batches an email) |
 | `build_resume` | job.id | score (auto threshold) or notion_poll | `upload`, `notion_upsert` |
 | `build_kit` | job.id | score (auto threshold) or notion_poll | `notion_upsert` |
 | `upload` | artifact.id | build_resume | `notion_upsert` |
@@ -552,12 +563,20 @@ flowchart LR
 - Folder per month inside `GDRIVE_FOLDER_ID`; upload with `files.create`; link-sharing off by default; store `webViewLink` in `artifact.drive_url`.
 - The Notion **Resume** property is always this online link; the PDF is never attached to the Notion page. With `storage.gdrive: false`, the PDF is saved locally only and Resume stays empty.
 
-### `sinks/telegram_bot.py`
+### `sources/email_forward.py`
 
-- Only messages `TG_OWNER_CHAT_ID`; ignores everyone else.
-- Alert format: role, company, score, deadline, one-line reason, Notion page link, and the resume link if one was auto-built.
-- Digest at configured times: counts of new, top matches, auto-built resumes, closing in 48 h.
-- Commands: `/add <url>`, `/status`, `/pause`, `/resume`.
+- Polls the IMAP folder `sources.email_forward.folder` every `poll_minutes` (IMAP IDLE when the server supports it) with `EMAIL_ADDRESS` / `EMAIL_APP_PASSWORD`.
+- Accepts only messages whose `From` is `EMAIL_ADDRESS` or `NOTIFY_TO` **and** whose `Authentication-Results` show DKIM or SPF pass when that header is present; everything else is left unread and logged.
+- Each accepted email → one `IncomingMessage` (`platform="email"`, `message_id` = the `Message-ID` header): plain-text body (HTML converted to text), URLs from the body and links, image attachments saved to `data/media/` for OCR.
+- Marks processed mail as read; never sends, deletes or moves mail.
+
+### `sinks/email_notify.py`
+
+- Sends over SMTP with STARTTLS (`aiosmtplib`) from `EMAIL_ADDRESS` to `NOTIFY_TO` only; there is no other recipient.
+- **Alert** (score ≥ `alert_above`, or a shortlisted job closing within 24 h): subject `[JobRadar 92] Backend Intern @ Acme · closes 12 Oct`; body has role, company, score, deadline, one-line reason, Notion page link, and the resume link if one was auto-built. Alerts inside `alert_batch_minutes` are combined into one email.
+- **Digest** at `digest_times`: counts of new, top matches, auto-built resumes, closing in 48 h, failures and LLM budget status, with a link to the Notion Inbox view.
+- Each email is multipart (plain text + simple HTML) and sets `List-Id: jobradar` so users can filter it into a label.
+- Sending failure → retry with backoff like any task; never blocks the pipeline.
 
 ## LLM prompts
 
@@ -846,20 +865,21 @@ Default backoff: attempt *n* waits `min(30 s × 4^(n−1), 1 h)` with ±20% jitt
 | PDF over page limit | `validate.py` | Trim and recompile up to 3 times |
 | Notion page deleted by user | notion sync | Clear `notion_page_id`; do not recreate unless job changes |
 | Notion schema mismatch (missing property) | start-up check | Stop with a message naming the missing property |
-| Drive token expired | `gdrive.py` | Refresh; if refresh fails, keep PDF local, leave Resume empty, and notify owner |
+| Drive token expired | `gdrive.py` | Refresh; if refresh fails, keep PDF local, leave Resume empty, and email the owner |
+| SMTP / IMAP auth failure | `email_notify.py`, `email_forward.py` | No retry storm: mark the task failed, log once, report in `jobradar doctor` and the next successful digest |
 | Process crash | worker | On restart, tasks in `running` older than 10 min return to `pending` |
 
 ## CLI commands
 
 | Command | What it does |
 |---|---|
-| `jobradar init` | Copy example configs, Telegram login, Google OAuth, Notion schema check |
+| `jobradar init` | Copy example configs, Telegram login, Google OAuth, Notion schema check, test email |
 | `jobradar run` | Start sources, workers and scheduler (Docker default command) |
 | `jobradar chats` | List Telegram chats the account can read, with ids to paste into config |
 | `jobradar add <url>` | Process one link manually |
 | `jobradar resume <job-id> [--template modern]` | Rebuild a resume now (new version) |
 | `jobradar retry --failed` | Re-queue failed tasks |
-| `jobradar doctor` | Check LLM key for the configured provider, Tectonic, Playwright, Notion properties, Drive access |
+| `jobradar doctor` | Check LLM key for the configured provider, Tectonic, Playwright, Notion properties, Drive access, SMTP and IMAP login |
 | `jobradar stats [--days 7]` | Jobs seen, unique, hidden, auto-resumed, shortlisted, applied, LLM spend |
 
 ## Testing and observability
@@ -871,7 +891,7 @@ Default backoff: attempt *n* waits `min(30 s × 4^(n−1), 1 h)` with ±20% jitt
 | Unit | URL canonicalisation, fingerprint, scam rules, LaTeX escaping, filters, auto-resume routing | pytest, table-driven cases |
 | Golden | Extraction on 100 saved real postings (`tests/fixtures/`) | Compare with hand-labelled JSON; report accuracy per field; run on prompt changes |
 | Resume | Grounding validator, page limit, every template compiles | `profile.example.yaml` + 10 sample jobs |
-| Integration | Full pipeline with fake Telegram source, recorded HTTP (respx / vcrpy), mock LLM, mock Notion | pytest-asyncio |
+| Integration | Full pipeline with fake Telegram source, recorded HTTP (respx / vcrpy), mock LLM, mock Notion, local SMTP/IMAP test server | pytest-asyncio |
 | Manual | End-to-end with a test Notion workspace and a test Telegram channel | Before each release |
 
 **CI (GitHub Actions):** ruff, mypy, unit + integration tests, template compile, gitleaks, Docker build.

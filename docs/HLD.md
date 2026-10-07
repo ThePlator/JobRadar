@@ -4,9 +4,9 @@ _Oct 7, 2026_
 
 ## Summary and scope
 
-JobRadar is a single self-hosted Python service built as an event-driven pipeline: sources push raw messages into a SQLite-backed queue, a chain of idempotent workers turns them into scored jobs, and sinks write results to Notion, Google Drive and a Telegram bot. Notion is both the dashboard and the control panel: a Status change there can trigger resume generation, and high-scoring jobs get a resume automatically.
+JobRadar is a single self-hosted Python service built as an event-driven pipeline: sources push raw messages into a SQLite-backed queue, a chain of idempotent workers turns them into scored jobs, and sinks write results to Notion, Google Drive and email. Notion is both the dashboard and the control panel: a Status change there can trigger resume generation, and high-scoring jobs get a resume automatically.
 
-This HLD covers v1.0 as defined in the [PRD](PRD.md): Telegram ingestion, extraction, dedupe, scoring, LaTeX resumes, Notion dashboard, Drive storage and Telegram alerts. WhatsApp is an optional experimental source behind the same interface.
+This HLD covers v1.0 as defined in the [PRD](PRD.md): Telegram ingestion, extraction, dedupe, scoring, LaTeX resumes, Notion dashboard, Drive storage and email alerts. WhatsApp is an optional experimental source behind the same interface.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ flowchart TB
     subgraph Sources
         direction LR
         TG["Telegram (Telethon)"]
-        BOT["Bot: manual forwards"]
+        BOT["Email: forwarded jobs (IMAP)"]
         WA["WhatsApp (experimental)"]
     end
 
@@ -39,7 +39,7 @@ flowchart TB
         direction LR
         N["Notion dashboard"]
         G["Google Drive + local PDFs"]
-        A["Telegram alerts + digest"]
+        A["Email alerts + digest"]
     end
 
     EXT["External calls: job websites (Fetch page) and the LLM provider via LiteLLM — Gemini / Groq (extract, score, resume, kit)"]
@@ -59,7 +59,7 @@ Every pipeline step reads and writes the SQLite store through the task queue, so
 
 | Component | Responsibility | Input → Output |
 |---|---|---|
-| Source adapters | Listen to Telegram (Telethon), the JobRadar bot (manual forwards) and optionally WhatsApp; normalise messages | Platform events → `RawMessage` rows |
+| Source adapters | Listen to Telegram (Telethon), read jobs you forward to an email folder (IMAP) and optionally WhatsApp; normalise messages | Platform events → `RawMessage` rows |
 | Link extractor | Pull URLs from text, entities and buttons; expand short links; strip tracking params; OCR images | RawMessage → candidate URLs + text |
 | Deduper | Canonical-URL hash and company+role+location fingerprint; attach extra sources to existing jobs | Candidates → new Job or merge |
 | Fetcher | Download page with httpx; fall back to Playwright for JavaScript pages; skip login walls | URL → cleaned page text |
@@ -69,7 +69,7 @@ Every pipeline step reads and writes the SQLite store through the task queue, so
 | Kit writer | Draft answers for form fields and a cover letter | Job + profile → answers |
 | Storage | Save PDFs locally; upload to Google Drive and return the online link | PDF → path + Drive link |
 | Notion sync | Upsert job pages (write); poll for Status changes (read) | Job ↔ Notion page |
-| Notifier | Telegram bot alerts and twice-daily digest | Events → messages |
+| Notifier | Email alerts (batched) and twice-daily email digest over SMTP | Events → emails |
 | Scheduler and queue | Run workers, retries with backoff, periodic jobs (Notion poll, digest, cleanup) | Tasks → executions |
 | Store | SQLite: messages, jobs, sources, tasks, artifacts | Shared state |
 
@@ -86,7 +86,7 @@ flowchart TB
         A3 -.- N3>"duplicate: add source, then stop"]
         A4 -.- N4>"login wall: use the message text"]
         A6 -.- N6>"mismatch: Hidden · scam: flagged"]
-        A7 -.- N7>"high score: Telegram alert"]
+        A7 -.- N7>"high score: email alert"]
     end
 
     subgraph FB["Flow B · resume generation"]
@@ -94,7 +94,7 @@ flowchart TB
         B0a["Score ≥ auto_resume_above"] --> B2
         B0b["User sets Shortlisted"] --> B1["Poller detects change<br/>(every 2 min)"] --> B2["Tailor from profile<br/>(only facts in profile.yaml)"]
         B2 --> B3["Render + compile LaTeX"] --> B4["Validate PDF<br/>(fails: retry once, then flag in Notion)"]
-        B4 --> B5["Save local + upload to Drive"] --> B6["Update Notion + ping<br/>(Drive link + form answers on the page)"]
+        B4 --> B5["Save local + upload to Drive"] --> B6["Update Notion + email<br/>(Drive link + form answers on the page)"]
     end
 
     A6 -. "score ≥ threshold" .-> B0a
@@ -185,7 +185,7 @@ The user profile lives in `profile.yaml`, not the database, so it can be edited 
 | Service | How | Auth | Limits to respect |
 |---|---|---|---|
 | Telegram (reading) | Telethon user client over MTProto | api_id + api_hash from my.telegram.org, session file | FloodWait errors; read-only, no auto-join |
-| Telegram (bot) | Bot API via python-telegram-bot | Bot token from BotFather | About 30 messages/second globally; plenty for alerts |
+| Email (notify + forwards) | SMTP (aiosmtplib, STARTTLS) to send; IMAP (imap-tools) to read one folder | Email address + app password | Provider send limits (Gmail about 500/day); alerts are batched, so a few dozen emails a day |
 | WhatsApp (experimental) | Node sidecar with whatsapp-web.js or Baileys, posts messages to JobRadar over local HTTP | QR login | Unofficial; ban risk; off by default |
 | LLM | LiteLLM — **Gemini (default) or Groq**; other providers (OpenAI, Claude, Ollama) remain possible through config | `GEMINI_API_KEY` or `GROQ_API_KEY` | Provider rate limits and free-tier quotas; cache by job id |
 | Notion | Official API (notion-client) | Internal integration token, database shared with it | About 3 requests/second; 2,000 characters per text item; 100 blocks per append |
@@ -196,8 +196,9 @@ The user profile lives in `profile.yaml`, not the database, so it can be edited 
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | Python 3.11+, asyncio | Best libraries for Telegram, scraping and LLMs |
-| Telegram | Telethon, python-telegram-bot | Mature, async |
+| Language | Python 3.11+, asyncio | Best libraries for Telegram, email, scraping and LLMs |
+| Telegram | Telethon | Mature, async user client |
+| Email | aiosmtplib, imap-tools | Works with any provider; no bot or app to install |
 | HTTP / browser | httpx, Playwright, trafilatura (main-text extraction) | Fast path plus a JavaScript fallback |
 | OCR | Tesseract via pytesseract (optional: vision LLM) | Free, offline |
 | LLM | LiteLLM + Pydantic schemas (instructor); Gemini / Groq by default | Any provider, validated JSON, cheap fast defaults |
@@ -267,12 +268,13 @@ flowchart LR
 
 ## Security and privacy
 
-- **Secrets** (API keys, tokens) only in `.env`, loaded by pydantic-settings; never logged; `.env.example` ships with placeholders.
+- **Secrets** (API keys, tokens, the email app password) only in `.env`, loaded by pydantic-settings; never logged; `.env.example` ships with placeholders.
 - **Telegram session file** gives full account access: stored in `./data` with permissions 600 and listed in `.gitignore`; docs warn never to share it.
 - **Personal data** (`profile.yaml`, PDFs) stays local except the resume PDF uploaded to the user's own Drive. Only job text and the profile fields needed for a task are sent to the LLM; a local Ollama model keeps everything on the machine.
 - **Resume links:** Drive files keep link-sharing off, so the Notion Resume link opens only for the signed-in owner.
 - **Untrusted input:** job pages and messages may contain prompt-injection text. They are passed to the LLM only as data inside delimiters, outputs are schema-validated, and the LLM has no tools or write access.
 - **LaTeX injection:** every inserted value is escaped; Tectonic runs with shell-escape disabled.
+- **Email:** use an app password, not the account password; JobRadar sends only to `NOTIFY_TO`, reads only one folder, and accepts forwards only from your own address with DKIM/SPF pass.
 - **Outbound requests:** fetcher blocks private IP ranges and `file://` URLs to avoid SSRF from malicious links.
 - **Repository hygiene:** gitleaks secret scanning in CI; Dependabot for dependency updates.
 
@@ -282,10 +284,10 @@ Four extension points, each a small Python interface registered by entry points 
 
 | Extension point | Interface | Built-in implementations | Examples contributors could add |
 |---|---|---|---|
-| Source | `async def run(emit)` | telegram, bot_forward, whatsapp (experimental) | email inbox, RSS, Discord |
+| Source | `async def run(emit)` | telegram, email_forward, whatsapp (experimental) | job-alert emails (LinkedIn, Naukri), RSS, Discord |
 | Site adapter | `match(url)`, `extract(page)` | generic, google_forms | Greenhouse, Lever, Workday public pages |
 | Storage | `save(pdf) -> ref` | local, gdrive | Dropbox, S3 |
-| Sink | `upsert(job)`, `poll_changes()` | notion, telegram_bot | Google Sheets, Airtable |
+| Sink | `upsert(job)`, `poll_changes()` | notion, email_notify | Telegram bot, Slack, Google Sheets, Airtable |
 
 LLM providers are pluggable through LiteLLM config, and resume templates are plain `.tex.j2` files in `templates/`.
 
@@ -296,6 +298,8 @@ LLM providers are pluggable through LiteLLM config, and resume templates are pla
 | License | MIT | AGPL-3.0 | Maximum adoption and contribution |
 | Dashboard | Notion database | Custom React app, Streamlit | No frontend to build or host; duplicable template; works on phone |
 | Telegram reading | User client (Telethon) | Bot API | Bots cannot read channels unless they are admins |
+| Notifications | Email (SMTP) | Telegram bot | Every user already has email; no bot to create; digests read better as email and stay searchable; one less Telegram integration to secure |
+| Manual job adds | Forward to an email folder (IMAP) | Forward to a Telegram bot | Same channel as notifications; works for jobs found anywhere, not just Telegram |
 | Queue | SQLite task table | Redis + Celery | One user, one process; no extra service to run |
 | Source of truth | SQLite, Notion as projection | Notion only | Notion is slow and rate-limited; local DB keeps dedupe fast and offline-safe |
 | Resume trigger | Score ≥ `auto_resume_above`, or Status = Shortlisted | Shortlisted only; generate for every job | Strong matches are ready immediately; threshold keeps LLM cost and Drive clutter bounded |

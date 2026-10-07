@@ -1,5 +1,5 @@
 [project]
-name = "jobradar"  # PyPI distribution name still open: `job-radar` is taken (see PLAN.md, Week 0)
+name = "jobradar-agent"  # PyPI name; the CLI command and import package stay `jobradar`
 version = "0.0.1"
 description = "Self-hosted agent that turns job channels into a ranked Notion inbox with tailored resumes."
 readme = "README.md"

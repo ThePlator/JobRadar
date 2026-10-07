@@ -20,7 +20,7 @@ JobRadar fixes that:
 - **Scams flagged.** Registration fees, personal-email-only HR and unrealistic pay raise a Scam Risk flag that is never hidden.
 - **Tailored resumes, automatically.** Jobs scoring at or above your threshold get a one-page PDF built only from facts in your profile. A validator blocks any skill you don't have.
 - **Apply in under 5 minutes.** Form answers are pre-written as copyable blocks on each Notion page, plus a cover letter on request.
-- **Alerts that matter.** Telegram pings for top matches and closing deadlines, plus a morning and evening digest.
+- **Alerts that matter.** An email for top matches and closing deadlines, plus a morning and evening digest email.
 
 ## How it works
 
@@ -28,7 +28,7 @@ JobRadar fixes that:
 flowchart LR
     subgraph Sources
         TG["Telegram channels<br/>and groups"]
-        BOT["Forwards to<br/>your bot"]
+        BOT["Jobs you forward<br/>by email"]
         WA["WhatsApp<br/>(experimental)"]
     end
 
@@ -42,7 +42,7 @@ flowchart LR
     subgraph You["Your dashboard"]
         N["Notion database"]
         D["Google Drive PDFs"]
-        A["Telegram alerts"]
+        A["Email alerts<br/>+ digest"]
     end
 
     Sources --> P
@@ -83,11 +83,13 @@ Anything you write outside the agent-owned "JobRadar" toggle on a page is never 
 
 > These steps describe the v1.0 setup and will work once the first release ships.
 
-**You need:** Docker, a Telegram account, a Notion account, a Google account (for Drive), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key.
+**You need:** Docker, a Telegram account, a Notion account, a Google account (for Drive and email), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key.
 
 ```bash
 git clone https://github.com/<owner>/jobradar.git
 ```
+
+(After v1.0 the CLI will also be on PyPI as `jobradar-agent`.)
 
 ```bash
 cd jobradar && cp .env.example .env && cp config.example.yaml config/config.yaml && cp profile.example.yaml config/profile.yaml
@@ -116,8 +118,8 @@ JobRadar uses three files. All are validated at start-up, and a bad value stops 
 | Variable | Where to get it |
 |---|---|
 | `TG_API_ID`, `TG_API_HASH` | [my.telegram.org](https://my.telegram.org) → API development tools |
-| `TG_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
-| `TG_OWNER_CHAT_ID` | Your own Telegram user id (alerts go only here) |
+| `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` | Your email and an app password ([Gmail](https://myaccount.google.com/apppasswords)); used to send alerts and read forwarded jobs |
+| `NOTIFY_TO` | Where alerts and digests go (defaults to `EMAIL_ADDRESS`) |
 | `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your duplicated database |
 | `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console |
 | `GDRIVE_FOLDER_ID` | The Drive folder that will hold your resumes |
@@ -143,7 +145,7 @@ filters:
 
 scoring:
   hide_below: 40          # below this → Hidden
-  alert_above: 85         # at or above → Telegram alert
+  alert_above: 85         # at or above → email alert
   auto_resume_above: 85   # at or above → resume built automatically (null = only on Shortlisted)
 ```
 
@@ -166,11 +168,12 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 | `jobradar doctor` | Check keys, Tectonic, Playwright, Notion properties, Drive access |
 | `jobradar stats [--days 7]` | Jobs seen, unique, hidden, shortlisted, applied, LLM spend |
 
-You can also send `/add <url>`, `/status`, `/pause` and `/resume` to your JobRadar bot, or forward any job message to it.
+You can also add jobs by forwarding any email, message text or link to your JobRadar mail folder (for Gmail: a `JobRadar` label with a filter).
 
 ## Privacy and safety
 
 - **Runs on your machine.** Your profile, keys, Telegram session and PDFs stay local. Resumes are uploaded only to your own Google Drive, with link-sharing off.
+- **Email stays narrow.** JobRadar uses an app password, emails only you, reads only its own folder, and accepts forwards only from your address.
 - **Minimal LLM exposure.** Only job text and the profile fields a task needs are sent to the provider you choose.
 - **Read-only on Telegram.** JobRadar reads with your account but never sends messages, joins groups or messages recruiters.
 - **You submit every application.** No auto-apply and no scraping behind logins.
@@ -190,7 +193,7 @@ With Gemini Flash or a Groq-hosted model for extraction, the target is under ₹
 | **v0.1 Ingest (MVP)** | Telegram listener, link extraction, dedupe, SQLite, one Notion row per job | 3 days of real channels with under 5% duplicates |
 | **v0.2 Understand and score** | Page fetching, LLM extraction, hard filters, match score, scam flags | Over 90% extraction accuracy on 100 labelled jobs |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, Tectonic, validator, Drive upload, auto + Shortlisted triggers | One-page PDF and zero unknown skills across 50 jobs |
-| **v0.4 Apply kit and alerts** | Form answers, cover letter, Telegram alerts, daily digest | Shortlisted job to submitted form in under 5 minutes |
+| **v0.4 Apply kit and alerts** | Form answers, cover letter, email alerts and digest, forward-to-add | Shortlisted job to submitted form in under 5 minutes |
 | **v1.0 Public launch** | Docker image, Notion template, docs, CI; WhatsApp as experimental | New user running in under 15 minutes |
 
 ## Documentation
@@ -201,7 +204,7 @@ With Gemini Flash or a Groq-hosted model for extraction, the target is under ₹
 
 ## Tech stack
 
-Python 3.11+ (asyncio) · Telethon · python-telegram-bot · httpx · Playwright · trafilatura · Tesseract · LiteLLM + instructor · Jinja2 · Tectonic · SQLite + SQLModel · Notion API · Google Drive API · Docker · uv
+Python 3.11+ (asyncio) · Telethon · aiosmtplib + imap-tools · httpx · Playwright · trafilatura · Tesseract · LiteLLM + instructor · Jinja2 · Tectonic · SQLite + SQLModel · Notion API · Google Drive API · Docker · uv
 
 ## Contributing
 
@@ -209,10 +212,10 @@ JobRadar is built to be extended without touching the core. Four plugin points a
 
 | Extension point | Built in | Ideas |
 |---|---|---|
-| `jobradar.sources` | telegram, bot_forward, whatsapp | Email inbox, RSS, Discord |
+| `jobradar.sources` | telegram, email_forward, whatsapp | Job-alert emails, RSS, Discord |
 | `jobradar.site_adapters` | generic, google_forms | Greenhouse, Lever, Workday public pages |
 | `jobradar.storage` | local, gdrive | Dropbox, S3 |
-| `jobradar.sinks` | notion, telegram_bot | Google Sheets, Airtable |
+| `jobradar.sinks` | notion, email_notify | Telegram bot, Slack, Google Sheets |
 
 Resume templates are plain `.tex.j2` files in `templates/`. CI runs ruff, mypy, pytest, a compile check on every template, gitleaks and a Docker build.
 

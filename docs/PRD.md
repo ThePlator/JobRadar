@@ -52,13 +52,13 @@ JobRadar is an open-source, self-hosted agent that watches job channels, extract
 | US-05 | job seeker | have mismatches (wrong batch, degree, location) and likely scams hidden | my inbox stays clean | P1 |
 | US-06 | job seeker | get a tailored resume automatically for strong matches, and on demand when I set a job to Shortlisted | the best jobs are ready to apply to without waiting, and I can still pick any job by hand | P0 |
 | US-07 | job seeker | copy pre-written answers for each form field from the job page | filling the form takes minutes | P1 |
-| US-08 | job seeker | get a Telegram alert only for top matches and closing deadlines, plus a daily digest | I hear about what matters without noise | P1 |
+| US-08 | job seeker | get an email alert only for top matches and closing deadlines, plus a morning and evening digest email | I hear about what matters without noise | P1 |
 | US-09 | job seeker | store each resume locally and in Google Drive, linked from Notion | I have a record of what I sent and can open it from my phone | P1 |
 | US-10 | job seeker | track status from New to Offer | I know where every application stands | P0 |
 | US-11 | self-hoster | choose my LLM provider (Gemini or Groq by default) | I control cost and privacy | P1 |
 | US-12 | self-hoster | start everything with one Docker command | setup takes under 15 minutes | P1 |
 | US-13 | job seeker | optionally include WhatsApp groups (experimental) | jobs posted only on WhatsApp are also captured | P2 |
-| US-14 | job seeker | forward a single message or link to the bot manually | I can add jobs from sources the agent does not watch | P1 |
+| US-14 | job seeker | forward a job email, message or link to JobRadar by email | I can add jobs from sources the agent does not watch | P1 |
 
 ## Functional requirements
 
@@ -66,7 +66,7 @@ JobRadar is an open-source, self-hosted agent that watches job channels, extract
 
 - **FR-1.1** Read new messages from configured Telegram channels and groups using the user's own account (MTProto client), in real time.
 - **FR-1.2** Backfill the last N days (configurable, default 3) on first run.
-- **FR-1.3** Accept jobs forwarded manually to the JobRadar bot (text, link, image).
+- **FR-1.3** Accept jobs the user forwards by email to a dedicated mail folder (text, link, image attachment), only from the user's own address.
 - **FR-1.4** WhatsApp source, off by default and labelled experimental.
 
 ### FR-2 Extraction and dedupe
@@ -109,8 +109,8 @@ JobRadar is an open-source, self-hosted agent that watches job channels, extract
 
 ### FR-8 Notifications
 
-- **FR-8.1** Telegram alert for jobs above the alert score, and for shortlisted jobs closing within 24 hours.
-- **FR-8.2** Morning and evening digest with counts and a link to the Notion view.
+- **FR-8.1** Email alert for jobs above the alert score, and for shortlisted jobs closing within 24 hours; alerts arriving close together are batched into one email.
+- **FR-8.2** Morning and evening digest email with counts and a link to the Notion view.
 
 ## Non-functional requirements
 
@@ -183,7 +183,7 @@ flowchart TB
     R1["<b>v0.1 Ingest (MVP) · weeks 1–2</b><br/>Telegram listener, link extraction, dedupe, SQLite, one Notion row per job<br/><i>Exit: 3 days of real channels in Notion with under 5% duplicates</i>"]
     R2["<b>v0.2 Understand and score · weeks 3–4</b><br/>Page fetching, LLM extraction to JSON, hard filters, match score, scam flags<br/><i>Exit: over 90% extraction accuracy on 100 labelled jobs</i>"]
     R3["<b>v0.3 Resume · weeks 5–6</b><br/>profile.yaml, LaTeX templates, Tectonic compile, validator, Drive upload, auto-threshold + Shortlisted triggers<br/><i>Exit: one-page PDF and zero unknown skills across 50 jobs</i>"]
-    R4["<b>v0.4 Apply kit and alerts · week 7</b><br/>Form-answer drafts, cover letter, Telegram alerts for top matches, daily digest<br/><i>Exit: shortlisted job to submitted form in under 5 minutes</i>"]
+    R4["<b>v0.4 Apply kit and alerts · week 7</b><br/>Form-answer drafts, cover letter, email alerts for top matches, digest emails, forward-to-add<br/><i>Exit: shortlisted job to submitted form in under 5 minutes</i>"]
     R5["<b>v1.0 Public open-source launch · week 8</b><br/>Docker image, Notion template, docs, CI, MIT license; WhatsApp source as experimental<br/><i>Exit: a new user is running it in under 15 minutes</i>"]
     R1 --> R2 --> R3 --> R4 --> R5
     style R1 fill:#e3eefc,stroke:#3b82f6
@@ -195,8 +195,10 @@ v0.1 is useful on its own: it solves the "too many groups to watch" problem befo
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| WhatsApp has no official API for reading groups or channels; unofficial clients break its terms | User's number can be banned | Off by default, marked experimental, recommend a spare number; manual forward to the bot as the safe path |
+| WhatsApp has no official API for reading groups or channels; unofficial clients break its terms | User's number can be banned | Off by default, marked experimental, recommend a spare number; manual forward by email as the safe path |
 | Telegram account restriction | Loss of the user's main account | Read-only use, no auto-join or messaging, respect flood waits |
+| Alert emails land in spam or flood the inbox | Missed top matches | Send from the user's own account to themselves; batch alerts; `List-Id` header for a filter/label |
+| Email app password leaks | Mailbox access | App password only in `.env`; revocable per app; JobRadar reads one folder and never deletes mail |
 | Job sites change layout or block scraping | Missing details | Fall back to message text; generic extractor first, site adapters second |
 | LLM invents resume content | User sends false claims | Profile-only generation + validator that rejects unknown skills; user reviews every PDF |
 | LLM cost grows with volume (auto-generated resumes add to it) | Users stop running it | Cheap model for extraction; resumes only above the auto threshold or on Shortlisted; daily budget cap; cache by job ID |
@@ -215,10 +217,10 @@ v0.1 is useful on its own: it solves the "too many groups to watch" problem befo
 | Default LLM | **Gemini** (default) or **Groq** via LiteLLM — Gemini Flash for extraction and scoring, a stronger Gemini model for resumes and answers |
 | Resume trigger | **Auto-generate at or above `auto_resume_above`** (default 85); Shortlisted still triggers a build for jobs below it |
 | Resume in Notion | **Online link** (Google Drive `webViewLink`), not a file attachment |
-| Project name | **JobRadar** |
+| Project name | **JobRadar**; PyPI package **`jobradar-agent`** (CLI and import stay `jobradar`) |
+| Notifications | **Email** (SMTP) instead of a Telegram bot; manual adds by forwarding to an email folder. Telegram remains the job source |
 
 ### Still open
 
 - **Local model:** which Ollama model to recommend for free/private mode, or drop local mode from v1.
-- **PyPI distribution name:** `job-radar` is taken by an unrelated project, so `jobradar` will likely be rejected as too similar. Candidates: `jobradar-agent`, `jobradar-ai` (import name stays `jobradar`).
 - **Drive opt-out:** with link-only resumes, a user who disables Drive gets no openable Resume link in Notion. Either require Drive for resumes or document the limitation.

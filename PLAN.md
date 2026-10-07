@@ -33,9 +33,9 @@ gantt
     Drive upload + triggers          :c3, after c2, 5d
     Gate · 50 jobs, 0 unknown skills  :milestone, g3, after c3, 0d
 
-    section v0.4 Kit + alerts
+    section v0.4 Kit + email
     Form answers + cover letter      :d1, after c3, 4d
-    Telegram alerts + digest         :d2, after d1, 3d
+    Email alerts, digest, forwards   :d2, after d1, 3d
     Gate · apply in under 5 min       :milestone, g4, after d2, 0d
 
     section v1.0 Launch
@@ -58,7 +58,7 @@ flowchart LR
     SCORE --> NOTION
     SCORE --> RES[resume/*] --> GD[storage/gdrive] --> NOTION
     SCORE --> KIT[kit/answers] --> NOTION
-    SCORE --> BOT[sinks/telegram_bot]
+    SCORE --> MAIL[sinks/email_notify]
     NOTION -- poll --> RES
 ```
 
@@ -70,7 +70,8 @@ Build bottom-up: config → DB → queue first, because every later module is a 
 
 **Open decisions to close first**
 
-- [ ] Pick the PyPI distribution name (`job-radar` is taken; candidates `jobradar-agent`, `jobradar-ai`). Import name stays `jobradar`.
+- [x] PyPI distribution name: `jobradar-agent` (`job-radar` is taken). CLI and import name stay `jobradar`.
+- [x] Notifications go by email (SMTP), not a Telegram bot; manual adds by forwarding to an email folder.
 - [ ] Recommend a local Ollama model, or drop local mode from v1.
 - [ ] Decide what happens when Drive is off: require it for resumes, or document an empty Resume link.
 - [ ] Create the GitHub repo and fill `<owner>` in the README clone URL.
@@ -107,7 +108,6 @@ Goal: every job from your channels lands in Notion once, without any AI.
 
 - [ ] `sources/base.py`: `IncomingMessage`, `Source` protocol, entry-point loader
 - [ ] `sources/telegram.py`: resolve chats → `source` rows; catch-up from `last_msg_id` / `backfill_days`; live `NewMessage` handler; URLs from entities and buttons; photo download when there's no URL; `FloodWaitError` sleep; session file `chmod 600`
-- [ ] `sources/bot_forward.py`: accept text, links and images forwarded by `TG_OWNER_CHAT_ID` only
 
 **Pipeline**
 
@@ -178,7 +178,7 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 - [ ] `resume/compile.py`: `tectonic --untrusted`, 60 s timeout; save `.log` on error; one retry with the plain template
 - [ ] `resume/validate.py`: pypdf page count; trim the lowest-ranked bullet and recompile up to 3 times
 - [ ] File naming `{company}_{role}_{yyyymmdd}_v{n}.pdf`
-- [ ] `storage/local.py`; `storage/gdrive.py`: OAuth installed-app flow, monthly folders, link-sharing off, `webViewLink` → `artifact.drive_url`; refresh failure → keep local + notify
+- [ ] `storage/local.py`; `storage/gdrive.py`: OAuth installed-app flow, monthly folders, link-sharing off, `webViewLink` → `artifact.drive_url`; refresh failure → keep local + email the owner
 - [ ] **Triggers:** in `score.py`, `score ≥ auto_resume_above` and `scam_risk != high` → `build_resume` + `build_kit`; `sinks/notion.py` read path polls every 2 min, and Shortlisted with no resume → `build_resume`
 - [ ] Notion: Resume = Drive link; the Status of auto-built jobs stays New
 - [ ] CLI: `resume <job-id> [--template]` (new version), `init` adds Google OAuth
@@ -194,16 +194,17 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 
 ---
 
-## v0.4 Apply kit and alerts — week 7
+## v0.4 Apply kit and email — week 7
 
 Goal: from a shortlisted job to a submitted form in under 5 minutes.
 
 - [ ] `prompts/kit.md`; `kit/answers.py`: exact matches from `profile.answers` / `basics` first; generated answers otherwise (under 120 words, `[FILL IN: …]` when a fact is missing)
 - [ ] Cover letter when the job asks for one or the Cover Letter checkbox is ticked (poller → `build_kit(cover_letter=true)`)
 - [ ] Notion body: one code block per form answer, the cover letter, "Seen in" with message links
-- [ ] `sinks/telegram_bot.py`: owner-only; alerts with role, company, score, deadline, reason, Notion link and resume link; shortlisted jobs closing within 24 h
-- [ ] Digest at 09:00 and 19:00 IST: new, top matches, auto-built resumes, closing in 48 h, budget status
-- [ ] Bot commands `/add`, `/status`, `/pause`, `/resume`
+- [ ] `sinks/email_notify.py`: SMTP + STARTTLS to `NOTIFY_TO` only; alerts with role, company, score, deadline, reason, Notion link and resume link; shortlisted jobs closing within 24 h; batch alerts within `alert_batch_minutes`; `List-Id` header
+- [ ] Digest email at 09:00 and 19:00 IST: new, top matches, auto-built resumes, closing in 48 h, failures, budget status
+- [ ] `sources/email_forward.py`: IMAP folder poll; accept only your own address with DKIM/SPF pass; body text, links and image attachments → `process_message`
+- [ ] Tests against a local SMTP/IMAP test server (e.g. aiosmtpd); `init` sends a test email
 - [ ] CLI `stats [--days]`, `doctor`
 
 **Exit gate:** timed run — open a shortlisted job, submit the real form, in under 5 minutes.
@@ -216,9 +217,9 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 - [ ] `docker-compose.yml`: `jobradar`, `browser`; profiles `whatsapp` and `ollama`; volumes `./data`, `./output`, `./config`
 - [ ] Publish the Notion template and link it from the README
 - [ ] `wa-bridge/` Node sidecar + `sources/whatsapp.py` (local HTTP), off by default, with a ban-risk warning
-- [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini key guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md`, `SECURITY.md`
+- [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini / email app-password guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md`, `SECURITY.md`
 - [ ] CI: Docker build, template compile, gitleaks, Dependabot
-- [ ] Release: tag `v1.0.0`, publish the image and the PyPI package (under the chosen name)
+- [ ] Release: tag `v1.0.0`, publish the image and the PyPI package `jobradar-agent`
 - [ ] Fresh-machine test: someone new follows the README cold
 
 **Exit gate:** a new user is running it in under 15 minutes.
@@ -240,6 +241,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 | Extraction accuracy stalls below 90% | Golden report after week 3 | Add site adapters; tune `extract.md`; try a stronger `extract_model` |
 | Gemini / Groq free-tier limits | 429s in logs | Raise budget, spread load, or switch provider in config |
 | Auto-resume volume too high | Digest shows many auto-builds | Raise `auto_resume_above` |
+| Alert emails go to spam | Test email not in inbox | Send from your own account to yourself; add a filter on `List-Id: jobradar` |
 | Tectonic cold start in Docker | Slow first compile, network errors | Pre-warm the package cache in the image |
 | Notion rate limits | 429s during backfill | Rely on the limiter; batch body appends |
 

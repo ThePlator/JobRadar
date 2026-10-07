@@ -5,7 +5,10 @@ sources:
     enabled: true
     chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]  # `jobradar chats` lists ids
     backfill_days: 3
-  bot_forward: { enabled: true }
+  email_forward:
+    enabled: true
+    folder: JobRadar      # forward jobs here (Gmail: a label + filter)
+    poll_minutes: 2
   whatsapp: { enabled: false, port: 8765 }   # experimental, unofficial client — ban risk
 
 llm:
@@ -25,7 +28,7 @@ filters:
 
 scoring:
   hide_below: 40          # below → Hidden
-  alert_above: 85         # at or above → Telegram alert
+  alert_above: 85         # at or above → email alert
   auto_resume_above: 85   # at or above → resume + kit built automatically; null = only on Shortlisted
 
 resume:
@@ -36,6 +39,13 @@ storage:
   local_dir: ./output
   gdrive: true            # Notion "Resume" is the Drive link; with false, Resume stays empty
 
+email:
+  smtp_host: smtp.gmail.com
+  smtp_port: 587         # STARTTLS
+  imap_host: imap.gmail.com
+
 notify:
+  alerts: true
+  alert_batch_minutes: 10 # alerts inside this window arrive as one email
   digest_times: ["09:00", "19:00"]
   timezone: Asia/Kolkata
