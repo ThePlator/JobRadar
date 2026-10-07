@@ -77,12 +77,12 @@ Build bottom-up: config → DB → queue first, because every later module is a 
 
 **Repo scaffolding**
 
-- [ ] `git init`, `.gitignore` (`.env`, `data/`, `output/`, `config/profile.yaml`, `*.session`)
-- [ ] `LICENSE` (MIT, with copyright holder)
-- [ ] `pyproject.toml` with uv: Python 3.11+, `src/jobradar` layout, `jobradar` console script (typer)
-- [ ] Dev tooling: ruff, mypy (strict on `src/`), pytest, pytest-asyncio, pre-commit
-- [ ] GitHub Actions skeleton: ruff, mypy, pytest, gitleaks
-- [ ] `.env.example`, `config.example.yaml`, `profile.example.yaml` copied from the LLD
+- [x] `git init`, `.gitignore` (`.env`, `data/`, `output/`, `config/profile.yaml`, `*.session`)
+- [x] `LICENSE` (MIT, with copyright holder)
+- [x] `pyproject.toml` with uv: Python 3.11+, `src/jobradar` layout, `jobradar` console script (typer)
+- [x] Dev tooling: ruff, mypy (strict on `src/`), pytest, pytest-asyncio, pre-commit
+- [x] GitHub Actions skeleton: ruff, mypy, pytest, gitleaks
+- [x] `.env.example`, `config.example.yaml`, `profile.example.yaml` copied from the LLD
 - [ ] Create a test Telegram channel and a test Notion workspace for manual runs
 
 **Done when:** `uv run jobradar --help` works and CI is green on an empty test suite.
