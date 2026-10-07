@@ -188,7 +188,7 @@ The user profile lives in `profile.yaml`, not the database, so it can be edited 
 | Email (notify + forwards) | SMTP (aiosmtplib, STARTTLS) to send; IMAP (imap-tools) to read one folder | Email address + app password | Provider send limits (Gmail about 500/day); alerts are batched, so a few dozen emails a day |
 | WhatsApp (experimental) | Node sidecar with whatsapp-web.js or Baileys, posts messages to JobRadar over local HTTP | QR login | Unofficial; ban risk; off by default |
 | LLM | LiteLLM — **Gemini (default) or Groq**; other providers (OpenAI, Claude, Ollama) remain possible through config | `GEMINI_API_KEY` or `GROQ_API_KEY` | Provider rate limits and free-tier quotas; cache by job id |
-| Notion | Official API (notion-client) | Internal integration token, database shared with it | About 3 requests/second; 2,000 characters per text item; 100 blocks per append |
+| Notion | Official API (notion-client), `Notion-Version: 2025-09-03` (data sources) | Internal integration token, database shared with it | About 3 requests/second; 2,000 characters per text item; 100 blocks per append |
 | Google Drive | Drive API v3 | OAuth desktop flow, token stored locally | Per-user quota, ample for PDFs |
 | Job websites | httpx, Playwright (Chromium) | None | 1 request/second per domain; obey robots.txt; skip login walls |
 

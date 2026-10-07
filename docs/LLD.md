@@ -68,8 +68,8 @@ TG_API_HASH=xxxxxxxx
 EMAIL_ADDRESS=you@gmail.com      # account JobRadar sends from and reads forwards from
 EMAIL_APP_PASSWORD=xxxxxxxx      # app password (Gmail: Google Account → Security → App passwords)
 NOTIFY_TO=you@gmail.com          # where alerts and digests go; defaults to EMAIL_ADDRESS
-NOTION_TOKEN=secret_xxx
-NOTION_DATABASE_ID=xxxxxxxx
+NOTION_TOKEN=ntn_xxx
+NOTION_DATABASE_ID=xxxxxxxx         # from the database URL; its data source is resolved at start-up
 GEMINI_API_KEY=xxxxxxxx          # default provider (Google AI Studio)
 GROQ_API_KEY=                    # set instead of / as well as Gemini to use Groq
 GDRIVE_FOLDER_ID=xxxxxxxx        # required for online resume links
@@ -718,9 +718,21 @@ CI compiles every template with `profile.example.yaml` and fails if any template
 
 ## Notion sync mapping
 
+**API version.** All calls send `Notion-Version: 2025-09-03`. In this version a database is a container of one or more *data sources*, and properties, queries and new pages belong to the data source, not the database. (Databases created in the Notion UI since late 2025 cannot be read with the older `2022-06-28` version.)
+
+**Start-up resolution.** `GET /v1/databases/{NOTION_DATABASE_ID}` → `data_sources`. Exactly one → use its id. More than one → stop and ask the user to set `NOTION_DATA_SOURCE_ID`. The resolved id is cached in SQLite and re-checked on each start. The schema check then runs `GET /v1/data_sources/{id}` and compares property names and types with the mapping below.
+
+| Operation | Endpoint (2025-09-03) |
+|---|---|
+| Read schema | `GET /v1/data_sources/{id}` |
+| Find by Job ID / poll changes | `POST /v1/data_sources/{id}/query` |
+| Create job page | `POST /v1/pages` with `parent: {"type": "data_source_id", "data_source_id": id}` |
+| Update properties | `PATCH /v1/pages/{page_id}` |
+| Replace body blocks | `GET/PATCH /v1/blocks/{id}/children`, `DELETE /v1/blocks/{id}` |
+
 ### Write path (`notion_upsert` task)
 
-1. If `job.notion_page_id` is null, query the database with filter Job ID equals `job.id` (guards against a lost id); create the page if none.
+1. If `job.notion_page_id` is null, query the data source with filter Job ID equals `job.id` (guards against a lost id); create the page if none.
 2. Otherwise `pages.update` properties only; page body is rebuilt only when `data_json` or artifacts changed.
 3. Body is replaced by deleting JobRadar-owned blocks (those under a "JobRadar" toggle) and appending new ones in batches of up to 100 blocks; the user's own notes outside the toggle are never touched.
 4. Long text is split into rich-text items of at most 2,000 characters.
@@ -758,7 +770,7 @@ sequenceDiagram
     participant Q as Task queue
 
     S->>P: every 2 min
-    P->>N: query pages, last_edited_time > last_poll − 1 min
+    P->>N: data_sources/{id}/query, last_edited_time > last_poll − 1 min
     N-->>P: changed pages
     loop each page
         P->>DB: compare Status / Cover Letter
@@ -772,7 +784,7 @@ sequenceDiagram
     end
 ```
 
-1. Query pages with `last_edited_time` after the previous poll time (minus 1 minute overlap).
+1. Query the data source for pages with `last_edited_time` after the previous poll time (minus 1 minute overlap).
 2. For each page, compare Status and Cover Letter with SQLite.
 3. Status → Shortlisted and no resume artifact → enqueue `build_resume` and `build_kit`. (Jobs at or above `auto_resume_above` already have one.)
 4. Cover Letter newly checked → enqueue `build_kit` with `cover_letter=true`.
@@ -864,7 +876,8 @@ Default backoff: attempt *n* waits `min(30 s × 4^(n−1), 1 h)` with ±20% jitt
 | Tectonic compile error | `compile.py` | Save `.log`, retry once with plain template; then `failed` |
 | PDF over page limit | `validate.py` | Trim and recompile up to 3 times |
 | Notion page deleted by user | notion sync | Clear `notion_page_id`; do not recreate unless job changes |
-| Notion schema mismatch (missing property) | start-up check | Stop with a message naming the missing property |
+| Notion schema mismatch (missing property or wrong type) | start-up check | Stop with a message naming the property and the expected type |
+| Notion database has several data sources | start-up check | Stop and ask for `NOTION_DATA_SOURCE_ID` |
 | Drive token expired | `gdrive.py` | Refresh; if refresh fails, keep PDF local, leave Resume empty, and email the owner |
 | SMTP / IMAP auth failure | `email_notify.py`, `email_forward.py` | No retry storm: mark the task failed, log once, report in `jobradar doctor` and the next successful digest |
 | Process crash | worker | On restart, tasks in `running` older than 10 min return to `pending` |
