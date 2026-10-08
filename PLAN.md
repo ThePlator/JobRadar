@@ -219,7 +219,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 - [ ] `docker-compose.yml`: `jobradar`, `browser`; profile `whatsapp`; volumes `./data`, `./output`, `./config`
 - [ ] Publish the Notion template and link it from the README
 - [ ] `wa-bridge/` Node sidecar + `sources/whatsapp.py` (local HTTP), off by default, with a ban-risk warning
-- [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini / email app-password guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md`, `SECURITY.md`
+- [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini / email app-password guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md` (`SECURITY.md` done)
 - [ ] CI: Docker build, template compile, gitleaks, Dependabot
 - [ ] Release: tag `v1.0.0`, publish the image and the PyPI package `jobradar-agent`
 - [ ] Fresh-machine test: someone new follows the README cold
