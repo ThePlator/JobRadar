@@ -141,6 +141,19 @@ class Task(SQLModel, table=True):
     last_error: str | None = None
 
 
+class FetchedPage(SQLModel, table=True):
+    """Main text of a job's page, kept between the fetch and extract tasks."""
+
+    __tablename__ = "fetched_page"
+
+    job_id: str = Field(foreign_key="job.id", primary_key=True)
+    final_url: str | None = None
+    title: str | None = None
+    text: str | None = None  # None: login wall, blocked, or not HTML; use the post text
+    note: str | None = None  # why there is no text
+    fetched_at: str
+
+
 class LLMCache(SQLModel, table=True):
     __tablename__ = "llm_cache"
 

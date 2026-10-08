@@ -171,6 +171,34 @@ def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> Non
 
 
 @app.command()
+def extract(
+    missing: Annotated[
+        bool, typer.Option("--missing", help="Queue every listed job that has not been read yet.")
+    ] = False,
+) -> None:
+    """Queue page fetch + LLM extraction for jobs listed before extraction existed."""
+    from jobradar import app as application
+    from jobradar.pipeline.task_types import FETCH
+
+    if not missing:
+        _fail("Nothing to do: pass --missing to read the jobs that were only listed.")
+    settings = _settings()
+    if not application.extraction_enabled(settings):
+        _fail("Add your LLM key to .env first: " + ", ".join(settings.missing("llm")))
+    repo, queue = application.open_store()
+    jobs = repo.jobs_missing_extraction()
+    for job_id in jobs:
+        queue.enqueue(FETCH, job_id)
+    limits = settings.config.llm
+    minutes = len(jobs) / limits.requests_per_minute
+    typer.echo(
+        f"Queued {len(jobs)} job(s). `jobradar run` works through them at about "
+        f"{limits.requests_per_minute:g} per minute (~{minutes:.0f} min), within the "
+        f"₹{limits.daily_budget_inr:g}/day budget."
+    )
+
+
+@app.command()
 def resume(
     job_id: Annotated[str, typer.Argument(help="Job ID from Notion.")],
     template: Annotated[str | None, typer.Option(help="Template name, e.g. modern.")] = None,

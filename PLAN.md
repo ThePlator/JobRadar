@@ -119,7 +119,7 @@ Goal: every job from your channels lands in Notion once, without any AI.
 
 - [x] `sinks/notion.py` write path: find by Job ID, create/update, token bucket at 2.5 req/s, honour 429 `Retry-After`, 2,000-character splitting, agent-owned toggle in the page body
 - [x] Start-up Notion schema check that names any missing property
-- [ ] Build the Notion template database: all properties done; the 5 views (Inbox, Top matches, Closing soon, Board, Applied) still to add
+- [x] Build the Notion template database with all properties and the 5 views
 
 **CLI:** `init` (config copy + Telegram login + Notion check), `run`, `chats`, `add <url>`, `retry --failed`
 
@@ -139,21 +139,23 @@ Goal: every row has structured details and a trustworthy match score.
 
 **Fetching**
 
-- [ ] `pipeline/fetch.py`: httpx with 15 s timeout, 1 req/s per-domain semaphore, trafilatura; Playwright fallback under 400 characters; login-wall detection → `None`; SSRF guard (block private, loopback and link-local IPs and `file://`)
-- [ ] `pipeline/adapters/generic.py` and `google_forms.py` (parse `FB_PUBLIC_LOAD_DATA_` into `FormField`s)
-- [ ] `pipeline/ocr.py`: Tesseract for poster images when there's no link
+- [x] `pipeline/fetch.py`: httpx with 15 s timeout, 1 req/s per-domain semaphore, trafilatura; Playwright fallback under 400 characters; login-wall detection → `None`; SSRF guard (block private, loopback and link-local IPs and `file://`)
+- [ ] (part C) `pipeline/adapters/generic.py` and `google_forms.py` (parse `FB_PUBLIC_LOAD_DATA_` into `FormField`s)
+- [ ] (part C) `pipeline/ocr.py`: Tesseract for poster images when there's no link
 
 **LLM layer**
 
-- [ ] `llm.py`: LiteLLM + instructor `structured()`; Gemini default, Groq alternative; cache key `sha1(model|prompt_version|input)`; cost logged to `llm_cache.cost_inr`; daily budget pause until midnight IST; one repair retry on schema errors
-- [ ] `prompts/extract.md`, `prompts/score.md` with `version:` headers; untrusted text inside tags
+- [x] `llm.py`: LiteLLM `structured()` with our own JSON validation + one repair (no instructor dependency); Gemini default, Groq alternative; cache key `sha1(model|prompt_version|input)`; cost logged to `llm_cache.cost_inr`; daily budget pause until midnight IST; one repair retry on schema errors
+- [x] `prompts/extract.md` with a `version:` header; untrusted text inside tags
+- [ ] (part B) `prompts/score.md`
 
 **Understanding and matching**
 
-- [ ] `pipeline/extract.py`: page text (12k-character cap) + message + OCR → `JobPosting`; `confidence < 0.4` with no company or role → `discarded`; schema failure → `needs_review`
-- [ ] Fingerprint dedupe after extraction (30-day window)
-- [ ] `pipeline/score.py`: hard filters → `hidden` with reason; scam points (fee +3, gmail-only +1, unrealistic pay +1, urgency +1); LLM `ScoreResult`; route `hidden` / `new` / `notify_alert`
-- [ ] Notion: fill Match Score, Scam Risk, Skills, Experience, Salary, Deadline, Work Mode, plus the match reason and requirements in the page body
+- [x] `pipeline/extract.py`: page text (12k-character cap) + message + OCR → `JobPosting`; `confidence < 0.4` with no company or role → `discarded`; schema failure → `needs_review`
+- [ ] (part C) Fingerprint dedupe after extraction (30-day window)
+- [ ] (part B) `pipeline/score.py`: hard filters → `hidden` with reason; scam points (fee +3, gmail-only +1, unrealistic pay +1, urgency +1); LLM `ScoreResult`; route `hidden` / `new` / `notify_alert`
+- [x] Notion: fill Company, Location, Skills, Experience, Salary, Deadline, Work Mode and the details body
+- [ ] (part B) Notion: Match Score, Scam Risk and the match reason
 
 **Tests**
 

@@ -12,12 +12,13 @@ sources:
   whatsapp: { enabled: false, port: 8765 }   # experimental, unofficial client — ban risk
 
 llm:
-  extract_model: "gemini/gemini-flash-latest"     # extraction + scoring
+  extract_model: "gemini/gemini-flash-lite-latest"  # extraction + scoring (cheap, fast)
   writer_model: "gemini/gemini-pro-latest"        # resumes + form answers
   # Groq alternative:
   # extract_model: "groq/llama-3.1-8b-instant"
   # writer_model:  "groq/llama-3.3-70b-versatile"
-  daily_budget_inr: 15
+  daily_budget_inr: 15      # estimated at list prices; LLM work pauses until midnight when hit
+  requests_per_minute: 10   # stay under your key's rate limit
 
 filters:
   batch_years: [2025, 2026]

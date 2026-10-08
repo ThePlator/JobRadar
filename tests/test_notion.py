@@ -194,3 +194,69 @@ async def test_hidden_job_without_page_is_not_created(
     await sink.upsert(repo, "ad")
     assert not create.called
     await sink.aclose()
+
+
+POSTING = {
+    "company": "Acme", "role": "SDE Intern", "locations": ["Bengaluru", "Pune"],
+    "work_mode": "hybrid", "experience_min": 0, "experience_max": 1,
+    "skills_required": ["Python", "SQL, NoSQL"] + [f"S{i}" for i in range(12)],
+    "salary_text": "₹30,000/month", "deadline": "2026-10-30",
+    "apply_url": "https://acme.com/apply/1", "batch_years": [2026], "degrees": ["B.Tech"],
+    "summary": "Paid internship.", "confidence": 0.9,
+}  # fmt: skip
+
+
+def extracted_job(**kw: Any) -> Job:
+    return job(company="Acme", role="SDE Intern", status="extracted",
+               data_json=json.dumps(POSTING), **kw)  # fmt: skip
+
+
+def test_properties_from_extraction() -> None:
+    props = build_properties(extracted_job(), [], new_page=False)
+    assert props["Role"]["title"][0]["text"]["content"] == "SDE Intern @ Acme"
+    assert props["Location"]["rich_text"][0]["text"]["content"] == "Bengaluru, Pune"
+    assert props["Work Mode"] == {"select": {"name": "Hybrid"}}
+    assert props["Experience"]["rich_text"][0]["text"]["content"] == "0-1 years"
+    skills = [s["name"] for s in props["Skills"]["multi_select"]]
+    assert skills[:2] == ["Python", "SQL  NoSQL"] and len(skills) == 10  # no commas, max 10
+    assert props["Deadline"] == {"date": {"start": "2026-10-30"}}
+    assert props["Apply Link"] == {"url": "https://acme.com/apply/1"}
+    assert "Status" not in props
+
+
+def test_not_a_job_is_hidden_on_update() -> None:
+    props = build_properties(job(status="discarded"), [], new_page=False)
+    assert props["Status"] == {"select": {"name": "Hidden"}}
+
+
+async def test_rebuild_body_replaces_only_the_agent_toggle(
+    mock_api: respx.MockRouter, repo: Repo
+) -> None:
+    repo.get_or_create_job("abc", "https://acme.com/j/1")
+    repo.save_extraction("abc", json.dumps(POSTING), "Acme", "SDE Intern", "2026-10-30",
+                         "extract-v1", JobStatus.EXTRACTED)  # fmt: skip
+    repo.set_notion_page("abc", "page-1")
+    mock_api.get("/blocks/page-1/children").respond(json={"results": [
+        {"id": "agent", "type": "toggle", "toggle": {"rich_text": [{"plain_text": "JobRadar"}]}},
+        {"id": "mine", "type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "my note"}]}},
+    ], "has_more": False})  # fmt: skip
+    deleted = mock_api.delete("/blocks/agent").respond(json={})
+    appended = mock_api.patch("/blocks/page-1/children").respond(json={})
+    sink = await notion.connect(settings(), http=http())
+
+    await sink.rebuild_body(repo, "abc")
+
+    assert deleted.called  # the user's "my note" block is never touched (unmocked = error)
+    body = json.loads(appended.calls[0].request.content)["children"][0]
+    texts = [b[b["type"]]["rich_text"][0]["text"]["content"] for b in body["toggle"]["children"]]
+    assert texts[0] == "Paid internship."
+    assert "Eligibility" in texts and "Batch: 2026" in texts and "Apply by: 2026-10-30" in texts
+    await sink.aclose()
+
+
+async def test_body_waits_for_the_page(mock_api: respx.MockRouter, repo: Repo) -> None:
+    repo.get_or_create_job("abc", "https://acme.com/j/1")
+    sink = await notion.connect(settings(), http=http())
+    with pytest.raises(RetryableError, match="not created yet"):
+        await sink.rebuild_body(repo, "abc")
+    await sink.aclose()

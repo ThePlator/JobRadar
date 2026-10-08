@@ -26,7 +26,13 @@ dependencies = [
     "sqlmodel>=0.0.22",
     "telethon>=1.36",
     "httpx>=0.27",
+    "litellm>=1.50",
+    "trafilatura>=1.12",
 ]
+
+[project.optional-dependencies]
+# Renders JavaScript-only job pages. After installing: `uv run playwright install chromium`.
+browser = ["playwright>=1.45"]
 
 [project.scripts]
 jobradar = "jobradar.__main__:app"
@@ -65,7 +71,7 @@ extend-exclude = ["docs"]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "ASYNC", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S311", "ASYNC109", "ASYNC110"]
+"tests/**" = ["S101", "S311", "ASYNC109", "ASYNC110", "E501"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -79,5 +85,5 @@ asyncio_mode = "auto"
 addopts = "-ra"
 
 [[tool.mypy.overrides]]
-module = ["telethon", "telethon.*"]
+module = ["telethon", "telethon.*", "playwright", "playwright.*"]
 ignore_missing_imports = true

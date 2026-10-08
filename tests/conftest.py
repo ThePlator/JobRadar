@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine
 
+from jobradar.config import Secrets
 from jobradar.db.repo import Repo, init_db, make_engine
 from jobradar.queue.tasks import TaskQueue
 
@@ -43,3 +44,11 @@ def queue(repo: Repo, clock: FakeClock) -> TaskQueue:
     import random
 
     return TaskQueue(repo, clock=clock, rng=random.Random(0))
+
+
+@pytest.fixture(autouse=True)
+def no_real_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests must never pick up the developer's .env or exported API keys."""
+    monkeypatch.setitem(Secrets.model_config, "env_file", None)
+    for name in Secrets.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)

@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 import httpx
 import respx
 
-from jobradar.app import build_worker
 from jobradar.config import AppConfig, Secrets, Settings
 from jobradar.db.models import Platform, TaskStatus
 from jobradar.db.repo import Repo
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.queue.tasks import TaskQueue
+from jobradar.queue.worker import Worker
 from jobradar.sinks import notion
 from jobradar.sinks.notion import SCHEMA
 from jobradar.sources.base import IncomingMessage
@@ -46,7 +46,11 @@ async def test_two_groups_one_notion_page(repo: Repo, queue: TaskQueue) -> None:
         update = api.patch("/pages/page-1").respond(json={"id": "page-1"})
 
         sink = await notion.connect(settings, http=httpx.AsyncClient(base_url=API))
-        worker = build_worker(Ingest(repo, queue), sink, repo, queue)
+        ingest = Ingest(repo, queue)
+        worker = Worker(
+            queue,
+            {"process_message": ingest.process_message, "notion_upsert": sink.handler(repo)},
+        )
         worker.poll_interval = 0.01
         emit = make_emit(repo, queue, worker.wake)
         runner = asyncio.create_task(worker.run())

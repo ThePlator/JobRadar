@@ -540,6 +540,9 @@ stateDiagram-v2
 
 ### `pipeline/extract.py`
 
+*As built (v0.2 A):* `fetch` and `extract` are separate tasks; the page text is kept in a `fetched_page` table between them. A site that still fails on the 4th attempt is given up on and the post text is used. Extraction runs only when the LLM key is set; without it jobs are listed as in v0.1. `jobradar extract --missing` queues jobs that were listed before extraction existed. The default extraction model is `gemini/gemini-flash-lite-latest` (about ₹0.10 per job at list prices). The LLM layer validates JSON itself (lenient Pydantic schema plus one repair turn) instead of using instructor. After extraction, `notion_upsert` fills the properties and `notion_body` replaces the agent's toggle with summary, eligibility and skills.
+
+
 - Input: page text (trimmed to 12,000 characters) + original message text + OCR text.
 - Call `llm.structured(model=extract_model, schema=JobPosting, prompt="extract.md")`.
 - Cache key `sha1(model | prompt_version | input)`.
