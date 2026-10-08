@@ -62,9 +62,11 @@ class SourcesConfig(_Strict):
 
 
 class LLMConfig(_Strict):
-    extract_model: str = "gemini/gemini-flash-latest"
+    extract_model: str = "gemini/gemini-flash-lite-latest"
     writer_model: str = "gemini/gemini-pro-latest"
     daily_budget_inr: float = Field(default=15, gt=0)
+    requests_per_minute: float = Field(default=10, gt=0, le=1000)  # free Gemini tier: ~10-15
+    usd_to_inr: float = Field(default=88, gt=0)  # for the budget's cost estimate
 
     @field_validator("extract_model", "writer_model")
     @classmethod

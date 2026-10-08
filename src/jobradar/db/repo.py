@@ -19,7 +19,15 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # noqa: F401  (registers tables on SQLModel.metadata)
-from jobradar.db.models import Job, JobStatus, Platform, RawMessage, Source, TaskStatus
+from jobradar.db.models import (
+    FetchedPage,
+    Job,
+    JobStatus,
+    Platform,
+    RawMessage,
+    Source,
+    TaskStatus,
+)
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
 
@@ -426,6 +434,86 @@ class Repo:
         )
         with self._tx() as c:
             return c.execute(text(sql), params).first() is not None
+
+    # ---- fetch and extraction ---------------------------------------------------------------
+
+    def save_page(
+        self,
+        job_id: str,
+        final_url: str | None,
+        title: str | None,
+        text_: str | None,
+        note: str | None = None,
+    ) -> None:
+        with Session(self.engine) as s:
+            page = s.get(FetchedPage, job_id) or FetchedPage(job_id=job_id, fetched_at="")
+            page.final_url, page.title, page.text, page.note = final_url, title, text_, note
+            page.fetched_at = self._now()
+            s.add(page)
+            s.commit()
+
+    def get_page(self, job_id: str) -> FetchedPage | None:
+        with Session(self.engine) as s:
+            return s.get(FetchedPage, job_id)
+
+    def save_extraction(
+        self, job_id: str, data_json: str, company: str | None, role: str | None,
+        deadline: str | None, prompt_version: str, status: JobStatus,
+    ) -> None:  # fmt: skip
+        with self._tx() as c:
+            c.execute(
+                text(
+                    """
+                    UPDATE job SET data_json = :data, company = :company, role = :role,
+                        deadline = :deadline, prompt_version = :version, status = :status,
+                        updated_at = :now
+                    WHERE id = :id
+                    """
+                ),
+                {"id": job_id, "data": data_json, "company": company, "role": role,
+                 "deadline": deadline, "version": prompt_version, "status": status.value,
+                 "now": self._now()},
+            )  # fmt: skip
+
+    def jobs_missing_extraction(self) -> list[str]:
+        """Jobs that reached Notion before extraction existed (for `jobradar extract`)."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT id FROM job WHERE status = 'discovered' AND data_json IS NULL "
+                    "AND canonical_url IS NOT NULL ORDER BY created_at"
+                )
+            ).all()
+        return [str(r[0]) for r in rows]
+
+    # ---- LLM cache and spend ------------------------------------------------------------------
+
+    def llm_cache_get(self, key: str) -> str | None:
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT output FROM llm_cache WHERE key = :key"), {"key": key}
+            ).first()
+        return None if row is None else str(row[0])
+
+    def llm_cache_put(self, key: str, output: str, cost_inr: float) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "INSERT INTO llm_cache (key, output, cost_inr, created_at) "
+                    "VALUES (:key, :out, :cost, :now) ON CONFLICT (key) DO UPDATE SET "
+                    "output = excluded.output, cost_inr = llm_cache.cost_inr + excluded.cost_inr, "
+                    "created_at = excluded.created_at"
+                ),
+                {"key": key, "out": output, "cost": cost_inr, "now": self._now()},
+            )
+
+    def llm_spend_since(self, since: str) -> float:
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT coalesce(sum(cost_inr), 0) FROM llm_cache WHERE created_at >= :s"),
+                {"s": since},
+            ).one()
+        return float(row[0])
 
     # ---- reporting ----------------------------------------------------------------------------
 

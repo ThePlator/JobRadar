@@ -17,13 +17,13 @@ from jobradar.pipeline.promo import (
     PostContext,
     looks_like_promo,
 )
+from jobradar.pipeline.task_types import FETCH, NOTION_UPSERT, PROCESS_MESSAGE
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sources.base import Emit, IncomingMessage
 
 log = logging.getLogger(__name__)
 
-PROCESS_MESSAGE = "process_message"
-NOTION_UPSERT = "notion_upsert"
+__all__ = ["NOTION_UPSERT", "PROCESS_MESSAGE", "Ingest", "make_emit"]
 
 
 def make_emit(repo: Repo, queue: TaskQueue, on_enqueue: Callable[[], None] = lambda: None) -> Emit:
@@ -59,11 +59,13 @@ class Ingest:
         queue: TaskQueue,
         expand: Expander | None = None,
         deny: Iterable[str] = (),
+        extract: bool = False,
     ) -> None:
         self.repo = repo
         self.queue = queue
         self.expand = expand
         self.deny = tuple(deny)
+        self.extract = extract  # queue page fetch + LLM extraction for new jobs
 
     async def process_message(self, task: TaskRecord) -> None:
         raw = self.repo.get_raw_message(int(task.key))
@@ -93,6 +95,8 @@ class Ingest:
                 continue
             if created:
                 log.info("new job", extra={"job_id": job_id[:10], "url": url})
+                if self.extract:
+                    self.queue.enqueue(FETCH, job_id)
             elif seen_here_first:
                 log.info("duplicate job, added sighting", extra={"job_id": job_id[:10]})
             if created or seen_here_first:

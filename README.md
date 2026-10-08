@@ -163,6 +163,8 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 | `jobradar run` | Start sources, workers and scheduler (Docker default) |
 | `jobradar chats` | List Telegram chats you can read, with ids |
 | `jobradar add <url>` | Process one link manually |
+| `jobradar extract --missing` | Read (fetch + LLM) jobs listed before extraction was enabled |
+| `jobradar stats [--days 3]` | Posts, jobs, reposts merged, likely duplicates, hidden ads, failed tasks |
 | `jobradar resume <job-id> [--template modern]` | Rebuild a resume now |
 | `jobradar retry --failed` | Re-queue failed tasks |
 | `jobradar doctor` | Check keys, Tectonic, Playwright, Notion properties, Drive access |

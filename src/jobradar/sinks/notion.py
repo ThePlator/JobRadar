@@ -16,6 +16,7 @@ import httpx
 from jobradar.config import ConfigError, Settings
 from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, Sighting, TaskRecord
+from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.titles import title_from_post
 from jobradar.queue.tasks import PermanentError, RetryableError
 
@@ -54,7 +55,11 @@ STATUS_OPTION = {
     JobStatus.EXTRACTED: "New",
     JobStatus.NEW: "New",
     JobStatus.HIDDEN: "Hidden",
+    JobStatus.DISCARDED: "Hidden",  # the extractor decided it is not a job posting
 }
+_AGENT_HIDES = (JobStatus.HIDDEN, JobStatus.DISCARDED)
+_WORK_MODE = {"onsite": "Onsite", "hybrid": "Hybrid", "remote": "Remote"}
+MAX_SKILLS = 10
 
 
 class PageGone(Exception):
@@ -189,6 +194,23 @@ class NotionClient:
     async def update_page(self, page_id: str, properties: dict[str, Any]) -> None:
         await self.request("PATCH", f"/pages/{page_id}", {"properties": properties})
 
+    async def children(self, block_id: str) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            query = "?page_size=100" + (f"&start_cursor={cursor}" if cursor else "")
+            page = await self.request("GET", f"/blocks/{block_id}/children{query}")
+            blocks += page.get("results", [])
+            cursor = page.get("next_cursor")
+            if not page.get("has_more") or not cursor:
+                return blocks
+
+    async def delete_block(self, block_id: str) -> None:
+        await self.request("DELETE", f"/blocks/{block_id}")
+
+    async def append_children(self, block_id: str, children: list[dict[str, Any]]) -> None:
+        await self.request("PATCH", f"/blocks/{block_id}/children", {"children": children})
+
 
 async def connect(settings: Settings, http: httpx.AsyncClient | None = None) -> NotionSink:
     """Open the client, resolve the data source and verify the schema (fails fast)."""
@@ -223,6 +245,35 @@ def page_title(job: Job, sightings: list[Sighting]) -> str:
     return job.canonical_url or job.id
 
 
+def posting_of(job: Job) -> JobPosting | None:
+    if not job.data_json:
+        return None
+    try:
+        return JobPosting.model_validate_json(job.data_json)
+    except ValueError:
+        return None
+
+
+def experience_text(p: JobPosting) -> str | None:
+    lo, hi = p.experience_min, p.experience_max
+    if lo is None and hi is None:
+        return None
+    if (lo or 0) == 0 and (hi or 0) == 0:
+        return "Freshers"
+
+    def years(x: float) -> str:
+        return f"{x:g}"
+
+    if lo is not None and hi is not None and lo != hi:
+        return f"{years(lo)}-{years(hi)} years"
+    return f"{years(lo if lo is not None else hi or 0)}+ years"
+
+
+def _option(name: str) -> str:
+    # Notion select options cannot contain commas and are capped at 100 characters.
+    return name.replace(",", " ").strip()[:100]
+
+
 def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Role": {"title": _text(page_title(job, sightings))},
@@ -231,11 +282,27 @@ def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> 
     }
     if job.company:
         props["Company"] = {"rich_text": _text(job.company)}
-    if job.canonical_url and len(job.canonical_url) <= TEXT_LIMIT:
-        props["Apply Link"] = {"url": job.canonical_url}
+    apply = job.canonical_url
+    if (p := posting_of(job)) is not None:
+        if p.locations:
+            props["Location"] = {"rich_text": _text(", ".join(p.locations))}
+        if p.work_mode in _WORK_MODE:
+            props["Work Mode"] = {"select": {"name": _WORK_MODE[p.work_mode]}}
+        if exp := experience_text(p):
+            props["Experience"] = {"rich_text": _text(exp)}
+        skills = list(dict.fromkeys(_option(s) for s in p.skills_required if _option(s)))
+        if skills:
+            props["Skills"] = {"multi_select": [{"name": s} for s in skills[:MAX_SKILLS]]}
+        if p.salary_text:
+            props["Salary"] = {"rich_text": _text(p.salary_text)}
+        if p.deadline:
+            props["Deadline"] = {"date": {"start": p.deadline.isoformat()}}
+        apply = p.apply_url or apply
+    if apply and len(apply) <= TEXT_LIMIT:
+        props["Apply Link"] = {"url": apply}
     # Status belongs to the user once the page exists; the one exception is the agent
-    # hiding a job (e.g. a promo link discovered after the page was created).
-    if new_page or job.status == JobStatus.HIDDEN:
+    # hiding a job (a promo link, or the extractor finding it is not a job posting).
+    if new_page or job.status in _AGENT_HIDES:
         option = STATUS_OPTION.get(JobStatus(job.status))
         if option:
             props["Status"] = {"select": {"name": option}}
@@ -248,9 +315,43 @@ def message_link(s: Sighting) -> str | None:
     return None
 
 
-def build_body(sightings: list[Sighting]) -> list[dict[str, Any]]:
+def _posting_blocks(p: JobPosting) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    if p.summary:
+        blocks.append(_block("paragraph", _text(p.summary)))
+    eligibility = [
+        ("Batch", ", ".join(str(y) for y in p.batch_years)),
+        ("Degree", ", ".join(p.degrees)),
+        ("Experience", experience_text(p) or ""),
+        ("Type", p.employment_type.replace("_", " ") if p.employment_type != "unknown" else ""),
+        ("Location", ", ".join(p.locations)),
+        ("Salary", p.salary_text or ""),
+        ("Apply by", p.deadline.isoformat() if p.deadline else ""),
+    ]
+    lines = [f"{label}: {value}" for label, value in eligibility if value]
+    if lines:
+        blocks.append(_block("heading_3", _text("Eligibility")))
+        blocks += [_block("bulleted_list_item", _text(line)) for line in lines]
+    if p.skills_required or p.skills_preferred:
+        blocks.append(_block("heading_3", _text("Skills")))
+        if p.skills_required:
+            blocks.append(
+                _block("bulleted_list_item", _text("Required: " + ", ".join(p.skills_required)))
+            )
+        if p.skills_preferred:
+            blocks.append(
+                _block(
+                    "bulleted_list_item", _text("Nice to have: " + ", ".join(p.skills_preferred))
+                )
+            )
+    return blocks
+
+
+def build_body(
+    sightings: list[Sighting], posting: JobPosting | None = None
+) -> list[dict[str, Any]]:
     """Agent-owned content lives inside one "JobRadar" toggle; anything else is the user's."""
-    inner: list[dict[str, Any]] = []
+    inner: list[dict[str, Any]] = _posting_blocks(posting) if posting else []
     if sightings and sightings[0].text:
         inner.append(_block("paragraph", _text("Original post:")))
         inner.append(_block("quote", _text(sightings[0].text)))
@@ -260,9 +361,13 @@ def build_body(sightings: list[Sighting]) -> list[dict[str, Any]]:
         if link := message_link(s):
             rich[0]["text"]["link"] = {"url": link}
         inner.append(_block("bulleted_list_item", rich))
-    toggle = _block("toggle", _text("JobRadar"))
-    toggle["toggle"]["children"] = inner
+    toggle = _block("toggle", _text(TOGGLE_TITLE))
+    toggle["toggle"]["children"] = inner[:MAX_CHILDREN]
     return [toggle]
+
+
+TOGGLE_TITLE = "JobRadar"
+MAX_CHILDREN = 100  # Notion's limit per append
 
 
 def _block(kind: str, rich_text: list[dict[str, Any]]) -> dict[str, Any]:
@@ -281,9 +386,9 @@ class NotionSink:
 
     async def upsert(self, repo: Repo, job_id: str) -> None:
         job = repo.get_job(job_id)
-        if job is None or job.status == JobStatus.DISCARDED:
+        if job is None:
             return
-        if job.status == JobStatus.HIDDEN and not job.notion_page_id:
+        if job.status in _AGENT_HIDES and not job.notion_page_id:
             return  # hidden before it ever reached Notion: keep it out
         sightings = repo.job_sightings(job_id)
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
@@ -302,10 +407,36 @@ class NotionSink:
             page_id = await self.client.create_page(
                 self.data_source_id,
                 build_properties(job, sightings, new_page=True),
-                build_body(sightings),
+                build_body(sightings, posting_of(job)),
             )
             log.info("notion page created", extra={"job_id": job_id[:10]})
         repo.set_notion_page(job_id, page_id)
+
+    async def rebuild_body(self, repo: Repo, job_id: str) -> None:
+        """Replace the agent's toggle with fresh content; the user's own blocks are untouched."""
+        job = repo.get_job(job_id)
+        if job is None or job.status in _AGENT_HIDES:
+            return
+        if not job.notion_page_id:
+            raise RetryableError("Notion page not created yet")
+        blocks = await self.client.children(job.notion_page_id)
+        for block in blocks:
+            if block.get("type") == "toggle":
+                title = "".join(t.get("plain_text", "") for t in block["toggle"]["rich_text"])
+                if title == TOGGLE_TITLE:
+                    await self.client.delete_block(block["id"])
+        body = build_body(repo.job_sightings(job_id), posting_of(job))
+        await self.client.append_children(job.notion_page_id, body)
+        log.info("notion page details written", extra={"job_id": job_id[:10]})
+
+    def body_handler(self, repo: Repo) -> Any:
+        async def notion_body(task: TaskRecord) -> None:
+            try:
+                await self.rebuild_body(repo, task.key)
+            except PageGone:
+                repo.set_notion_page(task.key, None)
+
+        return notion_body
 
     def handler(self, repo: Repo) -> Any:
         async def notion_upsert(task: TaskRecord) -> None:
