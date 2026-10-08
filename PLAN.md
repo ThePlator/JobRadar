@@ -96,12 +96,12 @@ Goal: every job from your channels lands in Notion once, without any AI.
 
 **Foundation**
 
-- [ ] `config.py`: `Settings` via pydantic-settings; load YAML + `.env`; fail fast with clear messages
-- [ ] `db/models.py`: SQLModel tables `source`, `raw_message`, `job`, `job_source`, `artifact`, `task`, `llm_cache` (from the LLD schema)
-- [ ] `db/repo.py`: all queries in one place; WAL and foreign keys on connect
-- [ ] `db/migrations/`: alembic baseline
-- [ ] `queue/tasks.py`: `enqueue()` (upsert on `(type, key)`), `claim()`, `complete()`, `fail()`
-- [ ] `queue/worker.py`: async loop, backoff `min(30s·4^(n−1), 1h)` ±20%, `failed` after 5 attempts, reclaim `running` tasks older than 10 min
+- [x] `config.py`: `Settings` via pydantic-settings; load YAML + `.env`; fail fast with clear messages
+- [x] `db/models.py`: SQLModel tables `source`, `raw_message`, `job`, `job_source`, `artifact`, `task`, `llm_cache` (from the LLD schema)
+- [x] `db/repo.py`: all queries in one place; WAL and foreign keys on connect
+- [ ] `db/migrations/`: alembic baseline (tables are created with `create_all` until the schema settles)
+- [x] `queue/tasks.py`: `enqueue()` (upsert on `(type, key)`), `claim()`, `complete()`, `fail()`
+- [x] `queue/worker.py`: async loop, backoff `min(30s·4^(n−1), 1h)` ±20%, `failed` after 5 attempts, reclaim `running` tasks older than 10 min
 - [ ] `app.py`: wire sources, workers and scheduler; graceful shutdown
 
 **Ingestion**
@@ -126,7 +126,7 @@ Goal: every job from your channels lands in Notion once, without any AI.
 **Tests**
 
 - [ ] Unit: `canonicalise()` table (utm, fbclid, www, fragments, trailing slash, short links via respx)
-- [ ] Unit: queue idempotency, backoff math, stuck-task reclaim
+- [x] Unit: queue idempotency, backoff math, stuck-task reclaim
 - [ ] Integration: fake source → SQLite → mock Notion
 
 **Exit gate:** 3 days of real channels in Notion with under 5% duplicates.

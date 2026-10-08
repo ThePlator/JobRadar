@@ -240,6 +240,8 @@ erDiagram
         TEXT status
         INTEGER attempts
         TEXT run_after
+        TEXT started_at "set on claim"
+        INTEGER rerun "re-enqueued while running"
         TEXT last_error
     }
     llm_cache {
@@ -320,6 +322,8 @@ CREATE TABLE task (
    status      TEXT NOT NULL DEFAULT 'pending',
    attempts    INTEGER NOT NULL DEFAULT 0,
    run_after   TEXT NOT NULL,
+   started_at  TEXT,                           -- set on claim; finds tasks stuck after a crash
+   rerun       INTEGER NOT NULL DEFAULT 0,     -- re-enqueued while running: run once more after
    last_error  TEXT,
    UNIQUE (type, key)
 );
@@ -467,7 +471,17 @@ flowchart LR
 | `notion_poll` | periodic | scheduler, every 2 min | `build_resume`, `build_kit` |
 | `digest` | date + slot | scheduler, 09:00 and 19:00 IST | none |
 
-Because `build_resume` is keyed by job id, a job that was auto-built and later shortlisted is not rebuilt (use `jobradar resume <job-id>` to force a new version).
+The poller only enqueues `build_resume` when the job has no resume artifact, so a job that was auto-built and later shortlisted is not rebuilt (use `jobradar resume <job-id>` to force a new version).
+
+**`enqueue(type, key)` on an existing row** (one row per `(type, key)`, so a task never runs twice at once):
+
+| Existing status | Effect |
+|---|---|
+| `pending` | Payload replaced; keeps the earlier `run_after` |
+| `running` | Payload replaced and `rerun` set: after this attempt finishes, the task runs once more with the new payload |
+| `done` / `failed` | Reset to `pending` with `attempts = 0` |
+
+All task state changes (`enqueue`, `claim`, `complete`, `fail`, `defer`) are single SQL statements, and `claim` uses `UPDATE … RETURNING`, so they stay atomic. Handlers signal the outcome by returning (done) or raising `Defer(seconds)` (attempt not counted), `PermanentError` (failed now) or any other exception (retry with backoff; `RetryableError(retry_after=…)` honours a server's `Retry-After`).
 
 **Task status:**
 
@@ -477,8 +491,10 @@ stateDiagram-v2
     [*] --> pending
     pending --> running : claim()
     running --> done : complete()
-    running --> pending : fail() — retry with backoff
-    running --> failed : 5th attempt fails
+    running --> pending : retry() — backoff
+    running --> pending : defer() — attempt not counted
+    running --> pending : complete() with rerun set
+    running --> failed : PermanentError, or 5th attempt fails
     running --> pending : stuck > 10 min (restart recovery)
     done --> [*]
     failed --> pending : jobradar retry --failed
