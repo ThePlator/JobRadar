@@ -205,7 +205,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 - [ ] Digest email at 09:00 and 19:00 IST: new, top matches, auto-built resumes, closing in 48 h, failures, budget status
 - [ ] `sources/email_forward.py`: IMAP folder poll; accept only your own address with DKIM/SPF pass; body text, links and image attachments → `process_message`
 - [ ] Tests against a local SMTP/IMAP test server (e.g. aiosmtpd); `init` sends a test email
-- [ ] CLI `stats [--days]`, `doctor`
+- [ ] CLI `doctor` (`stats` landed early, in v0.1, for the duplicate check)
 
 **Exit gate:** timed run — open a shortlisted job, submit the real form, in under 5 minutes.
 

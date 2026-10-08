@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from typing import Any
 
@@ -17,7 +16,7 @@ import httpx
 from jobradar.config import ConfigError, Settings
 from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, Sighting, TaskRecord
-from jobradar.pipeline.links import extract_urls
+from jobradar.pipeline.titles import title_from_post
 from jobradar.queue.tasks import PermanentError, RetryableError
 
 log = logging.getLogger(__name__)
@@ -25,7 +24,6 @@ log = logging.getLogger(__name__)
 API_URL = "https://api.notion.com/v1"
 API_VERSION = "2025-09-03"
 TEXT_LIMIT = 2000  # characters per rich-text item
-TITLE_LIMIT = 120
 
 # Property name -> Notion type, as shipped in the dashboard template (see PRD / LLD).
 SCHEMA: dict[str, str] = {
@@ -199,21 +197,11 @@ async def connect(settings: Settings, http: httpx.AsyncClient | None = None) -> 
 # ---- job -> page ----------------------------------------------------------------------------
 
 
-def _first_line_title(text: str | None) -> str | None:
-    for line in (text or "").splitlines():
-        for url in extract_urls(line):
-            line = line.replace(url, "")
-        line = re.sub(r"\s+", " ", line).strip(" -\u2013\u2014:|*•🔥📢✅👉")
-        if len(line) >= 4:
-            return line[:TITLE_LIMIT]
-    return None
-
-
 def page_title(job: Job, sightings: list[Sighting]) -> str:
     if job.role:
         return f"{job.role} @ {job.company}" if job.company else job.role
     for s in sightings:
-        if title := _first_line_title(s.text):
+        if title := title_from_post(s.text):
             return title
     return job.canonical_url or job.id
 

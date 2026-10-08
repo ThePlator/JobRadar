@@ -374,6 +374,64 @@ class Repo:
         with self._tx() as c:
             return c.execute(text(sql), params).first() is not None
 
+    # ---- reporting ----------------------------------------------------------------------------
+
+    def message_counts(self, since: str) -> tuple[int, int]:
+        """(messages received since, of which produced no job link)."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT count(*), sum(processed = 1 AND NOT EXISTS ("
+                    " SELECT 1 FROM job_source js WHERE js.raw_message_id = m.id)) "
+                    "FROM raw_message m WHERE m.received_at >= :since"
+                ),
+                {"since": since},
+            ).one()
+        return int(row[0]), int(row[1] or 0)
+
+    def per_chat(self, since: str) -> list[tuple[str, int, int]]:
+        """(chat title or id, posts received, distinct jobs they linked to), busiest first."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT coalesce(s.title, s.chat_id), count(DISTINCT m.id),"
+                    " count(DISTINCT js.job_id) "
+                    "FROM source s JOIN raw_message m ON m.source_id = s.id "
+                    "LEFT JOIN job_source js ON js.raw_message_id = m.id "
+                    "WHERE m.received_at >= :since GROUP BY s.id ORDER BY 2 DESC"
+                ),
+                {"since": since},
+            ).all()
+        return [(str(r[0]), int(r[1]), int(r[2])) for r in rows]
+
+    def jobs_since(self, since: str) -> list[tuple[str, str | None, int, int | None, str | None]]:
+        """(job id, URL, sightings, first post id, first post text) for jobs created since."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT j.id, j.canonical_url, count(js.raw_message_id),"
+                    " min(js.raw_message_id),"
+                    " (SELECT m.text FROM job_source x"
+                    "  JOIN raw_message m ON m.id = x.raw_message_id"
+                    "  WHERE x.job_id = j.id ORDER BY m.posted_at, m.id LIMIT 1) "
+                    "FROM job j LEFT JOIN job_source js ON js.job_id = j.id "
+                    "WHERE j.created_at >= :since GROUP BY j.id ORDER BY j.created_at"
+                ),
+                {"since": since},
+            ).all()
+        return [(str(r[0]), r[1], int(r[2]), r[3], r[4]) for r in rows]
+
+    def recent_failures(self, limit: int = 5) -> list[tuple[str, str, str]]:
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT type, key, coalesce(last_error, '') FROM task WHERE status = 'failed' "
+                    "ORDER BY run_after DESC LIMIT :limit"
+                ),
+                {"limit": limit},
+            ).all()
+        return [(str(r[0]), str(r[1]), str(r[2])) for r in rows]
+
     def task_counts(self) -> dict[TaskStatus, int]:
         with self._tx() as c:
             rows = c.execute(text("SELECT status, count(*) FROM task GROUP BY status")).all()

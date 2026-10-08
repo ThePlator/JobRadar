@@ -201,8 +201,12 @@ def doctor() -> None:
 
 @app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
-    """Jobs seen, unique, hidden, shortlisted, applied and LLM spend."""
-    _not_implemented("v0.4")
+    """Posts received, jobs created, reposts merged and likely duplicates."""
+    from jobradar import app as application
+    from jobradar.stats import build_report, render
+
+    repo, _ = application.open_store()
+    typer.echo(render(build_report(repo, days)))
 
 
 if __name__ == "__main__":
