@@ -117,7 +117,7 @@ resume:
 
 storage:
   local_dir: ./output
-  gdrive: true                  # Notion "Resume" is the Drive link; with false, Resume stays empty
+  # resumes always go to Google Drive (GDRIVE_FOLDER_ID) and are linked in Notion
 
 email:
   smtp_host: smtp.gmail.com
@@ -561,7 +561,7 @@ flowchart LR
 
 - OAuth installed-app flow on first run; token in `data/gdrive_token.json`.
 - Folder per month inside `GDRIVE_FOLDER_ID`; upload with `files.create`; link-sharing off by default; store `webViewLink` in `artifact.drive_url`.
-- The Notion **Resume** property is always this online link; the PDF is never attached to the Notion page. With `storage.gdrive: false`, the PDF is saved locally only and Resume stays empty.
+- The Notion **Resume** property is always this online link; the PDF is never attached to the Notion page. Drive is required for resumes: start-up fails with a clear message if `GDRIVE_FOLDER_ID` or the OAuth token is missing.
 
 ### `sources/email_forward.py`
 

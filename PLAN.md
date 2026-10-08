@@ -72,9 +72,9 @@ Build bottom-up: config → DB → queue first, because every later module is a 
 
 - [x] PyPI distribution name: `jobradar-agent` (`job-radar` is taken). CLI and import name stay `jobradar`.
 - [x] Notifications go by email (SMTP), not a Telegram bot; manual adds by forwarding to an email folder.
-- [ ] Recommend a local Ollama model, or drop local mode from v1.
-- [ ] Decide what happens when Drive is off: require it for resumes, or document an empty Resume link.
-- [ ] Create the GitHub repo and fill `<owner>` in the README clone URL.
+- [x] Local model: dropped from v1 (Gemini/Groq only); Ollama is a post-v1 idea.
+- [x] Drive is required for resumes; `jobradar doctor` reports it when missing.
+- [x] Create the GitHub repo (ThePlator/JobRadar) and fill the README clone URL.
 
 **Repo scaffolding**
 
@@ -214,7 +214,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 ## v1.0 Public open-source launch — week 8
 
 - [ ] `Dockerfile`: Python + Tectonic + Tesseract (+ Playwright Chromium or a separate `browser` service); pre-warm Tectonic packages for `classic`/`modern`
-- [ ] `docker-compose.yml`: `jobradar`, `browser`; profiles `whatsapp` and `ollama`; volumes `./data`, `./output`, `./config`
+- [ ] `docker-compose.yml`: `jobradar`, `browser`; profile `whatsapp`; volumes `./data`, `./output`, `./config`
 - [ ] Publish the Notion template and link it from the README
 - [ ] `wa-bridge/` Node sidecar + `sources/whatsapp.py` (local HTTP), off by default, with a ban-risk warning
 - [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini / email app-password guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md`, `SECURITY.md`

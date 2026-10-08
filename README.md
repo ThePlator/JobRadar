@@ -86,7 +86,7 @@ Anything you write outside the agent-owned "JobRadar" toggle on a page is never 
 **You need:** Docker, a Telegram account, a Notion account, a Google account (for Drive and email), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key.
 
 ```bash
-git clone https://github.com/<owner>/jobradar.git
+git clone https://github.com/ThePlator/JobRadar.git
 ```
 
 (After v1.0 the CLI will also be on PyPI as `jobradar-agent`.)
