@@ -92,7 +92,7 @@ git clone https://github.com/ThePlator/JobRadar.git
 (After v1.0 the CLI will also be on PyPI as `jobradar-agent`.)
 
 ```bash
-cd jobradar && cp .env.example .env && cp config.example.yaml config/config.yaml && cp profile.example.yaml config/profile.yaml
+cd JobRadar && cp .env.example .env && cp config.example.yaml config/config.yaml && cp profile.example.yaml config/profile.yaml
 ```
 
 Fill in `.env`, `config/config.yaml` and `config/profile.yaml` (see [Configuration](#configuration)), then run first-time setup. It logs in to Telegram, runs the Google OAuth flow and checks your Notion database:
@@ -200,6 +200,7 @@ With Gemini Flash or a Groq-hosted model for extraction, the target is under ₹
 
 ## Documentation
 
+- [Wiki](https://github.com/ThePlator/JobRadar/wiki): setup guide, Notion setup, configuration, commands, troubleshooting, FAQ
 - [Product Requirements (PRD)](docs/PRD.md): goals, user stories, requirements, metrics, risks
 - [High-Level Design (HLD)](docs/HLD.md): architecture, flows, integrations, deployment, security
 - [Low-Level Design (LLD)](docs/LLD.md): schema, models, module specs, prompts, Notion mapping, plugins
