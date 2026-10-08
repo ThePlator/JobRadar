@@ -222,7 +222,7 @@ JobRadar is built to be extended without touching the core. Four plugin points a
 
 Resume templates are plain `.tex.j2` files in `templates/`. CI runs ruff, mypy, pytest, a compile check on every template, gitleaks and a Docker build.
 
-Issues and pull requests are welcome once v0.1 lands.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md); for help, see [SUPPORT.md](SUPPORT.md).
 
 ## Security
 

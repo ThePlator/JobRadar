@@ -1,0 +1,60 @@
+name: Bug report
+description: Something doesn't work as described
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check the [Troubleshooting](https://github.com/ThePlator/JobRadar/wiki/Troubleshooting) page first.
+        **Security problem?** Don't open an issue; follow [SECURITY.md](https://github.com/ThePlator/JobRadar/blob/main/SECURITY.md).
+        **Never paste tokens, API keys, passwords, phone numbers or your `tg.session` file.**
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands you ran, and an example post or link if it is about a specific job.
+      placeholder: |
+        1. uv run jobradar run
+        2. A post with the link https://… appears in the channel
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: The relevant lines from the terminal or `data/run.log`, and `uv run jobradar stats` if useful. Remove secrets first.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of `uv run jobradar --version` and `git rev-parse --short HEAD`
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Telegram reading
+        - Links, duplicates or ads
+        - Page fetching / LLM extraction
+        - Notion
+        - Config or setup
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, uv or Docker
+      placeholder: Ubuntu 24.04, Python 3.12, uv
