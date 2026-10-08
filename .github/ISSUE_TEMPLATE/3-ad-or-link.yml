@@ -1,0 +1,42 @@
+name: Ad shown as a job, or link handled wrongly
+description: A promo, course, WhatsApp/YouTube or app link became a Notion row, or a short link wasn't expanded
+labels: ["link-rules"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quick fix while you wait: add the host or host/path to `links.deny` in `config/config.yaml` (or a redirect domain to `links.extra_shorteners`) and restart `jobradar run`. Reporting it here helps add it as a built-in rule for everyone.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened?
+      options:
+        - An ad or promo link became a job row
+        - A real job was hidden as an ad
+        - A short link wasn't expanded (the row shows the short link)
+        - Something else about links
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: The link
+      placeholder: https://go.example.in/abc123
+    validations:
+      required: true
+  - type: input
+    id: destination
+    attributes:
+      label: Where the link really leads (if you know)
+      placeholder: https://example.com/full-stack-course
+  - type: input
+    id: channel
+    attributes:
+      label: Channel it came from
+      description: The public channel name helps, since ads usually follow a channel's posting pattern.
+  - type: textarea
+    id: stats
+    attributes:
+      label: "`jobradar stats` output (optional)"
+      description: The "Hidden as ads" list helps check whether the automatic rule saw it.
+      render: text

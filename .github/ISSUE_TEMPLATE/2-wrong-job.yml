@@ -1,0 +1,52 @@
+name: Wrong or missing job
+description: A job is missing from Notion, duplicated, or its details (company, role, deadline…) are wrong
+labels: ["job-quality"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports make JobRadar's reading better for everyone. Please remove personal data (names, phone numbers, personal emails) from the post before pasting it.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What's wrong?
+      options:
+        - A job from my channel never appeared in Notion
+        - The same job appears in two or more rows
+        - Details are wrong (company, role, location, salary, deadline…)
+        - A real job was set to Hidden as "not a job"
+    validations:
+      required: true
+  - type: textarea
+    id: post
+    attributes:
+      label: The Telegram post
+      description: Paste the post text, including its links.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notion
+    attributes:
+      label: What Notion shows
+      description: The row's title and the wrong columns, or "nothing". For duplicates, paste both rows' Apply Links.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should show
+      placeholder: "Company: Acme · Role: SDE Intern · Deadline: 2026-10-30"
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log lines for this job (optional)
+      description: Search `data/run.log` for the link or job id, e.g. `new job`, `page not usable`, `job extracted`, `link hidden`.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: "`uv run jobradar --version` and `git rev-parse --short HEAD`"

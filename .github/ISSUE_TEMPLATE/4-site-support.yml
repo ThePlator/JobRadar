@@ -1,0 +1,39 @@
+name: Job site can't be read
+description: Pages from a job site come back empty, as a login wall, or with wrong details
+labels: ["site-support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        JobRadar respects robots.txt and never logs in to sites, so some sites (e.g. LinkedIn) can only be read from the Telegram post. That is expected. Report sites that are public but still come back empty or wrong.
+  - type: input
+    id: site
+    attributes:
+      label: Site
+      placeholder: careers.example.com
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: An example job link
+      description: A public job page that anyone can open without logging in.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: What the log says
+      description: "Lines such as `page not usable … why=…` for this link, from `data/run.log`."
+      render: text
+  - type: checkboxes
+    id: browser
+    attributes:
+      label: Browser rendering
+      options:
+        - label: I have the optional browser installed (`uv sync --extra browser` and `uv run playwright install chromium`)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: e.g. the page needs JavaScript, has the details in an image, or is an application form (Google Forms, Typeform…)
