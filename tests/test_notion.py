@@ -6,7 +6,7 @@ import pytest
 import respx
 
 from jobradar.config import AppConfig, ConfigError, Secrets, Settings
-from jobradar.db.models import Job, Platform
+from jobradar.db.models import Job, JobStatus, Platform
 from jobradar.db.repo import Repo, Sighting
 from jobradar.queue.tasks import PermanentError, RetryableError
 from jobradar.sinks import notion
@@ -169,4 +169,28 @@ async def test_upsert_create_update_and_deleted_page(
     await sink.upsert(repo, "abc")
     job_row = repo.get_job("abc")
     assert job_row is not None and job_row.notion_page_id is None
+    await sink.aclose()
+
+
+def test_text_chunks_count_emoji_as_two_units() -> None:
+    content = "🔥" * 3 + "x" * 1997  # 2000 characters, 2003 UTF-16 units
+    pieces = [t["text"]["content"] for t in notion._text(content)]
+    assert [len(p.encode("utf-16-le")) // 2 for p in pieces] == [2000, 3]
+    assert "".join(pieces) == content
+
+
+def test_hidden_job_sets_status_on_update_and_never_creates() -> None:
+    props = build_properties(job(status="hidden"), [], new_page=False)
+    assert props["Status"] == {"select": {"name": "Hidden"}}
+
+
+async def test_hidden_job_without_page_is_not_created(
+    mock_api: respx.MockRouter, repo: Repo
+) -> None:
+    repo.get_or_create_job("ad", "https://freshershunt.in/WhatsApp")
+    repo.set_job_status("ad", JobStatus.HIDDEN)
+    sink = await notion.connect(settings(), http=http())
+    create = mock_api.post("/pages").respond(json={"id": "nope"})
+    await sink.upsert(repo, "ad")
+    assert not create.called
     await sink.aclose()

@@ -212,6 +212,59 @@ class Repo:
             ).all()
         return [Sighting(*r) for r in rows]
 
+    def job_post_contexts(self, job_id: str, limit: int = 30) -> list[tuple[str | None, list[str]]]:
+        """For each post carrying this job's link: (post text, ids of the other jobs in it)."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    """
+                    SELECT m.id, m.text, group_concat(other.job_id) FROM job_source js
+                    JOIN raw_message m ON m.id = js.raw_message_id
+                    LEFT JOIN job_source other
+                        ON other.raw_message_id = m.id AND other.job_id != js.job_id
+                    WHERE js.job_id = :job
+                    GROUP BY m.id ORDER BY m.posted_at, m.id LIMIT :limit
+                    """
+                ),
+                {"job": job_id, "limit": limit},
+            ).all()
+        return [(r[1], r[2].split(",") if r[2] else []) for r in rows]
+
+    def job_urls(self, status: JobStatus) -> list[tuple[str, str]]:
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT id, canonical_url FROM job "
+                    "WHERE status = :status AND canonical_url IS NOT NULL"
+                ),
+                {"status": status.value},
+            ).all()
+        return [(str(r[0]), str(r[1])) for r in rows]
+
+    def jobs_with_sightings(self, at_least: int, status: JobStatus) -> list[str]:
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT j.id FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "WHERE j.status = :status GROUP BY j.id HAVING count(*) >= :n"
+                ),
+                {"status": status.value, "n": at_least},
+            ).all()
+        return [str(r[0]) for r in rows]
+
+    def set_job_status(self, job_id: str, status: JobStatus, reason: str | None = None) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    """
+                    UPDATE job SET status = :status,
+                        score_reason = coalesce(:reason, score_reason), updated_at = :now
+                    WHERE id = :id
+                    """
+                ),
+                {"id": job_id, "status": status.value, "reason": reason, "now": self._now()},
+            )
+
     def set_notion_page(self, job_id: str, page_id: str | None) -> None:
         with self._tx() as c:
             c.execute(
@@ -404,12 +457,14 @@ class Repo:
             ).all()
         return [(str(r[0]), int(r[1]), int(r[2])) for r in rows]
 
-    def jobs_since(self, since: str) -> list[tuple[str, str | None, int, int | None, str | None]]:
-        """(job id, URL, sightings, first post id, first post text) for jobs created since."""
+    def jobs_since(
+        self, since: str
+    ) -> list[tuple[str, str | None, str, int, int | None, str | None]]:
+        """(id, URL, status, sightings, first post id, first post text) for jobs created since."""
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT j.id, j.canonical_url, count(js.raw_message_id),"
+                    "SELECT j.id, j.canonical_url, j.status, count(js.raw_message_id),"
                     " min(js.raw_message_id),"
                     " (SELECT m.text FROM job_source x"
                     "  JOIN raw_message m ON m.id = x.raw_message_id"
@@ -419,7 +474,7 @@ class Repo:
                 ),
                 {"since": since},
             ).all()
-        return [(str(r[0]), r[1], int(r[2]), r[3], r[4]) for r in rows]
+        return [(str(r[0]), r[1], str(r[2]), int(r[3]), r[4], r[5]) for r in rows]
 
     def recent_failures(self, limit: int = 5) -> list[tuple[str, str, str]]:
         with self._tx() as c:

@@ -47,7 +47,7 @@ async def test_report_counts_and_likely_duplicates(
         post(
             "-1001",
             "4",
-            "Multiple Hiring Drives Live at AccioJob!\nhttps://x.com/1 https://x.com/2",
+            "Multiple Hiring Drives Live at AccioJob!\nhttps://drives.example.com/1 https://drives.example.com/2",
         )
     )
     ingest = Ingest(repo, queue)
@@ -59,7 +59,7 @@ async def test_report_counts_and_likely_duplicates(
 
     assert report.messages == 6
     assert report.no_link == 1
-    assert report.jobs == 5  # a.com, b.com, acme (merged by URL), x.com/1, x.com/2
+    assert report.jobs == 5  # a.com, b.com, acme (merged by URL), drives/1, drives/2
     assert report.merged == 1
     # Only the two VIR Softech posts; the two drives from one AccioJob post are siblings.
     assert [len(g) for g in report.duplicate_groups] == [2]

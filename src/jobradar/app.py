@@ -51,6 +51,8 @@ async def run(settings: Settings) -> None:
 
     sink = await notion.connect(settings)
     ingest, expander = make_ingest(settings, repo, queue)
+    if hidden := ingest.sweep_promos():
+        log.info("hid promo links found in earlier posts", extra={"count": hidden})
     worker = build_worker(ingest, sink, repo, queue)
     source = TelegramSource(settings, repo)
 

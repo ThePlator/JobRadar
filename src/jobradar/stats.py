@@ -7,17 +7,9 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from jobradar.clock import Clock, to_iso, utcnow
-from jobradar.db.models import TaskStatus
+from jobradar.db.models import JobStatus, TaskStatus
 from jobradar.db.repo import Repo
-from jobradar.pipeline.dedupe import norm
-from jobradar.pipeline.titles import title_from_post
-
-# Words that say nothing about which job it is; removed before comparing titles.
-_FILLER = frozenset(
-    {"apply", "now", "link", "urgent", "opening", "openings", "job", "jobs", "vacancy",
-     "freshers", "fresher", "off", "campus", "drive", "batch", "new", "role", "position"}
-)  # fmt: skip
-MIN_KEY_WORDS = 3  # shorter titles ("Apply now") are too generic to compare
+from jobradar.pipeline.titles import title_from_post, title_key
 
 
 @dataclass(frozen=True)
@@ -36,6 +28,7 @@ class Report:
     no_link: int = 0
     jobs: int = 0
     sightings: int = 0
+    hidden_ads: list[JobLine] = field(default_factory=list)
     per_chat: list[tuple[str, int, int]] = field(default_factory=list)
     duplicate_groups: list[list[JobLine]] = field(default_factory=list)
     tasks: dict[TaskStatus, int] = field(default_factory=dict)
@@ -60,11 +53,6 @@ def _posts(group: list[JobLine]) -> int:
     return len({j.first_post for j in group})
 
 
-def title_key(title: str) -> str | None:
-    words = [w for w in norm(title).split() if w not in _FILLER]
-    return " ".join(words) if len(words) >= MIN_KEY_WORDS else None
-
-
 def build_report(repo: Repo, days: int = 7, clock: Clock = utcnow) -> Report:
     since = to_iso(clock() - timedelta(days=days))
     report = Report(days=days)
@@ -74,11 +62,14 @@ def build_report(repo: Repo, days: int = 7, clock: Clock = utcnow) -> Report:
     report.failures = repo.recent_failures()
 
     groups: dict[str, list[JobLine]] = defaultdict(list)
-    for job_id, url, sightings, first_post, first_text in repo.jobs_since(since):
-        report.jobs += 1
-        report.sightings += sightings
+    for job_id, url, status, sightings, first_post, first_text in repo.jobs_since(since):
         title = title_from_post(first_text) or ""
         line = JobLine(job_id, url or "", title, sightings, first_post)
+        if status == JobStatus.HIDDEN:
+            report.hidden_ads.append(line)
+            continue
+        report.jobs += 1
+        report.sightings += sightings
         if key := title_key(title):
             groups[key].append(line)
     report.duplicate_groups = sorted(
@@ -98,6 +89,7 @@ def render(report: Report, max_groups: int = 10) -> str:
     )
     out.append(f"  Jobs (Notion rows)    {report.jobs:>6}")
     out.append(f"  Reposts merged by URL {report.merged:>6}")
+    out.append(f"  Ad/promo links hidden {len(report.hidden_ads):>6}")
     rate = report.duplicate_rate
     verdict = "under the 5% target" if rate < 0.05 else "over the 5% target"
     out.append(f"  Likely duplicate rows {report.extra_rows:>6}   {rate:.1%} of jobs, {verdict}")
@@ -116,6 +108,11 @@ def render(report: Report, max_groups: int = 10) -> str:
                 out.append(f"      {job.url[:100]}")
         if len(report.duplicate_groups) > max_groups:
             out.append(f"  … and {len(report.duplicate_groups) - max_groups} more groups")
+
+    if report.hidden_ads:
+        out += ["", "Hidden as ads (link attached to posts about different jobs)"]
+        for ad in sorted(report.hidden_ads, key=lambda a: -a.sightings)[:max_groups]:
+            out.append(f"  {ad.sightings:>4} posts  {ad.url[:90]}")
 
     pending, failed = (
         report.tasks.get(TaskStatus.PENDING, 0),
