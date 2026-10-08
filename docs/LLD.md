@@ -522,6 +522,7 @@ stateDiagram-v2
 4. Strip trailing `/`.
 5. Ignore non-job hosts from a denylist (t.me, youtube.com, instagram.com, whatsapp.com), plus the user's `links.deny` rules (a host, or a host/path prefix for ads such as course pages). Channel-specific shorteners can be added with `links.extra_shorteners`.
 6. Telegram service messages (channel created, photo changed) are skipped, not stored as posts.
+7. **Ads and channel promos** (WhatsApp group, app, YouTube, course links attached to every post) are hidden automatically (`pipeline/promo.py`): each post carrying a link is identified by the *other* job links in it (titles as a fallback), ignoring links that travel with it in more than half its posts and digest posts with 5+ links. A link whose posts are about 3+ different jobs is marked `hidden`; its Notion page, if any, is set to Hidden and it stops syncing. `jobradar run` re-applies these rules and the deny lists to stored jobs at start-up.
 
 ### `pipeline/dedupe.py`
 

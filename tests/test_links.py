@@ -127,3 +127,19 @@ async def test_channel_shortener_expands_to_an_ad_that_is_denied(public_hosts: N
     assert await canonicalise("https://go.acciojob.com/ad", expand, deny) is None
     assert await canonicalise("https://go.mysite.in/j", expand) == "https://acme.com/j/9"
     await expand.aclose()
+
+
+@pytest.mark.parametrize(
+    ("url", "denied"),
+    [
+        ("https://x.com/ajsinghrawat", True),
+        ("https://topmate.io/sdejobsandinternships", True),
+        ("https://play.google.com/store/apps/details?id=x", True),
+        ("https://linkedin.com/in/someone", True),
+        ("https://linkedin.com/company/acme", True),
+        ("https://linkedin.com/jobs/view/4475551081", False),
+        ("https://linkedin.com/posts/recruiter_hiring-123", False),
+    ],
+)
+def test_builtin_non_job_links(url: str, denied: bool) -> None:
+    assert links.is_denied(url) is denied

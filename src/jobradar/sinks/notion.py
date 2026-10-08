@@ -75,11 +75,28 @@ class RateLimiter:
             self._next = max(now, self._next) + self._interval
 
 
+def _chunks(content: str, limit: int = TEXT_LIMIT) -> list[str]:
+    """Split so each piece is at most `limit` UTF-16 code units, the unit Notion counts in
+    (emoji and other astral characters count as 2)."""
+    chunks: list[str] = []
+    current: list[str] = []
+    units = 0
+    for ch in content:
+        size = 2 if ord(ch) > 0xFFFF else 1
+        if units + size > limit:
+            chunks.append("".join(current))
+            current, units = [], 0
+        current.append(ch)
+        units += size
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
 def _text(content: str) -> list[dict[str, Any]]:
-    return [
-        {"type": "text", "text": {"content": content[i : i + TEXT_LIMIT]}}
-        for i in range(0, len(content), TEXT_LIMIT)
-    ] or [{"type": "text", "text": {"content": ""}}]
+    return [{"type": "text", "text": {"content": c}} for c in _chunks(content)] or [
+        {"type": "text", "text": {"content": ""}}
+    ]
 
 
 class NotionClient:
@@ -216,7 +233,9 @@ def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> 
         props["Company"] = {"rich_text": _text(job.company)}
     if job.canonical_url and len(job.canonical_url) <= TEXT_LIMIT:
         props["Apply Link"] = {"url": job.canonical_url}
-    if new_page:
+    # Status belongs to the user once the page exists; the one exception is the agent
+    # hiding a job (e.g. a promo link discovered after the page was created).
+    if new_page or job.status == JobStatus.HIDDEN:
         option = STATUS_OPTION.get(JobStatus(job.status))
         if option:
             props["Status"] = {"select": {"name": option}}
@@ -264,6 +283,8 @@ class NotionSink:
         job = repo.get_job(job_id)
         if job is None or job.status == JobStatus.DISCARDED:
             return
+        if job.status == JobStatus.HIDDEN and not job.notion_page_id:
+            return  # hidden before it ever reached Notion: keep it out
         sightings = repo.job_sightings(job_id)
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
         if page_id:

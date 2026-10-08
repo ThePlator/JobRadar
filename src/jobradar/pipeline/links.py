@@ -18,7 +18,7 @@ SHORTENERS = frozenset(
     {
         "bit.ly", "lnkd.in", "t.ly", "tinyurl.com", "goo.gl", "forms.gle", "rb.gy", "cutt.ly",
         "shorturl.at", "is.gd", "ow.ly", "buff.ly", "rebrand.ly", "t.co", "surl.li", "tiny.cc",
-        "shorturl.asia", "bitly.ws", "go.acciojob.com",
+        "shorturl.asia", "bitly.ws", "go.acciojob.com", "openinapp.co", "openinapp.link",
     }
 )  # fmt: skip
 
@@ -26,9 +26,14 @@ SHORTENERS = frozenset(
 DENY_HOSTS = frozenset(
     {
         "t.me", "telegram.me", "telegram.dog", "youtube.com", "youtu.be", "instagram.com",
-        "whatsapp.com", "wa.me", "chat.whatsapp.com",
+        "whatsapp.com", "wa.me", "chat.whatsapp.com", "x.com", "twitter.com", "topmate.io",
+        "play.google.com", "apps.apple.com", "discord.gg", "discord.com", "facebook.com",
+        "fb.me", "yt.openinapp.co",
     }
 )  # fmt: skip
+
+# host/path prefixes that are never postings (profiles and company pages, not jobs).
+DENY_PREFIXES = ("linkedin.com/in/", "linkedin.com/company/")
 
 _TRACKING_EXACT = frozenset(
     {"ref", "src", "source", "fbclid", "gclid", "trk", "si", "igshid", "mc_cid", "mc_eid",
@@ -149,6 +154,8 @@ def is_denied(url: str, rules: Iterable[str] = ()) -> bool:
     if _matches(host, DENY_HOSTS):
         return True
     target = host + urlsplit(url).path
+    if (target + "/").lower().startswith(DENY_PREFIXES):
+        return True
     for rule in rules:
         rule = rule.lower().split("://", 1)[-1].removeprefix("www.").rstrip("/")
         if "/" in rule:
