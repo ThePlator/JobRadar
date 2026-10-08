@@ -37,7 +37,7 @@ resume:
 
 storage:
   local_dir: ./output
-  gdrive: true            # Notion "Resume" is the Drive link; with false, Resume stays empty
+  # Resumes are always uploaded to Google Drive (GDRIVE_FOLDER_ID) and linked in Notion.
 
 email:
   smtp_host: smtp.gmail.com

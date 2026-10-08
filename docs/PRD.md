@@ -220,7 +220,5 @@ v0.1 is useful on its own: it solves the "too many groups to watch" problem befo
 | Project name | **JobRadar**; PyPI package **`jobradar-agent`** (CLI and import stay `jobradar`) |
 | Notifications | **Email** (SMTP) instead of a Telegram bot; manual adds by forwarding to an email folder. Telegram remains the job source |
 
-### Still open
-
-- **Local model:** which Ollama model to recommend for free/private mode, or drop local mode from v1.
-- **Drive opt-out:** with link-only resumes, a user who disables Drive gets no openable Resume link in Notion. Either require Drive for resumes or document the limitation.
+| Local model | **Not in v1.** Gemini/Groq free tiers cover normal use and the 1 GB target host cannot run one; Ollama support is a post-v1 idea |
+| Google Drive | **Required for resumes**, so the Notion Resume link always opens on any device |

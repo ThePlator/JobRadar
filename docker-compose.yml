@@ -12,4 +12,3 @@ services:
   # Added in later releases (see PLAN.md):
   # browser:   Playwright Chromium for JavaScript pages            (v0.2)
   # wa-bridge: Node WhatsApp sidecar, `profiles: [whatsapp]`        (v1.0, experimental)
-  # ollama:    local LLM, `profiles: [ollama]`                      (optional)

@@ -72,9 +72,9 @@ Build bottom-up: config → DB → queue first, because every later module is a 
 
 - [x] PyPI distribution name: `jobradar-agent` (`job-radar` is taken). CLI and import name stay `jobradar`.
 - [x] Notifications go by email (SMTP), not a Telegram bot; manual adds by forwarding to an email folder.
-- [ ] Recommend a local Ollama model, or drop local mode from v1.
-- [ ] Decide what happens when Drive is off: require it for resumes, or document an empty Resume link.
-- [ ] Create the GitHub repo and fill `<owner>` in the README clone URL.
+- [x] Local model: dropped from v1 (Gemini/Groq only); Ollama is a post-v1 idea.
+- [x] Drive is required for resumes; `jobradar doctor` reports it when missing.
+- [x] Create the GitHub repo (ThePlator/JobRadar) and fill the README clone URL.
 
 **Repo scaffolding**
 
@@ -96,12 +96,12 @@ Goal: every job from your channels lands in Notion once, without any AI.
 
 **Foundation**
 
-- [ ] `config.py`: `Settings` via pydantic-settings; load YAML + `.env`; fail fast with clear messages
-- [ ] `db/models.py`: SQLModel tables `source`, `raw_message`, `job`, `job_source`, `artifact`, `task`, `llm_cache` (from the LLD schema)
-- [ ] `db/repo.py`: all queries in one place; WAL and foreign keys on connect
-- [ ] `db/migrations/`: alembic baseline
-- [ ] `queue/tasks.py`: `enqueue()` (upsert on `(type, key)`), `claim()`, `complete()`, `fail()`
-- [ ] `queue/worker.py`: async loop, backoff `min(30s·4^(n−1), 1h)` ±20%, `failed` after 5 attempts, reclaim `running` tasks older than 10 min
+- [x] `config.py`: `Settings` via pydantic-settings; load YAML + `.env`; fail fast with clear messages
+- [x] `db/models.py`: SQLModel tables `source`, `raw_message`, `job`, `job_source`, `artifact`, `task`, `llm_cache` (from the LLD schema)
+- [x] `db/repo.py`: all queries in one place; WAL and foreign keys on connect
+- [ ] `db/migrations/`: alembic baseline (tables are created with `create_all` until the schema settles)
+- [x] `queue/tasks.py`: `enqueue()` (upsert on `(type, key)`), `claim()`, `complete()`, `fail()`
+- [x] `queue/worker.py`: async loop, backoff `min(30s·4^(n−1), 1h)` ±20%, `failed` after 5 attempts, reclaim `running` tasks older than 10 min
 - [ ] `app.py`: wire sources, workers and scheduler; graceful shutdown
 
 **Ingestion**
@@ -126,7 +126,7 @@ Goal: every job from your channels lands in Notion once, without any AI.
 **Tests**
 
 - [ ] Unit: `canonicalise()` table (utm, fbclid, www, fragments, trailing slash, short links via respx)
-- [ ] Unit: queue idempotency, backoff math, stuck-task reclaim
+- [x] Unit: queue idempotency, backoff math, stuck-task reclaim
 - [ ] Integration: fake source → SQLite → mock Notion
 
 **Exit gate:** 3 days of real channels in Notion with under 5% duplicates.
@@ -214,7 +214,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 ## v1.0 Public open-source launch — week 8
 
 - [ ] `Dockerfile`: Python + Tectonic + Tesseract (+ Playwright Chromium or a separate `browser` service); pre-warm Tectonic packages for `classic`/`modern`
-- [ ] `docker-compose.yml`: `jobradar`, `browser`; profiles `whatsapp` and `ollama`; volumes `./data`, `./output`, `./config`
+- [ ] `docker-compose.yml`: `jobradar`, `browser`; profile `whatsapp`; volumes `./data`, `./output`, `./config`
 - [ ] Publish the Notion template and link it from the README
 - [ ] `wa-bridge/` Node sidecar + `sources/whatsapp.py` (local HTTP), off by default, with a ban-risk warning
 - [ ] Docs: setup walkthrough with screenshots, Telegram / Notion / Google / Gemini / email app-password guides, troubleshooting, plugin authoring guide, `CONTRIBUTING.md`, `SECURITY.md`

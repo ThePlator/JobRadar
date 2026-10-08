@@ -187,7 +187,7 @@ The user profile lives in `profile.yaml`, not the database, so it can be edited 
 | Telegram (reading) | Telethon user client over MTProto | api_id + api_hash from my.telegram.org, session file | FloodWait errors; read-only, no auto-join |
 | Email (notify + forwards) | SMTP (aiosmtplib, STARTTLS) to send; IMAP (imap-tools) to read one folder | Email address + app password | Provider send limits (Gmail about 500/day); alerts are batched, so a few dozen emails a day |
 | WhatsApp (experimental) | Node sidecar with whatsapp-web.js or Baileys, posts messages to JobRadar over local HTTP | QR login | Unofficial; ban risk; off by default |
-| LLM | LiteLLM — **Gemini (default) or Groq**; other providers (OpenAI, Claude, Ollama) remain possible through config | `GEMINI_API_KEY` or `GROQ_API_KEY` | Provider rate limits and free-tier quotas; cache by job id |
+| LLM | LiteLLM — **Gemini (default) or Groq**; other hosted providers remain possible through LiteLLM config; local models are not supported in v1 | `GEMINI_API_KEY` or `GROQ_API_KEY` | Provider rate limits and free-tier quotas; cache by job id |
 | Notion | Official API (notion-client), `Notion-Version: 2025-09-03` (data sources) | Internal integration token, database shared with it | About 3 requests/second; 2,000 characters per text item; 100 blocks per append |
 | Google Drive | Drive API v3 | OAuth desktop flow, token stored locally | Per-user quota, ample for PDFs |
 | Job websites | httpx, Playwright (Chromium) | None | 1 request/second per domain; obey robots.txt; skip login walls |
@@ -220,17 +220,14 @@ flowchart LR
         J["jobradar<br/>Python app, all workers,<br/>Tectonic, Tesseract"]
         B["browser<br/>Playwright Chromium"]
         W["wa-bridge<br/>Node WhatsApp sidecar"]
-        O["ollama<br/>Local LLM"]
         V1[("./data<br/>SQLite, sessions, Drive token")]
         V2[("./output<br/>PDFs")]
         V3[("./config<br/>config.yaml, profile.yaml, templates")]
     end
     J --> B
     W -. experimental profile .-> J
-    J -. optional .-> O
     J --- V1 & V2 & V3
     style W stroke-dasharray: 5 5
-    style O stroke-dasharray: 5 5
 ```
 
 | Container | Contents | Required |
@@ -238,7 +235,6 @@ flowchart LR
 | `jobradar` | Python app, all workers, Tectonic, Tesseract | Yes |
 | `browser` | Playwright Chromium (or bundled in `jobradar`) | Yes, for JavaScript pages |
 | `wa-bridge` | Node WhatsApp sidecar | No, experimental profile |
-| `ollama` | Local LLM | No, optional free/private mode |
 
 **Volumes:** `./data` (SQLite, session files, Drive token), `./output` (PDFs), `./config` (`config.yaml`, `profile.yaml`, templates).
 
@@ -270,7 +266,7 @@ flowchart LR
 
 - **Secrets** (API keys, tokens, the email app password) only in `.env`, loaded by pydantic-settings; never logged; `.env.example` ships with placeholders.
 - **Telegram session file** gives full account access: stored in `./data` with permissions 600 and listed in `.gitignore`; docs warn never to share it.
-- **Personal data** (`profile.yaml`, PDFs) stays local except the resume PDF uploaded to the user's own Drive. Only job text and the profile fields needed for a task are sent to the LLM; a local Ollama model keeps everything on the machine.
+- **Personal data** (`profile.yaml`, PDFs) stays local except the resume PDF uploaded to the user's own Drive. Only job text and the profile fields needed for a task are sent to the LLM.
 - **Resume links:** Drive files keep link-sharing off, so the Notion Resume link opens only for the signed-in owner.
 - **Untrusted input:** job pages and messages may contain prompt-injection text. They are passed to the LLM only as data inside delimiters, outputs are schema-validated, and the LLM has no tools or write access.
 - **LaTeX injection:** every inserted value is escaped; Tectonic runs with shell-escape disabled.
