@@ -26,6 +26,14 @@ def open_store() -> tuple[Repo, TaskQueue]:
     return repo, TaskQueue(repo)
 
 
+def make_ingest(
+    settings: Settings, repo: Repo, queue: TaskQueue
+) -> tuple[Ingest, ShortLinkExpander]:
+    links = settings.config.links
+    expander = ShortLinkExpander(extra_shorteners=links.extra_shorteners)
+    return Ingest(repo, queue, expander, deny=links.deny), expander
+
+
 def build_worker(ingest: Ingest, sink: notion.NotionSink, repo: Repo, queue: TaskQueue) -> Worker:
     return Worker(
         queue,
@@ -42,8 +50,8 @@ async def run(settings: Settings) -> None:
         log.info("re-queued tasks interrupted by the last shutdown", extra={"count": reclaimed})
 
     sink = await notion.connect(settings)
-    expander = ShortLinkExpander()
-    worker = build_worker(Ingest(repo, queue, expander), sink, repo, queue)
+    ingest, expander = make_ingest(settings, repo, queue)
+    worker = build_worker(ingest, sink, repo, queue)
     source = TelegramSource(settings, repo)
 
     loop = asyncio.get_running_loop()
@@ -77,8 +85,8 @@ async def drain(settings: Settings, max_seconds: float = 120) -> None:
     """Run queued work (e.g. after `jobradar add`) until nothing is ready, then return."""
     repo, queue = open_store()
     sink = await notion.connect(settings)
-    expander = ShortLinkExpander()
-    worker = build_worker(Ingest(repo, queue, expander), sink, repo, queue)
+    ingest, expander = make_ingest(settings, repo, queue)
+    worker = build_worker(ingest, sink, repo, queue)
     task = asyncio.create_task(worker.run())
     try:
         async with asyncio.timeout(max_seconds):

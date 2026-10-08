@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -18,7 +18,7 @@ SHORTENERS = frozenset(
     {
         "bit.ly", "lnkd.in", "t.ly", "tinyurl.com", "goo.gl", "forms.gle", "rb.gy", "cutt.ly",
         "shorturl.at", "is.gd", "ow.ly", "buff.ly", "rebrand.ly", "t.co", "surl.li", "tiny.cc",
-        "shorturl.asia", "bitly.ws",
+        "shorturl.asia", "bitly.ws", "go.acciojob.com",
     }
 )  # fmt: skip
 
@@ -96,7 +96,13 @@ class ShortLinkExpander:
     so a flaky shortener never loses a job; it may only dedupe less well.
     """
 
-    def __init__(self, client: httpx.AsyncClient | None = None, max_hops: int = 5) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        max_hops: int = 5,
+        extra_shorteners: Iterable[str] = (),
+    ) -> None:
+        self._shorteners = SHORTENERS | {h.lower().removeprefix("www.") for h in extra_shorteners}
         self._client = client or httpx.AsyncClient(
             timeout=5.0, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0 JobRadar"}
         )
@@ -107,7 +113,7 @@ class ShortLinkExpander:
         await self._client.aclose()
 
     async def __call__(self, url: str) -> str:
-        if not _matches(_host(url), SHORTENERS):
+        if not _matches(_host(url), self._shorteners):
             return url
         if url not in self._cache:
             self._cache[url] = await self._follow(url)
@@ -128,7 +134,7 @@ class ShortLinkExpander:
                 if not resp.is_redirect or not location:
                     return current
                 current = urljoin(current, location)
-                if not _matches(_host(current), SHORTENERS):
+                if not _matches(_host(current), self._shorteners):
                     return current
         except httpx.HTTPError as e:
             log.info("could not expand short link", extra={"url": url, "error": str(e)})
@@ -136,12 +142,31 @@ class ShortLinkExpander:
         return current
 
 
-async def canonicalise(url: str, expand: Expander | None = None) -> str | None:
-    """Expand (if a shortener), normalise, and drop non-job hosts. None means "not a job link"."""
+def is_denied(url: str, rules: Iterable[str] = ()) -> bool:
+    """Built-in non-job hosts, plus user rules: a host ("ads.com", also matches subdomains)
+    or a host/path prefix ("acciojob.com/full-stack-development-courses")."""
+    host = _host(url)
+    if _matches(host, DENY_HOSTS):
+        return True
+    target = host + urlsplit(url).path
+    for rule in rules:
+        rule = rule.lower().split("://", 1)[-1].removeprefix("www.").rstrip("/")
+        if "/" in rule:
+            if target.lower().startswith(rule):
+                return True
+        elif _matches(host, frozenset({rule})):
+            return True
+    return False
+
+
+async def canonicalise(
+    url: str, expand: Expander | None = None, deny: Iterable[str] = ()
+) -> str | None:
+    """Expand (if a shortener), normalise, and drop non-job links. None means "not a job link"."""
     first = normalise(url)
     if first is None:
         return None
     expanded = normalise(await expand(first)) if expand else first
-    if expanded is None or _matches(_host(expanded), DENY_HOSTS):
+    if expanded is None or is_denied(expanded, deny):
         return None
     return expanded

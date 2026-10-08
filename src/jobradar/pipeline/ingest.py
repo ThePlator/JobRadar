@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from jobradar.clock import to_iso
 from jobradar.db.repo import Repo, TaskRecord
@@ -46,10 +46,17 @@ def make_emit(repo: Repo, queue: TaskQueue, on_enqueue: Callable[[], None] = lam
 
 
 class Ingest:
-    def __init__(self, repo: Repo, queue: TaskQueue, expand: Expander | None = None) -> None:
+    def __init__(
+        self,
+        repo: Repo,
+        queue: TaskQueue,
+        expand: Expander | None = None,
+        deny: Iterable[str] = (),
+    ) -> None:
         self.repo = repo
         self.queue = queue
         self.expand = expand
+        self.deny = tuple(deny)
 
     async def process_message(self, task: TaskRecord) -> None:
         raw = self.repo.get_raw_message(int(task.key))
@@ -58,7 +65,7 @@ class Ingest:
         candidates = list(dict.fromkeys(json.loads(raw.urls_json) + extract_urls(raw.text)))
         links: list[str] = []
         for url in candidates:
-            canonical = await canonicalise(url, self.expand)
+            canonical = await canonicalise(url, self.expand, self.deny)
             if canonical and canonical not in links:
                 links.append(canonical)
 
@@ -69,6 +76,10 @@ class Ingest:
             job_id = job_id_for_url(url)
             _, created = self.repo.get_or_create_job(job_id, url)
             seen_here_first = self.repo.add_job_source(job_id, raw.id)
+            if created:
+                log.info("new job", extra={"job_id": job_id[:10], "url": url})
+            elif seen_here_first:
+                log.info("duplicate job, added sighting", extra={"job_id": job_id[:10]})
             if created or seen_here_first:
                 self.queue.enqueue(NOTION_UPSERT, job_id)
         self.repo.mark_processed(raw.id)

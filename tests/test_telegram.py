@@ -95,3 +95,29 @@ async def test_unknown_chats_fail_with_a_hint(repo: Repo) -> None:
         with pytest.raises(ConfigError, match=r"not found or not joined: @nope, 5"):
             await source._resolve_chats(settings.config.sources.telegram.chats)
     assert repo.upsert_source(Platform.TELEGRAM, "-1001").title == "OK Jobs"
+
+
+async def test_service_messages_are_skipped(repo: Repo) -> None:
+    settings = Settings(
+        config=AppConfig.model_validate({"sources": {"telegram": {"chats": ["@ok"]}}}),
+        secrets=Secrets.model_validate({"tg_api_id": 1, "tg_api_hash": "h"}),
+    )
+    source = TelegramSource(settings, repo, client=FakeClient({}))  # type: ignore[arg-type]
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001")
+    assert src.id is not None
+    emitted: list[Any] = []
+
+    async def emit(msg: Any) -> None:
+        emitted.append(msg)
+
+    notice = tg_message("")
+    notice.action = object()  # e.g. MessageActionChannelCreate
+    notice.id = 2
+    await source._deliver(notice, "-1001", src.id, emit)
+    post = tg_message("SDE https://acme.com/j")
+    post.action = None
+    post.id = 3
+    await source._deliver(post, "-1001", src.id, emit)
+
+    assert [m.message_id for m in emitted] == ["3"]
+    assert repo.upsert_source(Platform.TELEGRAM, "-1001").last_msg_id == 3

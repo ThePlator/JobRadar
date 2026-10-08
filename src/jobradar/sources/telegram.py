@@ -136,6 +136,10 @@ class TelegramSource:
         return resolved
 
     async def _deliver(self, message: Any, peer_id: str, source_id: int, emit: Emit) -> None:
+        if getattr(message, "action", None) is not None:
+            # Service notice ("channel created", "photo changed"): not a post.
+            self._repo.set_last_msg_id(source_id, int(message.id))
+            return
         media_path = None
         if getattr(message, "photo", None) and not message_urls(message):
             await asyncio.to_thread(MEDIA_DIR.mkdir, parents=True, exist_ok=True)

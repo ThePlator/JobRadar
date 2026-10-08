@@ -90,3 +90,40 @@ async def test_expander_refuses_private_targets(public_hosts: None) -> None:
     assert await expand("https://bit.ly/evil") == "https://10.0.0.5/admin"
     assert not any(c.request.url.host == "10.0.0.5" for c in respx.calls)
     await expand.aclose()
+
+
+@pytest.mark.parametrize(
+    ("url", "rules", "denied"),
+    [
+        (
+            "https://acciojob.com/full-stack-development-courses",
+            ["acciojob.com/full-stack-development-courses"],
+            True,
+        ),
+        (
+            "https://placement.acciojob.com/job-drive-details?jobDriveId=1",
+            ["acciojob.com/full-stack-development-courses"],
+            False,
+        ),
+        ("https://ads.example.com/x", ["example.com"], True),
+        ("https://example.org/x", ["example.com"], False),
+        ("https://acme.com/Courses/sde", ["https://www.ACME.com/courses/"], True),
+        ("https://t.me/channel", [], True),
+    ],
+)
+def test_deny_rules(url: str, rules: list[str], denied: bool) -> None:
+    assert links.is_denied(url, rules) is denied
+
+
+@respx.mock
+async def test_channel_shortener_expands_to_an_ad_that_is_denied(public_hosts: None) -> None:
+    respx.head("https://go.acciojob.com/ad").respond(
+        301,
+        headers={"Location": "https://acciojob.com/full-stack-development-courses?utm_source=x"},
+    )
+    respx.head("https://go.mysite.in/j").respond(301, headers={"Location": "https://acme.com/j/9"})
+    expand = ShortLinkExpander(httpx.AsyncClient(), extra_shorteners=["go.mysite.in"])
+    deny = ["acciojob.com/full-stack-development-courses"]
+    assert await canonicalise("https://go.acciojob.com/ad", expand, deny) is None
+    assert await canonicalise("https://go.mysite.in/j", expand) == "https://acme.com/j/9"
+    await expand.aclose()

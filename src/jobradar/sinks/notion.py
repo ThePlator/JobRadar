@@ -285,15 +285,17 @@ class NotionSink:
                 )
             except PageGone:
                 # Deleted by the user: forget it; a later change to the job creates it again.
-                log.info("notion page gone", extra={"job_id": job_id})
+                log.info("notion page gone", extra={"job_id": job_id[:10]})
                 repo.set_notion_page(job_id, None)
                 return
+            log.info("notion page updated", extra={"job_id": job_id[:10]})
         else:
             page_id = await self.client.create_page(
                 self.data_source_id,
                 build_properties(job, sightings, new_page=True),
                 build_body(sightings),
             )
+            log.info("notion page created", extra={"job_id": job_id[:10]})
         repo.set_notion_page(job_id, page_id)
 
     def handler(self, repo: Repo) -> Any:
