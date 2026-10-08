@@ -84,7 +84,7 @@ Build bottom-up: config → DB → queue first, because every later module is a 
 - [x] Dev tooling: ruff, mypy (strict on `src/`), pytest, pytest-asyncio, pre-commit
 - [x] GitHub Actions skeleton: ruff, mypy, pytest, gitleaks
 - [x] `.env.example`, `config.example.yaml`, `profile.example.yaml` copied from the LLD
-- [ ] Create a test Telegram channel and a test Notion workspace for manual runs
+- [x] Create a test Telegram channel and a test Notion workspace for manual runs
 
 **Done when:** `uv run jobradar --help` works and CI is green on an empty test suite.
 
@@ -102,32 +102,32 @@ Goal: every job from your channels lands in Notion once, without any AI.
 - [ ] `db/migrations/`: alembic baseline (tables are created with `create_all` until the schema settles)
 - [x] `queue/tasks.py`: `enqueue()` (upsert on `(type, key)`), `claim()`, `complete()`, `fail()`
 - [x] `queue/worker.py`: async loop, backoff `min(30s·4^(n−1), 1h)` ±20%, `failed` after 5 attempts, reclaim `running` tasks older than 10 min
-- [ ] `app.py`: wire sources, workers and scheduler; graceful shutdown
+- [x] `app.py`: wire sources, workers and scheduler; graceful shutdown
 
 **Ingestion**
 
-- [ ] `sources/base.py`: `IncomingMessage`, `Source` protocol, entry-point loader
-- [ ] `sources/telegram.py`: resolve chats → `source` rows; catch-up from `last_msg_id` / `backfill_days`; live `NewMessage` handler; URLs from entities and buttons; photo download when there's no URL; `FloodWaitError` sleep; session file `chmod 600`
+- [x] `sources/base.py`: `IncomingMessage`, `Source` protocol (entry-point loading comes with the first plugin)
+- [x] `sources/telegram.py`: resolve chats → `source` rows; catch-up from `last_msg_id` / `backfill_days`; live `NewMessage` handler; URLs from entities and buttons; photo download when there's no URL; `FloodWaitError` sleep; session file `chmod 600`
 
 **Pipeline**
 
-- [ ] `pipeline/links.py`: `canonicalise()` with redirect following (5 hops, 5 s), tracking-param stripping, host denylist, short-link cache
-- [ ] `pipeline/dedupe.py`: `sha1(canonical_url)` job ids; merge = `job_source` row only. Fingerprint merge is wired in v0.2, once company and role are extracted
-- [ ] `process_message` task: message → URLs → new or merged job → `notion_upsert`
+- [x] `pipeline/links.py`: `canonicalise()` with redirect following (5 hops, 5 s), tracking-param stripping, host denylist, short-link cache
+- [x] `pipeline/dedupe.py`: `sha1(canonical_url)` job ids; merge = `job_source` row only. Fingerprint merge is wired in v0.2, once company and role are extracted
+- [x] `process_message` task: message → URLs → new or merged job → `notion_upsert`
 
 **Output**
 
-- [ ] `sinks/notion.py` write path: find by Job ID, create/update, token bucket at 2.5 req/s, honour 429 `Retry-After`, 2,000-character splitting, agent-owned toggle in the page body
-- [ ] Start-up Notion schema check that names any missing property
-- [ ] Build the Notion template database with all properties and the 5 views
+- [x] `sinks/notion.py` write path: find by Job ID, create/update, token bucket at 2.5 req/s, honour 429 `Retry-After`, 2,000-character splitting, agent-owned toggle in the page body
+- [x] Start-up Notion schema check that names any missing property
+- [ ] Build the Notion template database: all properties done; the 5 views (Inbox, Top matches, Closing soon, Board, Applied) still to add
 
 **CLI:** `init` (config copy + Telegram login + Notion check), `run`, `chats`, `add <url>`, `retry --failed`
 
 **Tests**
 
-- [ ] Unit: `canonicalise()` table (utm, fbclid, www, fragments, trailing slash, short links via respx)
+- [x] Unit: `canonicalise()` table (utm, fbclid, www, fragments, trailing slash, short links via respx)
 - [x] Unit: queue idempotency, backoff math, stuck-task reclaim
-- [ ] Integration: fake source → SQLite → mock Notion
+- [x] Integration: fake source → SQLite → mock Notion
 
 **Exit gate:** 3 days of real channels in Notion with under 5% duplicates.
 

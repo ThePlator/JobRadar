@@ -19,7 +19,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # noqa: F401  (registers tables on SQLModel.metadata)
-from jobradar.db.models import Platform, RawMessage, Source, TaskStatus
+from jobradar.db.models import Job, JobStatus, Platform, RawMessage, Source, TaskStatus
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
 
@@ -42,6 +42,18 @@ def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
 
 def init_db(engine: Engine) -> None:
     SQLModel.metadata.create_all(engine)
+
+
+@dataclass(frozen=True)
+class Sighting:
+    """One message that posted a job, with where it came from."""
+
+    platform: str
+    chat_id: str
+    chat_title: str | None
+    message_id: str
+    text: str | None
+    posted_at: str
 
 
 @dataclass(frozen=True)
@@ -133,6 +145,83 @@ class Repo:
     def get_raw_message(self, raw_id: int) -> RawMessage | None:
         with Session(self.engine) as s:
             return s.get(RawMessage, raw_id)
+
+    def mark_processed(self, raw_id: int) -> None:
+        with self._tx() as c:
+            c.execute(text("UPDATE raw_message SET processed = 1 WHERE id = :id"), {"id": raw_id})
+
+    # ---- jobs ---------------------------------------------------------------------------------
+
+    def get_or_create_job(self, job_id: str, canonical_url: str | None) -> tuple[Job, bool]:
+        """Returns (job, created). Safe to call repeatedly for the same id."""
+        now = self._now()
+        with self._tx() as c:
+            created = (
+                c.execute(
+                    text(
+                        "INSERT INTO job (id, canonical_url, status, created_at, updated_at) "
+                        "VALUES (:id, :url, :status, :now, :now) "
+                        "ON CONFLICT DO NOTHING RETURNING id"
+                    ),
+                    {"id": job_id, "url": canonical_url, "status": JobStatus.DISCOVERED.value,
+                     "now": now},
+                ).first()
+                is not None
+            )  # fmt: skip
+        job = self.get_job(job_id)
+        if job is None:  # canonical_url belonged to another id; cannot happen with sha1 ids
+            raise RuntimeError(f"job {job_id} conflicts on canonical_url {canonical_url}")
+        return job, created
+
+    def get_job(self, job_id: str) -> Job | None:
+        with Session(self.engine) as s:
+            return s.get(Job, job_id)
+
+    def add_job_source(self, job_id: str, raw_message_id: int) -> bool:
+        """Record that a message posted this job. True if this pairing is new."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "INSERT INTO job_source (job_id, raw_message_id) VALUES (:job, :raw) "
+                    "ON CONFLICT DO NOTHING RETURNING job_id"
+                ),
+                {"job": job_id, "raw": raw_message_id},
+            ).first()
+        if row is not None:
+            self.touch_job(job_id)
+        return row is not None
+
+    def touch_job(self, job_id: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text("UPDATE job SET updated_at = :now WHERE id = :id"),
+                {"id": job_id, "now": self._now()},
+            )
+
+    def job_sightings(self, job_id: str) -> list[Sighting]:
+        """Every message that posted this job, oldest first."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT s.platform, s.chat_id, s.title, m.message_id, m.text, m.posted_at "
+                    "FROM job_source js JOIN raw_message m ON m.id = js.raw_message_id "
+                    "JOIN source s ON s.id = m.source_id WHERE js.job_id = :job "
+                    "ORDER BY m.posted_at, m.id"
+                ),
+                {"job": job_id},
+            ).all()
+        return [Sighting(*r) for r in rows]
+
+    def set_notion_page(self, job_id: str, page_id: str | None) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "UPDATE job SET notion_page_id = :page,"
+                    " notion_synced_at = CASE WHEN :page IS NULL THEN NULL ELSE :now END "
+                    "WHERE id = :id"
+                ),
+                {"id": job_id, "page": page_id, "now": self._now()},
+            )
 
     # ---- task queue ---------------------------------------------------------------------------
 
@@ -272,6 +361,18 @@ class Repo:
                 {"now": self._now()},
             )
             return result.rowcount
+
+    def has_ready_tasks(self, types: list[str]) -> bool:
+        """True while any task of these types is running or due to run now."""
+        names = [f":t{i}" for i in range(len(types))]
+        params: dict[str, Any] = {"now": self._now()} | {f"t{i}": t for i, t in enumerate(types)}
+        sql = (
+            "SELECT 1 FROM task WHERE (status = 'running'"  # noqa: S608  (placeholders only)
+            " OR (status = 'pending' AND run_after <= :now))"
+            f" AND type IN ({', '.join(names)}) LIMIT 1"
+        )
+        with self._tx() as c:
+            return c.execute(text(sql), params).first() is not None
 
     def task_counts(self) -> dict[TaskStatus, int]:
         with self._tx() as c:

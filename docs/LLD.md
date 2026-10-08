@@ -183,7 +183,7 @@ erDiagram
 
     source {
         INTEGER id PK
-        TEXT platform "telegram | email | whatsapp"
+        TEXT platform "telegram | email | whatsapp | manual"
         TEXT chat_id
         TEXT title
         INTEGER enabled
@@ -255,7 +255,7 @@ erDiagram
 ```sql
 CREATE TABLE source (
    id           INTEGER PRIMARY KEY,
-   platform     TEXT NOT NULL CHECK (platform IN ('telegram','email','whatsapp')),
+   platform     TEXT NOT NULL CHECK (platform IN ('telegram','email','whatsapp','manual'))  -- manual = `jobradar add`,
    chat_id      TEXT NOT NULL,
    title        TEXT,
    enabled      INTEGER NOT NULL DEFAULT 1,
