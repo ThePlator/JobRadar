@@ -223,6 +223,10 @@ Resume templates are plain `.tex.j2` files in `templates/`. CI runs ruff, mypy, 
 
 Issues and pull requests are welcome once v0.1 lands.
 
+## Security
+
+Found a vulnerability? Please report it privately, not in a public issue. See [SECURITY.md](SECURITY.md) for how, what's in scope, and what to do if a secret leaks.
+
 ## License
 
 [MIT](LICENSE)
