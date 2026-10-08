@@ -13,6 +13,7 @@ class Platform(StrEnum):
     TELEGRAM = "telegram"
     EMAIL = "email"
     WHATSAPP = "whatsapp"
+    MANUAL = "manual"  # `jobradar add <url>`
 
 
 class JobStatus(StrEnum):

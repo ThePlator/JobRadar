@@ -105,6 +105,13 @@ class ResumeConfig(_Strict):
     max_pages: int = Field(default=1, ge=1, le=3)
 
 
+class LinksConfig(_Strict):
+    # Extra redirect hosts to expand, e.g. a channel's own link shortener.
+    extra_shorteners: list[str] = Field(default_factory=list)
+    # Never treat as jobs: a host ("ads.example.com") or host/path prefix ("x.com/courses").
+    deny: list[str] = Field(default_factory=list)
+
+
 class StorageConfig(_Strict):
     local_dir: Path = Path("./output")
 
@@ -151,6 +158,7 @@ class AppConfig(_Strict):
     filters: FiltersConfig = Field(default_factory=FiltersConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     resume: ResumeConfig = Field(default_factory=ResumeConfig)
+    links: LinksConfig = Field(default_factory=LinksConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)

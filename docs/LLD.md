@@ -115,6 +115,10 @@ resume:
   template: classic
   max_pages: 1
 
+links:
+  extra_shorteners: []          # more redirect hosts to expand (channel-specific shorteners)
+  deny: []                      # host or host/path prefixes that are never jobs (ads, courses)
+
 storage:
   local_dir: ./output
   # resumes always go to Google Drive (GDRIVE_FOLDER_ID) and are linked in Notion
@@ -183,7 +187,7 @@ erDiagram
 
     source {
         INTEGER id PK
-        TEXT platform "telegram | email | whatsapp"
+        TEXT platform "telegram | email | whatsapp | manual"
         TEXT chat_id
         TEXT title
         INTEGER enabled
@@ -255,7 +259,7 @@ erDiagram
 ```sql
 CREATE TABLE source (
    id           INTEGER PRIMARY KEY,
-   platform     TEXT NOT NULL CHECK (platform IN ('telegram','email','whatsapp')),
+   platform     TEXT NOT NULL CHECK (platform IN ('telegram','email','whatsapp','manual'))  -- manual = `jobradar add`,
    chat_id      TEXT NOT NULL,
    title        TEXT,
    enabled      INTEGER NOT NULL DEFAULT 1,
@@ -516,7 +520,8 @@ stateDiagram-v2
 2. Lower-case scheme and host; drop `www.`; drop fragment.
 3. Remove query params matching `utm_*`, `ref`, `src`, `source`, `fbclid`, `gclid`, `trk`, `si`; sort remaining params.
 4. Strip trailing `/`.
-5. Ignore non-job hosts from a denylist (t.me, youtube.com, instagram.com, whatsapp.com).
+5. Ignore non-job hosts from a denylist (t.me, youtube.com, instagram.com, whatsapp.com), plus the user's `links.deny` rules (a host, or a host/path prefix for ads such as course pages). Channel-specific shorteners can be added with `links.extra_shorteners`.
+6. Telegram service messages (channel created, photo changed) are skipped, not stored as posts.
 
 ### `pipeline/dedupe.py`
 

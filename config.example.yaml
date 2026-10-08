@@ -35,6 +35,11 @@ resume:
   template: classic
   max_pages: 1
 
+links:
+  extra_shorteners: []    # your channels' own redirect domains, e.g. ["go.somejobs.in"]
+  deny: []                # never jobs: hosts or host/path prefixes, e.g.
+                          # ["acciojob.com/full-stack-development-courses"]
+
 storage:
   local_dir: ./output
   # Resumes are always uploaded to Google Drive (GDRIVE_FOLDER_ID) and linked in Notion.
