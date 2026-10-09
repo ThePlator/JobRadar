@@ -198,9 +198,9 @@ flowchart TB
     R4["<b>v0.4 Apply kit · week 8</b><br/>Form-answer drafts, cover letter, forward-to-add by email<br/><i>Exit: shortlisted job to submitted form in under 5 minutes</i>"]
     R5["<b>v1.0 Public open-source launch · week 8</b><br/>Docker image, Notion template, docs, CI, MIT license; WhatsApp source as experimental<br/><i>Exit: a new user is running it in under 15 minutes</i>"]
     R1 --> R2A --> R2B --> R2C --> R3 --> R4 --> R5
-    style R1 fill:#dcf1e4,stroke:#23774a
-    style R2A fill:#dcf1e4,stroke:#23774a
-    style R2B fill:#e3eefc,stroke:#3b82f6
+    style R1 fill:#dcf1e4,stroke:#23774a,color:#111
+    style R2A fill:#dcf1e4,stroke:#23774a,color:#111
+    style R2B fill:#e3eefc,stroke:#3b82f6,color:#111
 ```
 
 v0.1 is useful on its own: it solves the "too many groups to watch" problem before any AI is added. Durations are estimates for one developer working part-time.

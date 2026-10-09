@@ -494,8 +494,8 @@ stateDiagram-v2
     interview --> offer : offer
     hidden --> new : you un-hide
 
-    classDef user fill:#fde8df,stroke:#e8743b
-    classDef side fill:none,stroke:#aaa,stroke-dasharray: 4 4,color:#777
+    classDef user fill:#fde8df,stroke:#e8743b,color:#111
+    classDef side fill:none,stroke:#aaa,stroke-dasharray: 4 4,color:#888
     class shortlisted,applied,interview,offer user
     class needs_review,discarded,hidden side
 ```
@@ -622,7 +622,7 @@ flowchart TB
     L3 -->|role or company missing| L4["4 · LLM: prompts/extract.md"]
     L3 -->|enough fields| OUT["JobPosting + _sources"]
     L4 --> OUT
-    style L3 fill:#e3eefc,stroke:#3b82f6
+    style L3 fill:#e3eefc,stroke:#3b82f6,color:#111
 ```
 
 1. **Structured data:** `<script type="application/ld+json">` objects of `@type: JobPosting`: `title` → role, `hiringOrganization.name` → company, `jobLocation.address.addressLocality` → locations, `baseSalary` → salary_text, `validThrough` → deadline, `employmentType`, `experienceRequirements`, `educationRequirements`, `skills`. Public job-board APIs (Greenhouse, Lever) come in as site adapters.

@@ -68,10 +68,10 @@ flowchart TB
     N -- "Shortlisted / Skipped" --> DEC
     Service -.-> EXT
 
-    style N fill:#e3eefc,stroke:#3b82f6
-    style M fill:#e3eefc,stroke:#3b82f6
-    style A fill:#dcf1e4,stroke:#23774a
-    style EXT fill:#eeeeee,stroke:#bbbbbb
+    style N fill:#e3eefc,stroke:#3b82f6,color:#111
+    style M fill:#e3eefc,stroke:#3b82f6,color:#111
+    style A fill:#dcf1e4,stroke:#23774a,color:#111
+    style EXT fill:none,stroke:#888,stroke-dasharray: 5 5
 ```
 
 Every pipeline step reads and writes the SQLite store through the task queue, so steps can retry independently and an alert is never sent twice. A job's Notion row appears as soon as it is found; details, the match score and the status follow. Notion is both an output and an input: the poller reads Status changes, queues resume and kit tasks, and collects Shortlisted/Skipped choices for threshold suggestions. The decide step also queues a resume when a job scores at or above `auto_resume_above`.
@@ -132,10 +132,10 @@ flowchart TB
 
     A7 -. "score ≥ auto_resume_above" .-> B0a
 
-    style A9 fill:#dcf1e4,stroke:#23774a
-    style A10 fill:#e3eefc,stroke:#3b82f6
-    style B6 fill:#e3eefc,stroke:#3b82f6
-    classDef note fill:none,stroke:none,color:#666
+    style A9 fill:#dcf1e4,stroke:#23774a,color:#111
+    style A10 fill:#e3eefc,stroke:#3b82f6,color:#111
+    style B6 fill:#e3eefc,stroke:#3b82f6,color:#111
+    classDef note fill:none,stroke:none,color:#888
     class N2,N4 note
 ```
 
