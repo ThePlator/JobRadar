@@ -108,6 +108,7 @@ def make_matcher(
     return Matcher(
         repo, queue, providers, profile, version, config.matching,
         config.filters, config.scoring, alerts,
+        alert_max_age_days=config.notify.alert_max_age_days, tz=config.notify.tz,
     )  # fmt: skip
 
 

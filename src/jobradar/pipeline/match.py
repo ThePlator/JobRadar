@@ -11,10 +11,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta, tzinfo
 from typing import Any, Protocol
 
+from jobradar.clock import Clock, from_iso, utcnow
 from jobradar.config import FiltersConfig, MatchingConfig, ScoringConfig
-from jobradar.db.models import JobStatus
+from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline import scam
 from jobradar.pipeline.decide import decide
@@ -117,6 +119,9 @@ class Matcher:
         filters: FiltersConfig,
         scoring: ScoringConfig | None = None,
         alerts: AlertQueue | None = None,
+        alert_max_age_days: float = 2,
+        tz: tzinfo | None = None,
+        clock: Clock = utcnow,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -127,6 +132,9 @@ class Matcher:
         self.filters = filters
         self.scoring = scoring or ScoringConfig()
         self.alerts = alerts  # None: alerts off
+        self.alert_max_age_days = alert_max_age_days
+        self.tz = tz
+        self.clock = clock
 
     async def match(self, task: TaskRecord) -> None:
         job = self.repo.get_job(task.key)
@@ -192,8 +200,21 @@ class Matcher:
             self.queue.enqueue(NOTION_UPSERT, job_id)
             self.queue.enqueue(NOTION_BODY, job_id)
         if decision.alert and alert_ok and self.alerts is not None:
-            self.alerts.queue_alert(job_id)
+            if why_not := self._stale(job, posting):
+                log.info("alert skipped", extra={"job_id": job_id[:10], "why": why_not})
+            else:
+                self.alerts.queue_alert(job_id)
         return changed
+
+    def _stale(self, job: Job, posting: JobPosting) -> str | None:
+        """Why this job is too old to email about, or None."""
+        now = self.clock()
+        if from_iso(job.created_at) < now - timedelta(days=self.alert_max_age_days):
+            return f"first seen more than {self.alert_max_age_days:g} days ago"
+        today = now.astimezone(self.tz).date() if self.tz else now.date()
+        if posting.deadline and posting.deadline < today:
+            return f"deadline {posting.deadline.isoformat()} has passed"
+        return None
 
     def catch_up(self) -> tuple[int, int]:
         """At startup: re-score and re-decide stored answers (weights or thresholds may have

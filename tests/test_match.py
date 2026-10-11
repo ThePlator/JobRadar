@@ -26,6 +26,7 @@ PROFILE: dict[str, Any] = {
     "preferences": {"target_roles": ["Backend Engineer"], "work_modes": ["remote"]},
 }
 WEIGHTS = MatchingConfig().weights
+CLOCK = FakeClock()  # the same start time as the `clock` fixture the repo uses
 FILTERS = FiltersConfig(batch_years=[2025, 2026], max_experience_years=1)
 
 
@@ -273,7 +274,7 @@ async def test_strong_match_alerts_weak_one_hides(repo: Repo, queue: TaskQueue) 
     repo.save_extraction("strong", posting(role="Strong").model_dump_json(), "Acme", "Strong",
                          None, "rules-v1", JobStatus.EXTRACTED)  # fmt: skip
     m = Matcher(repo, queue, [ByJob()], PROFILE, "v1", MatchingConfig(), FILTERS,
-                ScoringConfig(alert_above=75), alerts)  # fmt: skip
+                ScoringConfig(alert_above=75), alerts, clock=CLOCK)  # fmt: skip
     for job_id in ("strong", "weak"):
         queue.enqueue(MATCH, job_id)
     await run(queue, m)
@@ -297,14 +298,41 @@ async def test_rematching_never_alerts(repo: Repo, queue: TaskQueue) -> None:
     seed_job(repo)
     alerts = Alerts()
     first = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
-                    FILTERS, ScoringConfig(alert_above=75), alerts)  # fmt: skip
+                    FILTERS, ScoringConfig(alert_above=75), alerts, clock=CLOCK)  # fmt: skip
     queue.enqueue(MATCH, "job1")
     await run(queue, first)
     assert alerts.queued == ["job1"]
 
     # The profile (or prompt) changed: the job is matched again, but you've seen it already.
     second = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v2", MatchingConfig(),
-                     FILTERS, ScoringConfig(alert_above=75), alerts)  # fmt: skip
+                     FILTERS, ScoringConfig(alert_above=75), alerts, clock=CLOCK)  # fmt: skip
     assert second.catch_up() == (0, 1)
     await run(queue, second)
     assert alerts.queued == ["job1"]
+
+
+@pytest.mark.parametrize(
+    ("days_later", "deadline", "alerted"),
+    [
+        (0, None, True),
+        (1, "2026-10-20", True),
+        (3, None, False),  # first seen 3 days ago: you've had it in your Inbox
+        (0, "2026-10-07", False),  # the deadline passed before the job was matched
+    ],
+)
+async def test_only_fresh_open_jobs_alert(
+    repo: Repo, queue: TaskQueue, days_later: int, deadline: str | None, alerted: bool
+) -> None:
+    from jobradar.config import ScoringConfig
+
+    seed_job(repo, deadline=deadline)  # created at the fixture clock's 8 Oct 09:00
+    later = FakeClock()
+    later.advance(days_later * 86400)
+    alerts = Alerts()
+    m = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, ScoringConfig(alert_above=75), alerts, clock=later)  # fmt: skip
+    queue.enqueue(MATCH, "job1")
+    await run(queue, m)
+    assert (alerts.queued == ["job1"]) == alerted
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.NEW  # stays in the Inbox either way
