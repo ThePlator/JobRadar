@@ -177,6 +177,8 @@ class NotifyConfig(_Strict):
     dry_run: bool = True
     alert_batch_minutes: int = Field(default=10, ge=0, le=120)
     max_alerts_per_day: int = Field(default=10, ge=1, le=100)
+    # Only jobs first seen this recently can alert; older ones were in your Inbox already.
+    alert_max_age_days: float = Field(default=2, gt=0, le=30)
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 

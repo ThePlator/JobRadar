@@ -252,6 +252,34 @@ def doctor() -> None:
 
 
 @app.command()
+def alerts(
+    test: Annotated[
+        bool, typer.Option("--test", help="Send yourself one test email, even in dry run.")
+    ] = False,
+) -> None:
+    """Email alert tools."""
+    from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.sinks.email_notify import smtp_send, test_email
+
+    if not test:
+        _fail("Nothing to do: pass --test to send yourself a test email.")
+    settings = _settings()
+    if missing := settings.missing("email"):
+        _fail("Add to .env first: " + ", ".join(missing))
+    msg = test_email(settings)
+    try:
+        smtp_send(settings, msg)
+    except (PermanentError, RetryableError) as e:
+        _fail(f"Not sent: {e}")
+    mode = (
+        "dry run is on: real alerts are saved to data/alerts/ instead"
+        if (settings.config.notify.dry_run)
+        else "alerts are on"
+    )
+    typer.secho(f"✓ test email sent to {msg['To']} ({mode})", fg="green")
+
+
+@app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
     from jobradar import app as application

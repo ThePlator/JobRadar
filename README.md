@@ -180,10 +180,12 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 | `jobradar add <url>` | Process one link manually |
 | `jobradar extract --missing` | Read jobs listed before extraction was enabled |
 | `jobradar extract --compare` | Check free extraction against earlier LLM answers, field by field (`--refetch` downloads pages again for their JobPosting data) |
+| `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
 | `jobradar stats [--days 3]` | Posts, jobs, reposts merged, likely duplicates, hidden ads, failed tasks |
 | `jobradar resume <job-id> [--template modern]` | Rebuild a resume now |
 | `jobradar retry --failed` | Re-queue failed tasks |
 | `jobradar doctor` | Check keys, Tectonic, Playwright, Notion properties, Drive access |
+| `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
 | `jobradar stats [--days 7]` | Jobs seen, unique, hidden, shortlisted, applied, LLM spend |
 
 You can also add jobs by forwarding any email, message text or link to your JobRadar mail folder (for Gmail: a `JobRadar` label with a filter).

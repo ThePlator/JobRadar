@@ -121,8 +121,8 @@ class AlertSender:
         send: Send | None = None,
         preview_dir: Path = PREVIEW_DIR,
     ) -> None:
+        self.settings = settings
         self.notify = settings.config.notify
-        self.email = settings.config.email
         self.secrets = settings.secrets
         self.repo = repo
         self.queue = queue
@@ -173,16 +173,35 @@ class AlertSender:
         self.repo.finish_alerts([j.id for j in jobs], "sent")
 
     def _smtp(self, msg: EmailMessage) -> None:
-        address, password = self.secrets.email_address, self.secrets.email_app_password
-        if not address or password is None:
-            raise PermanentError("EMAIL_ADDRESS / EMAIL_APP_PASSWORD missing in .env")
-        try:
-            with smtplib.SMTP(self.email.smtp_host, self.email.smtp_port, timeout=30) as smtp:
-                smtp.starttls(context=ssl.create_default_context())
-                smtp.login(address, password.get_secret_value())
-                smtp.send_message(msg)
-        except smtplib.SMTPAuthenticationError as e:
-            # Retrying a rejected password only risks a lockout.
-            raise PermanentError("email login rejected: check EMAIL_APP_PASSWORD") from e
-        except (smtplib.SMTPException, OSError) as e:
-            raise RetryableError(f"could not send email: {e}") from e
+        smtp_send(self.settings, msg)
+
+
+def smtp_send(settings: Settings, msg: EmailMessage) -> None:
+    """Send over SMTP with STARTTLS as EMAIL_ADDRESS."""
+    secrets, email = settings.secrets, settings.config.email
+    address, password = secrets.email_address, secrets.email_app_password
+    if not address or password is None:
+        raise PermanentError("EMAIL_ADDRESS / EMAIL_APP_PASSWORD missing in .env")
+    try:
+        with smtplib.SMTP(email.smtp_host, email.smtp_port, timeout=30) as smtp:
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.login(address, password.get_secret_value())
+            smtp.send_message(msg)
+    except smtplib.SMTPAuthenticationError as e:
+        # Retrying a rejected password only risks a lockout.
+        raise PermanentError("email login rejected: check EMAIL_APP_PASSWORD") from e
+    except (smtplib.SMTPException, OSError) as e:
+        raise RetryableError(f"could not send email: {e}") from e
+
+
+def test_email(settings: Settings) -> EmailMessage:
+    """What an alert looks like, with a made-up job, for `jobradar alerts --test`."""
+    example = Job(
+        id="example", role="Backend Engineer (example)", company="JobRadar test", score=88,
+        score_reason="Good fit · 88 · eligible ✓ · Python, SQL ✓ · missing Kafka · Remote ✓",
+        canonical_url="https://github.com/ThePlator/JobRadar", created_at="", updated_at="",
+    )  # fmt: skip
+    sender = settings.secrets.email_address or ""
+    msg = build_email([example], sender, settings.secrets.notify_address or sender)
+    msg.replace_header("Subject", "[JobRadar] Test email: alerts reach you")
+    return msg

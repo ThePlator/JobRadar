@@ -151,7 +151,7 @@ class FakeSMTP:
 
 def test_smtp_errors(monkeypatch: pytest.MonkeyPatch, repo: Repo, queue: TaskQueue) -> None:
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
-    alerts = AlertSender(settings(), repo, queue)
+    alerts = AlertSender(settings(), repo, queue)  # _smtp is smtp_send with these settings
     msg = EmailMessage()
     msg["Subject"] = "test"
     alerts._smtp(msg)
@@ -169,3 +169,18 @@ def test_dry_run_is_the_default() -> None:
     from jobradar.config import NotifyConfig
 
     assert NotifyConfig().dry_run is True
+
+
+def test_test_email_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+
+    from jobradar import __main__ as cli
+
+    sent: list[EmailMessage] = []
+    monkeypatch.setattr(cli, "_settings", lambda: settings(dry_run=True))
+    monkeypatch.setattr("jobradar.sinks.email_notify.smtp_send", lambda s, m: sent.append(m))
+    result = CliRunner().invoke(cli.app, ["alerts", "--test"])
+    assert result.exit_code == 0, result.output
+    assert "test email sent to phone@example.com" in result.output
+    assert sent[0]["Subject"] == "[JobRadar] Test email: alerts reach you"
+    assert "Backend Engineer (example)" in sent[0].get_body(("plain",)).get_content()
