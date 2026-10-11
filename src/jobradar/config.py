@@ -93,7 +93,7 @@ class FiltersConfig(_Strict):
 
 class ScoringConfig(_Strict):
     hide_below: Percent = 40
-    alert_above: Percent = 85
+    alert_above: Percent = 75
     auto_resume_above: Percent | None = 85
 
     @model_validator(mode="after")

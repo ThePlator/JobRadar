@@ -1,8 +1,9 @@
 """Email alerts over SMTP, sent only to NOTIFY_TO (or EMAIL_ADDRESS).
 
 - One alert per job, ever (`alert` table).
-- Alerts queued within `notify.alert_batch_minutes` go out as one email: the first alert
-  schedules the send, later ones join it.
+- The first alert goes out at once. Alerts that follow within `notify.alert_batch_minutes`
+  of an email wait and go out together when that window ends, so a burst of posts gives
+  you one follow-up rather than one email each.
 - At most `notify.max_alerts_per_day` per local day; the rest are marked `capped`.
 - `notify.dry_run`: nothing is sent; the email is logged and saved to data/alerts/*.html.
 """
@@ -15,16 +16,16 @@ import logging
 import smtplib
 import ssl
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 
-from jobradar.clock import Clock, to_iso, utcnow
+from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import Settings
 from jobradar.db.models import Job
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.schemas import JobPosting
-from jobradar.pipeline.task_types import SEND_ALERTS
+from jobradar.pipeline.task_types import FRESH, SEND_ALERTS
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
 
 log = logging.getLogger(__name__)
@@ -69,15 +70,34 @@ def subject(jobs: list[Job]) -> str:
     return f"[JobRadar] {len(jobs)} strong matches · best: {_title(best)} ({best.score})"
 
 
-def build_email(jobs: list[Job], sender: str, to: str) -> EmailMessage:
-    """Plain text and HTML versions of one alert email covering these jobs."""
+def posted_ago(posted_at: str, chat: str | None, now: datetime) -> str:
+    """'posted 3 min ago in Freshershunt'."""
+    minutes = max(int((now - from_iso(posted_at)).total_seconds() // 60), 0)
+    if minutes < 1:
+        age = "just now"
+    elif minutes < 60:
+        age = f"{minutes} min ago"
+    elif minutes < 48 * 60:
+        age = f"{minutes // 60} h ago"
+    else:
+        age = f"{minutes // (24 * 60)} days ago"
+    return f"posted {age}" + (f" in {chat}" if chat else "")
+
+
+def build_email(
+    jobs: list[Job], sender: str, to: str, seen: dict[str, str] | None = None
+) -> EmailMessage:
+    """Plain text and HTML versions of one alert email covering these jobs. `seen` maps a
+    job id to where and when it was posted."""
+    seen = seen or {}
     text_parts: list[str] = []
     html_parts: list[str] = []
     for job in jobs:
         posting = _posting(job)
         apply = (posting.apply_url if posting else None) or job.canonical_url
         page = notion_url(job.notion_page_id)
-        lines = [f"{_title(job)} · {job.score}{_closes(job)}", job.score_reason or ""]
+        fresh = seen.get(job.id, "")
+        lines = [f"{_title(job)} · {job.score}{_closes(job)}", fresh, job.score_reason or ""]
         if apply:
             lines.append(f"Apply: {apply}")
         if page:
@@ -94,6 +114,7 @@ def build_email(jobs: list[Job], sender: str, to: str) -> EmailMessage:
             f"<div style='font-size:16px;font-weight:600'>{html.escape(_title(job))}"
             f" <span style='color:#2456c4'>{job.score}</span>"
             f"<span style='color:#5b6372;font-weight:400'>{html.escape(_closes(job))}</span></div>"
+            f"<div style='color:#1f7a4a;margin:2px 0'>{html.escape(fresh)}</div>"
             f"<div style='color:#5b6372;margin:4px 0'>{html.escape(job.score_reason or '')}</div>"
             f"<div>{' · '.join(links)}</div></div>"
         )
@@ -132,9 +153,16 @@ class AlertSender:
 
     def queue_alert(self, job_id: str) -> None:
         """Called by the decide step. A job is alerted at most once."""
-        if self.repo.queue_alert(job_id):
-            # A pending send keeps its earlier time, so later alerts join the same email.
-            self.queue.enqueue(SEND_ALERTS, BATCH_KEY, delay=self.notify.alert_batch_minutes * 60)
+        if not self.repo.queue_alert(job_id):
+            return
+        # Send now, unless an email went out within the window: then wait for its end, and
+        # every alert arriving meanwhile joins that one follow-up (a pending send keeps its
+        # earlier time).
+        wait = 0.0
+        if last := self.repo.last_alert_sent_at():
+            window_ends = from_iso(last) + timedelta(minutes=self.notify.alert_batch_minutes)
+            wait = max((window_ends - self.clock()).total_seconds(), 0.0)
+        self.queue.enqueue(SEND_ALERTS, BATCH_KEY, delay=wait, priority=FRESH)
 
     def _since_midnight(self) -> str:
         local = self.clock().astimezone(self.notify.tz)
@@ -154,7 +182,7 @@ class AlertSender:
             return
         sender = self.secrets.email_address or "jobradar@localhost"
         to = self.secrets.notify_address or sender
-        msg = build_email(jobs, sender, to)
+        msg = build_email(jobs, sender, to, self._seen(jobs))
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html")
             log.info(
@@ -166,6 +194,15 @@ class AlertSender:
         await asyncio.to_thread(self._send, msg)
         log.info("alert email sent", extra={"jobs": len(jobs)})
         self.repo.finish_alerts([j.id for j in jobs], "sent")
+
+    def _seen(self, jobs: list[Job]) -> dict[str, str]:
+        seen: dict[str, str] = {}
+        now = self.clock()
+        for job in jobs:
+            if sightings := self.repo.job_sightings(job.id):
+                first = sightings[0]
+                seen[job.id] = posted_ago(first.posted_at, first.chat_title, now)
+        return seen
 
     def _smtp(self, msg: EmailMessage) -> None:
         smtp_send(self.settings, msg)

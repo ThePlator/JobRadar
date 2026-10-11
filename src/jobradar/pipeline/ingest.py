@@ -17,7 +17,7 @@ from jobradar.pipeline.promo import (
     PostContext,
     looks_like_promo,
 )
-from jobradar.pipeline.task_types import FETCH, NOTION_UPSERT, PROCESS_MESSAGE
+from jobradar.pipeline.task_types import FETCH, FRESH, NOTION_UPSERT, PROCESS_MESSAGE
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sources.base import Emit, IncomingMessage
 
@@ -96,11 +96,11 @@ class Ingest:
             if created:
                 log.info("new job", extra={"job_id": job_id[:10], "url": url})
                 if self.extract:
-                    self.queue.enqueue(FETCH, job_id)
+                    self.queue.enqueue(FETCH, job_id, priority=FRESH)
             elif seen_here_first:
                 log.info("duplicate job, added sighting", extra={"job_id": job_id[:10]})
             if created or seen_here_first:
-                self.queue.enqueue(NOTION_UPSERT, job_id)
+                self.queue.enqueue(NOTION_UPSERT, job_id, priority=FRESH if created else 0)
         self.repo.mark_processed(raw.id)
 
     def _hide(self, job_id: str, reason: str) -> None:

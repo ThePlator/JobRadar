@@ -15,7 +15,7 @@ import logging
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
-from jobradar.clock import from_iso
+from jobradar.clock import Clock, from_iso, utcnow
 from jobradar.db.models import FetchedPage, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.llm import SchemaError, load_prompt
@@ -23,7 +23,7 @@ from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.post_labels import from_post
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.structured import from_job_posting
-from jobradar.pipeline.task_types import EXTRACT, MATCH, NOTION_BODY, NOTION_UPSERT
+from jobradar.pipeline.task_types import EXTRACT, MATCH, NOTION_BODY, NOTION_UPSERT, priority
 from jobradar.queue.tasks import MAX_ATTEMPTS, RetryableError, TaskQueue
 
 if TYPE_CHECKING:
@@ -86,6 +86,7 @@ class Extractor:
         model: str,
         mode: ExtractMode = "fallback",
         match: bool = False,
+        clock: Clock = utcnow,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -94,6 +95,7 @@ class Extractor:
         self.model = model
         self.mode = mode
         self.match = match  # queue matching after extraction
+        self.clock = clock
         self.prompt = load_prompt("extract")
 
     async def fetch(self, task: TaskRecord) -> None:
@@ -115,7 +117,7 @@ class Extractor:
                 )
                 if page.text is None:
                     log.info("page not usable", extra={"job_id": job.id[:10], "why": page.note})
-        self.queue.enqueue(EXTRACT, job.id)
+        self.queue.enqueue(EXTRACT, job.id, priority=priority(job.created_at, self.clock()))
 
     async def extract(self, task: TaskRecord) -> None:
         job = self.repo.get_job(task.key)
@@ -156,7 +158,9 @@ class Extractor:
         posting = JobPosting.model_validate(fields)
         used_llm = "llm" in sources.values()  # includes its confidence
         version = f"{RULES_VERSION}+{self.prompt.version}" if used_llm else RULES_VERSION
-        self._save(job.id, posting, sources, version, is_job)
+        self._save(
+            job.id, posting, sources, version, is_job, priority(job.created_at, self.clock())
+        )
 
     async def _llm(
         self,
@@ -189,7 +193,13 @@ class Extractor:
             return f"extraction failed: {e}"
 
     def _save(
-        self, job_id: str, posting: JobPosting, sources: dict[str, str], version: str, is_job: bool
+        self,
+        job_id: str,
+        posting: JobPosting,
+        sources: dict[str, str],
+        version: str,
+        is_job: bool,
+        rank: int = 0,
     ) -> None:
         status = JobStatus.EXTRACTED if is_job else JobStatus.DISCARDED
         data = posting.model_dump(mode="json") | {"_sources": sources}
@@ -209,8 +219,8 @@ class Extractor:
                 "llm": "llm" in sources.values(),
             },
         )  # fmt: skip
-        self.queue.enqueue(NOTION_UPSERT, job_id)
+        self.queue.enqueue(NOTION_UPSERT, job_id, priority=rank)
         if is_job:
             self.queue.enqueue(NOTION_BODY, job_id)
             if self.match:
-                self.queue.enqueue(MATCH, job_id)
+                self.queue.enqueue(MATCH, job_id, priority=rank)
