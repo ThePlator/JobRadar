@@ -260,3 +260,18 @@ async def test_body_waits_for_the_page(mock_api: respx.MockRouter, repo: Repo) -
     with pytest.raises(RetryableError, match="not created yet"):
         await sink.rebuild_body(repo, "abc")
     await sink.aclose()
+
+
+def test_match_score_and_reason() -> None:
+    matched = extracted_job(score=82, score_reason="Good fit · 82 · eligible ✓")
+    matched.status = JobStatus.NEW.value
+    assert build_properties(matched, [], new_page=False)["Match Score"] == {"number": 82}
+    body = notion.build_body([], notion.posting_of(matched), notion.match_line(matched))
+    first = body[0]["toggle"]["children"][0]
+    assert first["type"] == "callout"
+    assert (
+        first["callout"]["rich_text"][0]["text"]["content"] == "Match: Good fit · 82 · eligible ✓"
+    )
+    # Why a job was hidden is not a match reason.
+    assert notion.match_line(job(status="hidden", score_reason="promo link")) is None
+    assert "Match Score" not in build_properties(extracted_job(), [], new_page=False)

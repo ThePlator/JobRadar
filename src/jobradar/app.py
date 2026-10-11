@@ -7,20 +7,26 @@ import contextlib
 import logging
 import signal
 
-from jobradar.config import Settings
+from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
 from jobradar.llm import LLM
 from jobradar.pipeline.extract import Extractor
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
+from jobradar.pipeline.match import Matcher
 from jobradar.pipeline.task_types import (
     EXTRACT,
     FETCH,
+    MATCH,
     NOTION_BODY,
     NOTION_UPSERT,
     PROCESS_MESSAGE,
 )
+from jobradar.profile import compact_profile, load_profile, profile_version
+from jobradar.providers.base import MatchProvider
+from jobradar.providers.llm import LLMProvider
+from jobradar.providers.skills_rule import SkillsRule
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
 from jobradar.sinks import notion
@@ -55,6 +61,36 @@ def make_ingest(
     return ingest, expander
 
 
+def make_matcher(
+    settings: Settings, repo: Repo, queue: TaskQueue, llm: LLM | None
+) -> Matcher | None:
+    """The matcher, or None (with a warning) when matching is off or has no profile."""
+    config = settings.config
+    if not config.matching.enabled:
+        return None
+    try:
+        profile = compact_profile(
+            load_profile(config.matching.profile_path), config.filters, config.matching
+        )
+    except ConfigError as e:
+        log.warning("matching is off: " + str(e))
+        return None
+    providers: list[MatchProvider] = []
+    for name in config.matching.providers:
+        if name == "llm" and llm is not None:
+            providers.append(
+                LLMProvider(llm, config.llm.extract_model, config.matching.branch_strict)
+            )
+        elif name == "skills_rule":
+            providers.append(SkillsRule())
+    if not providers:
+        log.warning("matching is off: no provider available (add an LLM key or skills_rule)")
+        return None
+    return Matcher(
+        repo, queue, providers, profile, profile_version(profile), config.matching, config.filters
+    )
+
+
 class Pipeline:
     """Everything the worker runs, plus what needs closing on shutdown."""
 
@@ -67,15 +103,20 @@ class Pipeline:
             NOTION_BODY: sink.body_handler(repo),
         }
         llm_config = settings.config.llm
+        llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
+        self.matcher = make_matcher(settings, repo, queue, llm)
         extractor = Extractor(
             repo,
             queue,
             self.fetcher,
-            LLM(settings, repo) if llm_enabled(settings) else None,
+            llm,
             llm_config.extract_model,
             llm_config.extract_mode,
+            match=self.matcher is not None,
         )
         handlers[FETCH], handlers[EXTRACT] = extractor.fetch, extractor.extract
+        if self.matcher is not None:
+            handlers[MATCH] = self.matcher.match
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
@@ -95,6 +136,10 @@ async def run(settings: Settings) -> None:
     worker = pipeline.worker
     if hidden := pipeline.ingest.sweep_promos():
         log.info("hid promo links found in earlier posts", extra={"count": hidden})
+    if pipeline.matcher is not None:
+        rescored, queued = pipeline.matcher.catch_up()
+        if rescored or queued:
+            log.info("matching caught up", extra={"rescored": rescored, "queued": queued})
     source = TelegramSource(settings, repo)
 
     loop = asyncio.get_running_loop()

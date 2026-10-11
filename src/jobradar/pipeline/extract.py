@@ -23,7 +23,7 @@ from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.post_labels import from_post
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.structured import from_job_posting
-from jobradar.pipeline.task_types import EXTRACT, NOTION_BODY, NOTION_UPSERT
+from jobradar.pipeline.task_types import EXTRACT, MATCH, NOTION_BODY, NOTION_UPSERT
 from jobradar.queue.tasks import MAX_ATTEMPTS, RetryableError, TaskQueue
 
 if TYPE_CHECKING:
@@ -85,6 +85,7 @@ class Extractor:
         llm: LLM | None,
         model: str,
         mode: ExtractMode = "fallback",
+        match: bool = False,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -92,6 +93,7 @@ class Extractor:
         self.llm = llm  # None: no LLM key, free layers only
         self.model = model
         self.mode = mode
+        self.match = match  # queue matching after extraction
         self.prompt = load_prompt("extract")
 
     async def fetch(self, task: TaskRecord) -> None:
@@ -210,3 +212,5 @@ class Extractor:
         self.queue.enqueue(NOTION_UPSERT, job_id)
         if is_job:
             self.queue.enqueue(NOTION_BODY, job_id)
+            if self.match:
+                self.queue.enqueue(MATCH, job_id)

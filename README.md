@@ -4,7 +4,7 @@
 
 JobRadar is an open-source, self-hosted agent that watches your Telegram job channels, pulls out each job's details (free rules first, an LLM only when needed), judges how well every job fits your profile with **[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)**, emails you only about strong and certain matches, builds a tailored one-page LaTeX resume, and lays everything out in a Notion dashboard. You review and click Submit; JobRadar never applies for you.
 
-> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
+> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) and the Match Score (your profile vs each job, with a reason) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
 
 ---
 
@@ -155,13 +155,14 @@ scoring:
   alert_above: 75         # at or above, and confident and eligible → email alert
   auto_resume_above: 85   # at or above → resume built automatically (null = only on Shortlisted)
 
-matching:                 # v0.2 B
-  providers: [jev, llm, skills_rule]   # tried in order
+matching:
+  providers: [llm, skills_rule]   # tried in order (jev joins in v0.2 B3)
   weights: {skills_coverage: 0.40, role_alignment: 0.30, seniority_fit: 0.15, location_ok: 0.15}
-  min_confidence: 0.5     # below this: Inbox, marked "unsure", never emailed
+  min_confidence: 0.5     # below this: marked "unsure", never emailed
+  branch_strict: false    # true: "CSE/IT only" jobs count as not eligible
 ```
 
-Changing `weights` or thresholds re-ranks your jobs from stored answers, with no new model calls.
+Changing `weights` re-ranks your jobs from stored answers at the next start, with no new model calls. Editing `profile.yaml` or `filters` matches open jobs again.
 
 Run `jobradar chats` to list every chat your account can read, with the ids to paste here.
 
@@ -209,7 +210,7 @@ Most details come from free rules. Matching with Jev costs about ₹0.01 per job
 |---|---|---|
 | **v0.1 Ingest (MVP)** ✓ | Telegram listener, link cleanup, dedupe, ad filtering, SQLite queue, one Notion row per job, `stats` | 3 days of real channels with under 5% duplicates (0.9% so far) |
 | **v0.2 A Read jobs** ✓ | Page fetching, Gemini extraction, Notion columns and details | |
-| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓ (page data, post labels), Jev matching with confidence, decide step, email alerts and digests, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
+| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓, Match Score with Gemini ✓, decide step, email alerts and digests, Jev matching with confidence, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
 | **v0.2 C Text-only posts** | Posts without links, poster OCR, reposts with different links | |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, Tectonic, validator, Drive upload, auto + Shortlisted triggers | One-page PDF and zero unknown skills across 50 jobs |
 | **v0.4 Apply kit** | Form answers, cover letter, forward-to-add by email | Shortlisted job to submitted form in under 5 minutes |
