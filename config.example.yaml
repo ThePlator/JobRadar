@@ -72,5 +72,6 @@ notify:
   alert_batch_minutes: 10 # alerts inside this window arrive as one email
   max_alerts_per_day: 10
   alert_max_age_days: 2   # only jobs first seen this recently can alert
+  digest: true            # summary email at each digest time (skipped when nothing happened)
   digest_times: ["09:00", "19:00"]
   timezone: Asia/Kolkata

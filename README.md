@@ -180,11 +180,13 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 | `jobradar add <url>` | Process one link manually |
 | `jobradar extract --missing` | Read jobs listed before extraction was enabled |
 | `jobradar extract --compare` | Check free extraction against earlier LLM answers, field by field (`--refetch` downloads pages again for their JobPosting data) |
+| `jobradar digest --now` | Send the morning/evening digest for the current window right away |
 | `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
 | `jobradar stats [--days 3]` | Posts, jobs, reposts merged, likely duplicates, hidden ads, failed tasks |
 | `jobradar resume <job-id> [--template modern]` | Rebuild a resume now |
 | `jobradar retry --failed` | Re-queue failed tasks |
 | `jobradar doctor` | Check keys, Tectonic, Playwright, Notion properties, Drive access |
+| `jobradar digest --now` | Send the morning/evening digest for the current window right away |
 | `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
 | `jobradar stats [--days 7]` | Jobs seen, unique, hidden, shortlisted, applied, LLM spend |
 

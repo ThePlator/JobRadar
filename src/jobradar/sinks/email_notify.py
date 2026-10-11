@@ -156,12 +156,7 @@ class AlertSender:
         to = self.secrets.notify_address or sender
         msg = build_email(jobs, sender, to)
         if self.notify.dry_run:
-            self.preview_dir.mkdir(parents=True, exist_ok=True)
-            path = self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html"
-            body = msg.get_body(("html",))
-            path.write_text(
-                f"<h3>{html.escape(msg['Subject'])}</h3>" + (body.get_content() if body else "")
-            )
+            path = save_preview(msg, self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html")
             log.info(
                 "dry run: would have emailed",
                 extra={"subject": msg["Subject"], "preview": str(path)},
@@ -174,6 +169,16 @@ class AlertSender:
 
     def _smtp(self, msg: EmailMessage) -> None:
         smtp_send(self.settings, msg)
+
+
+def save_preview(msg: EmailMessage, path: Path) -> Path:
+    """Dry run: the email as an HTML file you can open in a browser."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = msg.get_body(("html",))
+    path.write_text(
+        f"<h3>{html.escape(msg['Subject'])}</h3>" + (body.get_content() if body else "")
+    )
+    return path
 
 
 def smtp_send(settings: Settings, msg: EmailMessage) -> None:
