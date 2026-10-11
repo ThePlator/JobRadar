@@ -13,6 +13,8 @@ sources:
 
 llm:
   extract_model: "gemini/gemini-flash-lite-latest"  # extraction + scoring (cheap, fast)
+  extract_mode: fallback    # fallback: LLM only when the page and post don't state role and
+                            #   company (most posts do); always: every job (adds summaries)
   writer_model: "gemini/gemini-pro-latest"        # resumes + form answers
   # Groq alternative:
   # extract_model: "groq/llama-3.1-8b-instant"

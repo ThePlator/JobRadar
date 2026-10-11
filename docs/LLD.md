@@ -103,7 +103,8 @@ sources:
   whatsapp: { enabled: false, port: 8765 }   # experimental
 
 llm:
-  extract_model: "gemini/gemini-flash-latest"     # extraction + scoring
+  extract_model: "gemini/gemini-flash-lite-latest"  # extraction + scoring
+  extract_mode: fallback                            # fallback | always (see extract.py)
   writer_model: "gemini/gemini-pro-latest"        # resumes + form answers
   # Groq alternative:
   # extract_model: "groq/llama-3.1-8b-instant"
@@ -286,6 +287,7 @@ erDiagram
         TEXT title
         TEXT text
         TEXT note
+        TEXT structured_json
         TEXT fetched_at
     }
     match_result {
@@ -391,6 +393,7 @@ CREATE TABLE fetched_page (                    -- v0.2 A
    title      TEXT,
    text       TEXT,                            -- NULL: login wall, blocked, not HTML
    note       TEXT,                            -- why there is no text
+   structured_json TEXT,                       -- schema.org JobPosting (v0.2 B4a)
    fetched_at TEXT NOT NULL
 );
 
@@ -612,7 +615,7 @@ stateDiagram-v2
 *As built (v0.2 A):* `fetch` and `extract` are separate tasks; the page text is kept in a `fetched_page` table between them. A site that still fails on the 4th attempt is given up on and the post text is used. Extraction runs only when the LLM key is set; without it jobs are listed as in v0.1. `jobradar extract --missing` queues jobs that were listed before extraction existed. The default extraction model is `gemini/gemini-flash-lite-latest` (about ₹0.10 per job at list prices). The LLM layer validates JSON itself (lenient Pydantic schema plus one repair turn) instead of using instructor. After extraction, `notion_upsert` fills the properties and `notion_body` replaces the agent's toggle with summary, eligibility and skills.
 
 
-*Planned (v0.2 B): layered extraction, cheapest first.* Each layer fills only fields that are still empty, and `data_json["_sources"]` records which layer produced each field.
+*Layered extraction, cheapest first* (layers 1, 2 and 4 built in v0.2 B4a; layer 3 is B4b). Each layer fills only fields that are still empty, and `data_json["_sources"]` records which layer produced each field (`structured`, `post_labels`, `llm`). `job.prompt_version` is `rules-v1`, or `rules-v1+extract-v1` when the LLM ran. Shared value parsers (dates, experience, batches, degrees, locations) live in `pipeline/values.py`.
 
 ```mermaid
 flowchart TB
@@ -626,9 +629,14 @@ flowchart TB
 ```
 
 1. **Structured data:** `<script type="application/ld+json">` objects of `@type: JobPosting`: `title` → role, `hiringOrganization.name` → company, `jobLocation.address.addressLocality` → locations, `baseSalary` → salary_text, `validThrough` → deadline, `employmentType`, `experienceRequirements`, `educationRequirements`, `skills`. Public job-board APIs (Greenhouse, Lever) come in as site adapters.
-2. **Post labels:** normalise with `unicodedata.normalize("NFKC", …)` (turns decorative "𝗥𝗘𝗟𝗜𝗔𝗡𝗖𝗘" into "RELIANCE"), strip emoji, then match lines such as `^(company|role|position|location|salary|ctc|stipend|batch|eligibility|qualification|experience|last date|apply by)\s*[:\-–]\s*(.+)$`.
+2. **Post labels:** normalise with `unicodedata.normalize("NFKC", …)` (turns decorative "𝗥𝗘𝗟𝗜𝗔𝗡𝗖𝗘" into "RELIANCE"), strip emoji, then match lines such as `^(company|role|position|location|salary|ctc|stipend|batch|eligibility|qualification|experience|last date|walk-in date|job type)(:| - )(.+)$`, plus "X is hiring (for) Y" in the first lines. Labels are used only from a post whose other links are all hidden or not jobs, so a digest's "Company:" line is never given to the wrong job. "Multiple Roles" and "is hiring in Hyderabad" give no role.
+   - *Deadline rule:* job blogs generate `validThrough` (six months on, 31 December), so a deadline in the post wins, and a page deadline counts only if it falls within 45 days after the post.
 3. **Candidates + selection** (TypeSafe "select instead of generate"): recall-tuned finders collect candidate spans per field (salary patterns, dates, batch years, experience ranges, skill dictionary with aliases, Indian city list, capitalised organisation names). One candidate → take it. Several → one Jev `Choice` per field with criteria = the candidates plus "None of these is the requested value" (at most 255 options); accept when confidence ≥ `matching.min_confidence`, otherwise leave the field empty. Code copies the chosen span verbatim and normalises it.
-4. **LLM fallback:** only if role or company is still missing: `llm.structured(model=extract_model, schema=JobPosting, prompt="extract.md")`, cached by `sha1(model | prompt_version | input)`.
+4. **LLM fallback:** only if role or company is still missing (`llm.extract_mode: fallback`; `always` asks on every job, and free layers still win field by field): `llm.structured(model=extract_model, schema=JobPosting, prompt="extract.md")`, cached by `sha1(model | prompt_version | input)`. Without an LLM key the free layers run alone; a job with nothing found becomes `needs_review`. If the LLM fails but the free layers found role and company, the job is still `extracted`.
+
+*Accuracy check:* `jobradar extract --compare` re-runs the free layers on jobs the LLM read earlier and reports, per field, how many it filled and how many agree (loose on wording and city spellings). `--refetch` downloads pages again to read their JobPosting data. First real run (136 jobs): 68% skipped the LLM; company 99%, role 93%, locations 96%, deadline 89%, salary 79% (mostly the LLM rephrasing).
+
+*Schema changes:* `fetched_page.structured_json` holds the page's JobPosting object. `init_db` adds new nullable columns to existing tables (`ALTER TABLE … ADD COLUMN`); a new required column on an existing table is refused.
 
 If the result has low confidence and no company or role → status `discarded` (not a job post).
 

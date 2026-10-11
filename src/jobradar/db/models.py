@@ -142,7 +142,8 @@ class Task(SQLModel, table=True):
 
 
 class FetchedPage(SQLModel, table=True):
-    """Main text of a job's page, kept between the fetch and extract tasks."""
+    """Main text of a job's page (and its JobPosting data, if any), kept between the fetch
+    and extract tasks."""
 
     __tablename__ = "fetched_page"
 
@@ -151,6 +152,7 @@ class FetchedPage(SQLModel, table=True):
     title: str | None = None
     text: str | None = None  # None: login wall, blocked, or not HTML; use the post text
     note: str | None = None  # why there is no text
+    structured_json: str | None = None  # schema.org JobPosting embedded in the page
     fetched_at: str
 
 

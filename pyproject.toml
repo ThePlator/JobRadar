@@ -71,7 +71,8 @@ extend-exclude = ["docs"]
 select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF", "ASYNC", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S311", "ASYNC109", "ASYNC110", "E501"]
+# Tests feed real-looking posts: decorative Unicode and en dashes are the input under test.
+"tests/**" = ["S101", "S311", "ASYNC109", "ASYNC110", "E501", "RUF001"]
 
 [tool.mypy]
 python_version = "3.11"

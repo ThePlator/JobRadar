@@ -63,6 +63,9 @@ class SourcesConfig(_Strict):
 
 class LLMConfig(_Strict):
     extract_model: str = "gemini/gemini-flash-lite-latest"
+    # fallback: only jobs whose page and post don't state role and company go to the LLM.
+    # always: every job does (fills summary and skills too, at the cost of an LLM call each).
+    extract_mode: Literal["fallback", "always"] = "fallback"
     writer_model: str = "gemini/gemini-pro-latest"
     daily_budget_inr: float = Field(default=15, gt=0)
     requests_per_minute: float = Field(default=10, gt=0, le=1000)  # free Gemini tier: ~10-15

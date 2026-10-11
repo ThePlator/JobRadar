@@ -175,27 +175,51 @@ def extract(
     missing: Annotated[
         bool, typer.Option("--missing", help="Queue every listed job that has not been read yet.")
     ] = False,
+    compare: Annotated[
+        bool,
+        typer.Option(
+            "--compare", help="Check the free layers against what the LLM extracted earlier."
+        ),
+    ] = False,
+    refetch: Annotated[
+        bool,
+        typer.Option(
+            "--refetch", help="With --compare: download pages again to read their JobPosting data."
+        ),
+    ] = False,
+    examples: Annotated[
+        int, typer.Option(help="With --compare: show this many differences per field.")
+    ] = 0,
 ) -> None:
-    """Queue page fetch + LLM extraction for jobs listed before extraction existed."""
+    """Read jobs listed before extraction existed, or check extraction accuracy."""
     from jobradar import app as application
     from jobradar.pipeline.task_types import FETCH
 
+    if compare:
+        from jobradar.extract_check import refetch_pages, render, run_check
+
+        repo, _ = application.open_store()
+        if refetch:
+            count = asyncio.run(refetch_pages(repo))
+            typer.echo(f"Downloaded {count} page(s) again.\n")
+        typer.echo(render(run_check(repo), examples))
+        return
     if not missing:
         _fail("Nothing to do: pass --missing to read the jobs that were only listed.")
     settings = _settings()
-    if not application.extraction_enabled(settings):
-        _fail("Add your LLM key to .env first: " + ", ".join(settings.missing("llm")))
     repo, queue = application.open_store()
     jobs = repo.jobs_missing_extraction()
     for job_id in jobs:
         queue.enqueue(FETCH, job_id)
-    limits = settings.config.llm
-    minutes = len(jobs) / limits.requests_per_minute
-    typer.echo(
-        f"Queued {len(jobs)} job(s). `jobradar run` works through them at about "
-        f"{limits.requests_per_minute:g} per minute (~{minutes:.0f} min), within the "
-        f"₹{limits.daily_budget_inr:g}/day budget."
-    )
+    note = "`jobradar run` reads them from page data and post labels"
+    if application.llm_enabled(settings):
+        limits = settings.config.llm
+        note += (
+            ", asking the LLM only when those miss role or company (at most "
+            f"{limits.requests_per_minute:g} per minute, within the "
+            f"₹{limits.daily_budget_inr:g}/day budget)"
+        )
+    typer.echo(f"Queued {len(jobs)} job(s). {note}.")
 
 
 @app.command()
