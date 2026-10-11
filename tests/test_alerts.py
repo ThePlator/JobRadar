@@ -15,6 +15,7 @@ from tests.conftest import FakeClock
 
 
 def settings(**notify: Any) -> Settings:
+    notify.setdefault("dry_run", False)  # these tests check real sending
     return Settings(
         config=AppConfig.model_validate(
             {"sources": {"telegram": {"enabled": False}}, "notify": notify}
@@ -162,3 +163,9 @@ def test_smtp_errors(monkeypatch: pytest.MonkeyPatch, repo: Repo, queue: TaskQue
     with pytest.raises(RetryableError):
         alerts._smtp(msg)
     FakeSMTP.error = None
+
+
+def test_dry_run_is_the_default() -> None:
+    from jobradar.config import NotifyConfig
+
+    assert NotifyConfig().dry_run is True
