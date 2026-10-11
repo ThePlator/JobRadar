@@ -70,8 +70,10 @@ async def test_fetch_then_extract_fills_the_job(
     assert (job.company, job.role, job.deadline, job.status) == (
         "Acme", "SDE Intern", "2026-10-30", JobStatus.EXTRACTED.value,
     )  # fmt: skip
-    assert job.prompt_version == "extract-v1"
-    assert json.loads(job.data_json or "{}")["batch_years"] == [2026]
+    assert job.prompt_version == "rules-v1+extract-v1"  # no labels in the post: LLM ran
+    data = json.loads(job.data_json or "{}")
+    assert data["batch_years"] == [2026]
+    assert data["_sources"]["role"] == "llm"
     prompt = fake.calls[0]["messages"][0]["content"]
     assert "<posted_on>2026-10-07</posted_on>" in prompt
     assert "SDE Intern | Acme\n\nPython and SQL" in prompt
@@ -146,3 +148,142 @@ async def test_hidden_jobs_are_never_fetched(
     queue.enqueue(FETCH, "job1")
     assert await run(queue, ex) == [FETCH]
     assert fetcher.urls == []
+
+
+LABELLED = "Company: Acme\nRole: SDE Intern\nBatch: 2026\nhttps://acme.com/j/1"
+
+
+async def test_labelled_post_skips_the_llm(repo: Repo, queue: TaskQueue, clock: FakeClock) -> None:
+    seed(repo, LABELLED)
+    fake = FakeCompletion()  # no replies: any LLM call would fail the test
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), fake)
+    queue.enqueue(FETCH, "job1")
+    assert await run(queue, ex) == [FETCH, EXTRACT, NOTION_UPSERT, NOTION_BODY]
+    assert fake.calls == []
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.EXTRACTED
+    assert (job.company, job.role, job.prompt_version) == ("Acme", "SDE Intern", "rules-v1")
+    data = json.loads(job.data_json or "{}")
+    assert data["batch_years"] == [2026]
+    assert data["_sources"] == {
+        "company": "post_labels", "role": "post_labels", "batch_years": "post_labels",
+        "employment_type": "post_labels",  # "Intern" in the role
+    }  # fmt: skip
+
+
+async def test_page_data_wins_and_llm_fills_the_rest(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    seed(repo, "Role: Intern\nhttps://acme.com/j/1")  # no company in the post
+    structured = {"@type": "JobPosting", "title": "SDE Intern", "validThrough": "2026-11-01"}
+    fake = FakeCompletion(
+        {"company": "Acme", "role": "Software Intern", "summary": "Intern.", "confidence": 0.9}
+    )
+    page = Page("u", None, "text", structured=structured)
+    ex = extractor(repo, queue, clock, FakeFetcher(page), fake)
+    queue.enqueue(FETCH, "job1")
+    await run(queue, ex)
+    assert len(fake.calls) == 1
+    job = repo.get_job("job1")
+    assert job is not None and (job.company, job.role) == ("Acme", "SDE Intern")
+    data = json.loads(job.data_json or "{}")
+    assert data["_sources"]["role"] == "structured"
+    assert data["_sources"]["company"] == "llm"
+    assert data["deadline"] == "2026-11-01"
+    assert data["summary"] == "Intern."
+
+
+async def test_post_with_several_jobs_does_not_lend_its_labels(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    seed(repo, LABELLED)
+    repo.get_or_create_job("job2", "https://beta.com/j/2")  # a second live job in the same post
+    raw_id = repo.job_sightings("job1")[0].message_id
+    message = repo.get_raw_message(1)
+    assert message is not None and message.id is not None and raw_id == "1"
+    repo.add_job_source("job2", message.id)
+
+    fake = FakeCompletion({"company": "Acme", "role": "SDE Intern", "confidence": 0.9})
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), fake)
+    queue.enqueue(FETCH, "job1")
+    await run(queue, ex)
+    assert len(fake.calls) == 1  # the labels might describe job2, so the LLM reads it
+
+    repo.set_job_status("job2", JobStatus.HIDDEN)  # job2 turned out to be an ad
+    ex.llm = LLM(llm_settings(), repo, clock=clock, completion=FakeCompletion())
+    queue.enqueue(EXTRACT, "job1")
+    await run(queue, ex)  # now the labels are this job's own: no LLM call needed
+    job = repo.get_job("job1")
+    assert job is not None and job.prompt_version == "rules-v1"
+
+
+async def test_always_mode_asks_the_llm_but_labels_win(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    seed(repo, LABELLED)
+    fake = FakeCompletion(
+        {"company": "ACME Inc", "role": "Intern", "summary": "Intern.", "confidence": 0.9}
+    )
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), fake)
+    ex.mode = "always"
+    queue.enqueue(FETCH, "job1")
+    await run(queue, ex)
+    job = repo.get_job("job1")
+    assert job is not None and (job.company, job.role) == ("Acme", "SDE Intern")
+    assert json.loads(job.data_json or "{}")["summary"] == "Intern."
+
+
+async def test_llm_failure_keeps_what_labels_found(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    seed(repo, LABELLED)
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), FakeCompletion())
+
+    class Broken:
+        async def structured(self, *a: Any, **k: Any) -> Any:
+            raise SchemaError("nope")
+
+    ex.llm = Broken()  # type: ignore[assignment]
+    ex.mode = "always"
+    queue.enqueue(FETCH, "job1")
+    await run(queue, ex)
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.EXTRACTED
+    assert job.prompt_version == "rules-v1"
+
+
+async def test_without_an_llm_key(repo: Repo, queue: TaskQueue, clock: FakeClock) -> None:
+    seed(repo, "Role: SDE Intern\nhttps://acme.com/j/1")  # partial: no company
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), FakeCompletion())
+    ex.llm = None
+    queue.enqueue(FETCH, "job1")
+    assert await run(queue, ex) == [FETCH, EXTRACT, NOTION_UPSERT, NOTION_BODY]
+    job = repo.get_job("job1")
+    assert job is not None and (job.status, job.role) == (JobStatus.EXTRACTED, "SDE Intern")
+
+    seed_other = "🔥 Great opening at Acme\nhttps://acme.com/j/3"  # nothing labelled
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Jobs")
+    assert src.id is not None
+    repo.get_or_create_job("job3", "https://acme.com/j/3")
+    raw_id, _ = repo.save_raw_message(src.id, "3", "2026-10-07T09:00:00.000000Z", seed_other)
+    repo.add_job_source("job3", raw_id)
+    queue.enqueue(EXTRACT, "job3")
+    await run(queue, ex)
+    job3 = repo.get_job("job3")
+    assert job3 is not None and job3.status == JobStatus.NEEDS_REVIEW
+
+
+def test_post_deadline_beats_boilerplate_page_deadline() -> None:
+    from datetime import date
+
+    from jobradar.pipeline.extract import free_fields
+
+    page = {"@type": "JobPosting", "title": "SDE", "validThrough": "2026-10-31"}
+    posted = date(2026, 10, 7)
+    fields, sources = free_fields(page, "Last date: 20 October 2026", posted)
+    assert (fields["deadline"], sources["deadline"]) == (date(2026, 10, 20), "post_labels")
+    expired = {**page, "validThrough": "2026-07-31"}  # already past when posted
+    assert "deadline" not in free_fields(expired, "Role: SDE", posted)[0]
+    year_end = {**page, "validThrough": "2026-12-31"}  # months away: a blog's default
+    assert "deadline" not in free_fields(year_end, None, posted)[0]
+    assert free_fields(page, None, posted)[0]["deadline"] == date(2026, 10, 31)

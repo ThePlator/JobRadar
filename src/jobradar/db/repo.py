@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy import Engine, event, text
 from sqlalchemy.engine import Connection
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, col, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # noqa: F401  (registers tables on SQLModel.metadata)
@@ -50,6 +50,21 @@ def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
 
 def init_db(engine: Engine) -> None:
     SQLModel.metadata.create_all(engine)
+    _add_new_columns(engine)
+
+
+def _add_new_columns(engine: Engine) -> None:
+    """create_all makes missing tables but not columns added to existing ones. Adds them;
+    only nullable columns may be added to an existing table."""
+    with engine.begin() as c:
+        for table in SQLModel.metadata.sorted_tables:
+            have = {row[1] for row in c.execute(text(f"PRAGMA table_info('{table.name}')"))}
+            for column in table.columns:
+                if column.name not in have:
+                    if not column.nullable:
+                        raise RuntimeError(f"cannot add required column {table.name}.{column.name}")
+                    kind = column.type.compile(engine.dialect)
+                    c.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
 
 
 @dataclass(frozen=True)
@@ -444,10 +459,12 @@ class Repo:
         title: str | None,
         text_: str | None,
         note: str | None = None,
+        structured: dict[str, Any] | None = None,
     ) -> None:
         with Session(self.engine) as s:
             page = s.get(FetchedPage, job_id) or FetchedPage(job_id=job_id, fetched_at="")
             page.final_url, page.title, page.text, page.note = final_url, title, text_, note
+            page.structured_json = json.dumps(structured) if structured else None
             page.fetched_at = self._now()
             s.add(page)
             s.commit()
@@ -474,6 +491,15 @@ class Repo:
                  "deadline": deadline, "version": prompt_version, "status": status.value,
                  "now": self._now()},
             )  # fmt: skip
+
+    def jobs_read_by_llm(self) -> list[Job]:
+        """Jobs with extraction data, for comparing extraction methods."""
+        with Session(self.engine) as s:
+            query = select(Job).where(
+                col(Job.data_json).is_not(None),
+                col(Job.status).in_([JobStatus.EXTRACTED.value, JobStatus.DISCARDED.value]),
+            )
+            return list(s.exec(query))
 
     def jobs_missing_extraction(self) -> list[str]:
         """Jobs that reached Notion before extraction existed (for `jobradar extract`)."""

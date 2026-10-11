@@ -4,7 +4,7 @@
 
 JobRadar is an open-source, self-hosted agent that watches your Telegram job channels, pulls out each job's details (free rules first, an LLM only when needed), judges how well every job fits your profile with **[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)**, emails you only about strong and certain matches, builds a tailored one-page LaTeX resume, and lays everything out in a Notion dashboard. You review and click Submit; JobRadar never applies for you.
 
-> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering) and v0.2 part A (page reading with Gemini) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
+> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
 
 ---
 
@@ -127,7 +127,7 @@ JobRadar uses three files. All are validated at start-up, and a bad value stops 
 | `NOTIFY_TO` | Where alerts and digests go (defaults to `EMAIL_ADDRESS`) |
 | `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your duplicated database |
 | `TYPESAFE_API_KEY` | [typesafe.ai](https://typesafe.ai) (early access): Jev matching. Optional; without it an LLM matches instead |
-| `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console: fallback extraction and matching |
+| `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console: fallback extraction and matching. Optional for extraction: without it, jobs are read from page data and post labels only |
 | `GDRIVE_FOLDER_ID` | The Drive folder that will hold your resumes |
 
 ### `config.yaml` — what to watch and how to filter
@@ -139,7 +139,8 @@ sources:
     backfill_days: 3
 
 llm:
-  extract_model: "gemini/gemini-flash-latest"
+  extract_model: "gemini/gemini-flash-lite-latest"
+  extract_mode: fallback    # LLM only when page data and post labels miss role or company
   writer_model: "gemini/gemini-pro-latest"
   daily_budget_inr: 15
 
@@ -176,7 +177,8 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 | `jobradar run` | Start sources, workers and scheduler (Docker default) |
 | `jobradar chats` | List Telegram chats you can read, with ids |
 | `jobradar add <url>` | Process one link manually |
-| `jobradar extract --missing` | Read (fetch + LLM) jobs listed before extraction was enabled |
+| `jobradar extract --missing` | Read jobs listed before extraction was enabled |
+| `jobradar extract --compare` | Check free extraction against earlier LLM answers, field by field (`--refetch` downloads pages again for their JobPosting data) |
 | `jobradar stats [--days 3]` | Posts, jobs, reposts merged, likely duplicates, hidden ads, failed tasks |
 | `jobradar resume <job-id> [--template modern]` | Rebuild a resume now |
 | `jobradar retry --failed` | Re-queue failed tasks |
@@ -207,7 +209,7 @@ Most details come from free rules. Matching with Jev costs about ₹0.01 per job
 |---|---|---|
 | **v0.1 Ingest (MVP)** ✓ | Telegram listener, link cleanup, dedupe, ad filtering, SQLite queue, one Notion row per job, `stats` | 3 days of real channels with under 5% duplicates (0.9% so far) |
 | **v0.2 A Read jobs** ✓ | Page fetching, Gemini extraction, Notion columns and details | |
-| **v0.2 B Match and alert** (next) | Free extraction layers, Jev matching with confidence, decide step, email alerts and digests | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
+| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓ (page data, post labels), Jev matching with confidence, decide step, email alerts and digests, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
 | **v0.2 C Text-only posts** | Posts without links, poster OCR, reposts with different links | |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, Tectonic, validator, Drive upload, auto + Shortlisted triggers | One-page PDF and zero unknown skills across 50 jobs |
 | **v0.4 Apply kit** | Form answers, cover letter, forward-to-add by email | Shortlisted job to submitted form in under 5 minutes |

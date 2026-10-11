@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
 from jobradar.db.models import Platform
-from jobradar.db.repo import Repo
+from jobradar.db.repo import Repo, init_db, make_engine
 
 
 def test_pragmas(engine: Engine) -> None:
@@ -48,3 +50,24 @@ def test_foreign_keys_enforced(repo: Repo) -> None:
 def test_check_constraints(engine: Engine) -> None:
     with pytest.raises(IntegrityError), engine.begin() as c:
         c.execute(text("INSERT INTO source (platform, chat_id, enabled) VALUES ('bot', 'x', 1)"))
+
+
+def test_new_columns_are_added_to_an_old_database(tmp_path: Path) -> None:
+    eng = make_engine(tmp_path / "old.db")
+    init_db(eng)
+    with eng.begin() as c:  # make it look like a v0.2 A database, with a saved page
+        c.execute(text("ALTER TABLE fetched_page DROP COLUMN structured_json"))
+        c.execute(
+            text(
+                "INSERT INTO job (id, canonical_url, status, created_at, updated_at) "
+                "VALUES ('j1', 'https://a.co', 'discovered', 'x', 'x')"
+            )
+        )
+        c.execute(text("INSERT INTO fetched_page (job_id, fetched_at) VALUES ('j1', 'x')"))
+    init_db(eng)
+    init_db(eng)  # idempotent
+    with eng.connect() as c:
+        columns = {row[1] for row in c.execute(text("PRAGMA table_info('fetched_page')"))}
+        assert "structured_json" in columns
+        assert c.execute(text("SELECT count(*) FROM fetched_page")).scalar() == 1
+    eng.dispose()

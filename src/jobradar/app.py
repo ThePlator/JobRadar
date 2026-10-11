@@ -36,10 +36,11 @@ def open_store() -> tuple[Repo, TaskQueue]:
     return repo, TaskQueue(repo)
 
 
-def extraction_enabled(settings: Settings) -> bool:
+def llm_enabled(settings: Settings) -> bool:
     if missing := settings.missing("llm"):
         log.warning(
-            "LLM key missing: jobs are listed but not read. Add to .env: " + ", ".join(missing)
+            "LLM key missing: jobs are read from page data and post labels only. "
+            "Add to .env: " + ", ".join(missing)
         )
         return False
     return True
@@ -50,7 +51,7 @@ def make_ingest(
 ) -> tuple[Ingest, ShortLinkExpander]:
     links = settings.config.links
     expander = ShortLinkExpander(extra_shorteners=links.extra_shorteners)
-    ingest = Ingest(repo, queue, expander, deny=links.deny, extract=extraction_enabled(settings))
+    ingest = Ingest(repo, queue, expander, deny=links.deny, extract=True)
     return ingest, expander
 
 
@@ -65,10 +66,16 @@ class Pipeline:
             NOTION_UPSERT: sink.handler(repo),
             NOTION_BODY: sink.body_handler(repo),
         }
-        if self.ingest.extract:
-            llm = LLM(settings, repo)
-            extractor = Extractor(repo, queue, self.fetcher, llm, settings.config.llm.extract_model)
-            handlers |= {FETCH: extractor.fetch, EXTRACT: extractor.extract}
+        llm_config = settings.config.llm
+        extractor = Extractor(
+            repo,
+            queue,
+            self.fetcher,
+            LLM(settings, repo) if llm_enabled(settings) else None,
+            llm_config.extract_model,
+            llm_config.extract_mode,
+        )
+        handlers[FETCH], handlers[EXTRACT] = extractor.fetch, extractor.extract
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:

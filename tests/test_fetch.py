@@ -90,3 +90,12 @@ async def test_temporary_failures_are_retryable() -> None:
     with pytest.raises(RetryableError) as e:
         await f.fetch("https://acme.com/limit")
     assert e.value.retry_after == 30
+
+
+@respx.mock
+async def test_keeps_job_posting_data() -> None:
+    ld = '<script type="application/ld+json">{"@type": "JobPosting", "title": "SDE"}</script>'
+    respx.get("https://acme.com/robots.txt").respond(404)
+    respx.get("https://acme.com/j/2").respond(200, html=ARTICLE.replace("</head>", ld + "</head>"))
+    page = await fetcher().fetch("https://acme.com/j/2")
+    assert page.structured == {"@type": "JobPosting", "title": "SDE"}

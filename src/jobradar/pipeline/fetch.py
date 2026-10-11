@@ -23,6 +23,7 @@ import httpx
 import trafilatura
 
 from jobradar.net import is_public_host
+from jobradar.pipeline.structured import find_job_posting
 from jobradar.queue.tasks import RetryableError
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class Page:
     title: str | None
     text: str | None  # None when unusable; `note` says why
     note: str | None = None
+    structured: dict[str, Any] | None = None  # schema.org JobPosting in the page, if any
 
 
 def _host_path(url: str) -> str:
@@ -145,11 +147,15 @@ class Fetcher:
         title_match = _TITLE.search(html)
         title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:200] if title_match else None
         text = self._main_text(html, url)
+        structured = find_job_posting(html)
         if (text is None or len(text) < MIN_TEXT) and self._render_js:
-            rendered = await self._render(url)
+            rendered_html = await self._render(url)
+            rendered = self._main_text(rendered_html, url) if rendered_html else None
             if rendered and len(rendered) > len(text or ""):
                 text = rendered
-        return Page(url, title, text or None, None if text else "no readable text")
+            if rendered_html and structured is None:
+                structured = find_job_posting(rendered_html)
+        return Page(url, title, text or None, None if text else "no readable text", structured)
 
     @staticmethod
     def _main_text(html: str, url: str) -> str | None:
@@ -159,7 +165,8 @@ class Fetcher:
         return text.strip() if text else None
 
     async def _render(self, url: str) -> str | None:
-        """Render with headless Chromium when Playwright is installed; None otherwise."""
+        """The page's HTML after rendering with headless Chromium, when Playwright is
+        installed; None otherwise."""
         try:
             from playwright.async_api import async_playwright
         except ImportError:
@@ -186,4 +193,4 @@ class Fetcher:
         except Exception as e:  # rendering is best effort
             log.info("javascript rendering failed", extra={"url": url, "error": str(e)[:200]})
             return None
-        return self._main_text(html, url)
+        return str(html)
