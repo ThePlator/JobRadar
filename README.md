@@ -4,7 +4,7 @@
 
 JobRadar is an open-source, self-hosted agent that watches your Telegram job channels, pulls out each job's details (free rules first, an LLM only when needed), judges how well every job fits your profile with **[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)**, emails you only about strong and certain matches, builds a tailored one-page LaTeX resume, and lays everything out in a Notion dashboard. You review and click Submit; JobRadar never applies for you.
 
-> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) and the Match Score (your profile vs each job, with a reason) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
+> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) the Match Score (your profile vs each job, with a reason), hiding jobs you're not eligible for, scam flags and email alerts (dry run by default) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
 
 ---
 
@@ -210,7 +210,7 @@ Most details come from free rules. Matching with Jev costs about ₹0.01 per job
 |---|---|---|
 | **v0.1 Ingest (MVP)** ✓ | Telegram listener, link cleanup, dedupe, ad filtering, SQLite queue, one Notion row per job, `stats` | 3 days of real channels with under 5% duplicates (0.9% so far) |
 | **v0.2 A Read jobs** ✓ | Page fetching, Gemini extraction, Notion columns and details | |
-| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓, Match Score with Gemini ✓, decide step, email alerts and digests, Jev matching with confidence, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
+| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓, Match Score with Gemini ✓, decide step and email alerts ✓, digests, Jev matching with confidence, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
 | **v0.2 C Text-only posts** | Posts without links, poster OCR, reposts with different links | |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, Tectonic, validator, Drive upload, auto + Shortlisted triggers | One-page PDF and zero unknown skills across 50 jobs |
 | **v0.4 Apply kit** | Form answers, cover letter, forward-to-add by email | Shortlisted job to submitted form in under 5 minutes |

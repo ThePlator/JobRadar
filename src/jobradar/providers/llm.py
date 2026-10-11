@@ -96,8 +96,11 @@ class LLMProvider:
         self.model = model
         self.prompt = load_prompt("match")
         self.branch_rule = (
-            "if the job is limited to branches or streams that do not include the "
-            "candidate's branch (e.g. 'CSE/IT only' for an Electrical candidate), answer \"no\"."
+            "if the job is limited to branches or streams that clearly exclude the candidate's "
+            "branch (e.g. 'CSE/IT only' for an Electrical candidate), answer \"no\". Count "
+            "close branches as included: Electrical with Electronics (EEE/ECE), and any "
+            "engineering branch where the job says 'or related branches' or 'any engineering'. "
+            'If unsure, answer "unclear".'
             if branch_strict
             else "ignore branch or stream limits; judge degree, batch and CGPA only."
         )

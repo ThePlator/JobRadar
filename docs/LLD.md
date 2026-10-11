@@ -717,7 +717,9 @@ Raw answers are stored in `match_result`, so changing `matching.weights` or thre
 
 **Reason line**, built by code rather than the model: the `overall_fit` level word, the score, the eligibility mark, an exact skills comparison (job skills ∩ profile skills through the alias map, plus what's missing) and the location. Example: `Good fit · 82 · eligible ✓ · Python, SQL ✓ · missing Docker · Remote ✓`.
 
-### `pipeline/decide.py` (planned, v0.2 B)
+### `pipeline/decide.py`, `pipeline/scam.py` (v0.2 B2 built)
+
+*As built (B2):* `Matcher._apply` runs scam check → score → reason → `decide()` for every match, and again for stored answers at startup (`catch_up`, which never alerts). A hide sets `job.status = hidden` with the reason in `score_reason`; `notion_upsert` then sets Status to Hidden **only if the page's Status is still empty, New or Hidden** (`NotionClient.page_status`), so a job you moved is never taken from you. Hidden jobs are not re-decided later. Alerts: `alert` table (one row per job, ever; `outcome` sent / dry_run / capped), a single `send_alerts` task keyed `batch` whose `run_after` is set by the first alert in the window. `notify.dry_run` (default true) writes `data/alerts/<time>.html` instead of sending. SMTP auth failure is a `PermanentError` (no retry storm); network errors retry. Scam rules: deposit / training / kit / joining / interview fee or "pay … to confirm your offer" anywhere +3; registration / application / exam fee or "pay to book your seat" in the post only +2; personal-email-only contact +1; pay quoted per day or week +1; pressure to hurry or a guaranteed job +1; negated ("no", "never") or questioned mentions don't count. The match version includes the `match.md` prompt version, so a prompt change re-matches open jobs.
 
 Policy runs in this order; the first rule that applies wins:
 

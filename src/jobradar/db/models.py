@@ -169,6 +169,17 @@ class MatchResult(SQLModel, table=True):
     created_at: str
 
 
+class Alert(SQLModel, table=True):
+    """At most one email alert per job, ever."""
+
+    __tablename__ = "alert"
+
+    job_id: str = Field(foreign_key="job.id", primary_key=True)
+    queued_at: str
+    sent_at: str | None = None
+    outcome: str | None = None  # sent | dry_run | capped (daily limit reached)
+
+
 class LLMCache(SQLModel, table=True):
     __tablename__ = "llm_cache"
 

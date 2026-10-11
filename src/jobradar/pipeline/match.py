@@ -11,11 +11,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
-from jobradar.config import FiltersConfig, MatchingConfig
+from jobradar.config import FiltersConfig, MatchingConfig, ScoringConfig
 from jobradar.db.models import JobStatus
 from jobradar.db.repo import Repo, TaskRecord
+from jobradar.pipeline import scam
+from jobradar.pipeline.decide import decide
 from jobradar.pipeline.extract import PAGE_TEXT_LIMIT, own_post
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import MATCH, NOTION_BODY, NOTION_UPSERT
@@ -99,6 +101,10 @@ def reason(
     return " · ".join(bits)
 
 
+class AlertQueue(Protocol):
+    def queue_alert(self, job_id: str) -> None: ...
+
+
 class Matcher:
     def __init__(
         self,
@@ -109,6 +115,8 @@ class Matcher:
         version: str,
         matching: MatchingConfig,
         filters: FiltersConfig,
+        scoring: ScoringConfig | None = None,
+        alerts: AlertQueue | None = None,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -117,6 +125,8 @@ class Matcher:
         self.version = version
         self.matching = matching
         self.filters = filters
+        self.scoring = scoring or ScoringConfig()
+        self.alerts = alerts  # None: alerts off
 
     async def match(self, task: TaskRecord) -> None:
         job = self.repo.get_job(task.key)
@@ -129,15 +139,16 @@ class Matcher:
             self.repo.set_match_score(job.id, None, "not matched")
             return
         self.repo.save_match(job.id, self.version, answers.provider, answers.model_dump_json())
-        self._apply(job.id, posting, answers)
+        self._apply(job.id, posting, answers, alert_ok=True)
+
+    def _texts(self, job_id: str) -> tuple[str, str]:
+        page = self.repo.get_page(job_id)
+        page_text = ((page.text or "") if page else "")[:PAGE_TEXT_LIMIT]
+        return own_post(self.repo, job_id) or "", page_text
 
     async def _ask(self, job_id: str, posting: JobPosting) -> MatchAnswers | None:
-        page = self.repo.get_page(job_id)
-        view = JobView(
-            posting=posting,
-            post_text=own_post(self.repo, job_id) or "",
-            page_text=((page.text or "") if page else "")[:PAGE_TEXT_LIMIT],
-        )
+        post_text, page_text = self._texts(job_id)
+        view = JobView(posting=posting, post_text=post_text, page_text=page_text)
         for provider in self.providers:
             try:
                 return await provider.match(view, self.profile)
@@ -148,32 +159,52 @@ class Matcher:
                 )
         return None
 
-    def _apply(self, job_id: str, posting: JobPosting, answers: MatchAnswers) -> bool:
-        """Store score and reason; sync Notion if they changed."""
+    def _apply(
+        self, job_id: str, posting: JobPosting, answers: MatchAnswers, alert_ok: bool
+    ) -> bool:
+        """Score, reason and decision; sync Notion when something changed. True if changed."""
+        job = self.repo.get_job(job_id)
+        if job is None:
+            return False
+        risk = scam.check(*self._texts(job_id)).risk
+        if risk != job.scam_risk:
+            self.repo.set_scam_risk(job_id, risk)
         value = score(answers, self.matching.weights)
         line = reason(answers, value, posting, self.profile, self.matching.min_confidence)
-        if not self.repo.set_match_score(job_id, value, line):
-            return False
-        log.info(
-            "job matched",
-            extra={"job_id": job_id[:10], "score": value, "provider": answers.provider},
+        changed = self.repo.set_match_score(job_id, value, line) or risk != job.scam_risk
+        decision = decide(
+            answers, value, job.company, risk, self.matching, self.scoring, self.filters
         )
-        self.queue.enqueue(NOTION_UPSERT, job_id)
-        self.queue.enqueue(NOTION_BODY, job_id)
-        return True
+        if decision.hide_because:
+            self.repo.set_job_status(job_id, JobStatus.HIDDEN, decision.hide_because)
+            log.info("job hidden", extra={"job_id": job_id[:10], "why": decision.hide_because})
+            self.queue.enqueue(NOTION_UPSERT, job_id)
+            return True
+        if changed:
+            log.info(
+                "job matched",
+                extra={"job_id": job_id[:10], "score": value, "provider": answers.provider,
+                       "decision": decision.rule},
+            )  # fmt: skip
+            self.queue.enqueue(NOTION_UPSERT, job_id)
+            self.queue.enqueue(NOTION_BODY, job_id)
+        if decision.alert and alert_ok and self.alerts is not None:
+            self.alerts.queue_alert(job_id)
+        return changed
 
     def catch_up(self) -> tuple[int, int]:
-        """At startup: re-score stored answers (weights may have changed) and queue jobs not
-        yet matched against this profile version. Returns (re-scored, queued)."""
-        rescored = 0
+        """At startup: re-score and re-decide stored answers (weights or thresholds may have
+        changed; this never sends alerts, so old jobs can't flood your inbox) and queue jobs
+        not yet matched against this profile version. Returns (changed, queued)."""
+        changed = 0
         for job_id, answers_json in self.repo.match_answers(self.version):
             job = self.repo.get_job(job_id)
             if job is None or not job.data_json:
                 continue
             posting = JobPosting.model_validate_json(job.data_json)
-            if self._apply(job_id, posting, MatchAnswers.model_validate_json(answers_json)):
-                rescored += 1
+            answers = MatchAnswers.model_validate_json(answers_json)
+            changed += self._apply(job_id, posting, answers, alert_ok=False)
         queued = self.repo.jobs_to_match(self.version)
         for job_id in queued:
             self.queue.enqueue(MATCH, job_id)
-        return rescored, len(queued)
+        return changed, len(queued)

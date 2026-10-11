@@ -558,6 +558,54 @@ class Repo:
             ).all()
         return [(str(r[0]), str(r[1])) for r in rows]
 
+    def set_scam_risk(self, job_id: str, risk: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text("UPDATE job SET scam_risk = :risk WHERE id = :id"),
+                {"id": job_id, "risk": risk},
+            )
+
+    # ---- alerts -------------------------------------------------------------------------------
+
+    def queue_alert(self, job_id: str) -> bool:
+        """Record that this job deserves an alert. False if it ever had one."""
+        with self._tx() as c:
+            result = c.execute(
+                text(
+                    "INSERT INTO alert (job_id, queued_at) VALUES (:job, :now) "
+                    "ON CONFLICT (job_id) DO NOTHING"
+                ),
+                {"job": job_id, "now": self._now()},
+            )
+        return bool(result.rowcount)
+
+    def pending_alerts(self) -> list[str]:
+        with self._tx() as c:
+            rows = c.execute(
+                text("SELECT job_id FROM alert WHERE outcome IS NULL ORDER BY queued_at")
+            ).all()
+        return [str(r[0]) for r in rows]
+
+    def alerts_sent_since(self, since: str) -> int:
+        """Alerts sent (or previewed in a dry run) since this time."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT count(*) FROM alert WHERE outcome IN ('sent', 'dry_run') "
+                    "AND sent_at >= :since"
+                ),
+                {"since": since},
+            ).one()
+        return int(row[0])
+
+    def finish_alerts(self, job_ids: list[str], outcome: str) -> None:
+        with self._tx() as c:
+            for job_id in job_ids:
+                c.execute(
+                    text("UPDATE alert SET outcome = :outcome, sent_at = :now WHERE job_id = :job"),
+                    {"job": job_id, "outcome": outcome, "now": self._now()},
+                )
+
     def jobs_read_by_llm(self) -> list[Job]:
         """Jobs with extraction data, for comparing extraction methods."""
         with Session(self.engine) as s:
