@@ -289,3 +289,22 @@ async def test_strong_match_alerts_weak_one_hides(repo: Repo, queue: TaskQueue) 
     repo.set_match_score("strong", 0, "x")  # force a change
     assert m.catch_up()[0] == 1
     assert alerts.queued == []
+
+
+async def test_rematching_never_alerts(repo: Repo, queue: TaskQueue) -> None:
+    from jobradar.config import ScoringConfig
+
+    seed_job(repo)
+    alerts = Alerts()
+    first = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                    FILTERS, ScoringConfig(alert_above=75), alerts)  # fmt: skip
+    queue.enqueue(MATCH, "job1")
+    await run(queue, first)
+    assert alerts.queued == ["job1"]
+
+    # The profile (or prompt) changed: the job is matched again, but you've seen it already.
+    second = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v2", MatchingConfig(),
+                     FILTERS, ScoringConfig(alert_above=75), alerts)  # fmt: skip
+    assert second.catch_up() == (0, 1)
+    await run(queue, second)
+    assert alerts.queued == ["job1"]

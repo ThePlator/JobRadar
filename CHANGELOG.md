@@ -12,7 +12,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - Scam check (Scam Risk column): deposits, training or kit fees, "pay to confirm your offer" → high; an application fee in the post, a personal-email-only contact, pay per day or week, pressure to hurry → points. No false alarms on the first 132 real jobs.
 - Email alerts over SMTP to `NOTIFY_TO`: once per job, batched within `notify.alert_batch_minutes`, at most `notify.max_alerts_per_day`. **Dry run is the default**: alerts are saved to `data/alerts/*.html` instead of sent.
 - JobRadar never overwrites a Notion Status you set yourself (Shortlisted, Applied…) when it hides a job.
-- The startup catch-up re-decides open jobs but never sends alerts, so old jobs can't flood your inbox. Changing the match prompt re-matches open jobs.
+- Only a job's first match can alert: the startup catch-up and re-matching after a profile or prompt change never do, so old jobs can't flood your inbox. Changing the match prompt re-matches open jobs.
 
 **v0.2 part B1: Match Score**
 - Every read job is matched against `config/profile.yaml` and gets a 0-100 **Match Score** in Notion, with a reason line at the top of the JobRadar toggle, e.g. "Good fit · 86 · eligible ✓ · Python, SQL ✓ · missing Docker · Pune ✓".
