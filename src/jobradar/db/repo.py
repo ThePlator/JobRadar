@@ -511,6 +511,14 @@ class Repo:
                  "answers": answers_json, "now": self._now()},
             )  # fmt: skip
 
+    def ever_matched(self, job_id: str) -> bool:
+        """True if this job has answers for any profile version."""
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT 1 FROM match_result WHERE job_id = :job LIMIT 1"), {"job": job_id}
+            ).first()
+        return row is not None
+
     def set_match_score(self, job_id: str, score: int | None, reason: str) -> bool:
         """Store the score; an extracted job becomes `new` (in the Inbox). True if changed."""
         with self._tx() as c:

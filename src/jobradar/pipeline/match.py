@@ -138,8 +138,11 @@ class Matcher:
             log.info("no match provider could answer", extra={"job_id": job.id[:10]})
             self.repo.set_match_score(job.id, None, "not matched")
             return
+        # Only a job's first match may alert: re-matching after a profile or prompt change
+        # must not email you about jobs you've already seen.
+        first = not self.repo.ever_matched(job.id)
         self.repo.save_match(job.id, self.version, answers.provider, answers.model_dump_json())
-        self._apply(job.id, posting, answers, alert_ok=True)
+        self._apply(job.id, posting, answers, alert_ok=first)
 
     def _texts(self, job_id: str) -> tuple[str, str]:
         page = self.repo.get_page(job_id)
