@@ -275,3 +275,31 @@ def test_match_score_and_reason() -> None:
     # Why a job was hidden is not a match reason.
     assert notion.match_line(job(status="hidden", score_reason="promo link")) is None
     assert "Match Score" not in build_properties(extracted_job(), [], new_page=False)
+
+
+async def test_hiding_never_overrides_your_status(mock_api: respx.MockRouter, repo: Repo) -> None:
+    repo.get_or_create_job("abc", "https://acme.com/j/1")
+    repo.set_job_status("abc", JobStatus.HIDDEN, "weak match (31)")
+    repo.set_notion_page("abc", "page-1")
+    sink = await notion.connect(settings(), http=http())
+    update = mock_api.patch("/pages/page-1").respond(json={"id": "page-1"})
+
+    shortlisted = {"properties": {"Status": {"select": {"name": "Shortlisted"}}}}
+    mock_api.get("/pages/page-1").respond(json=shortlisted)
+    await sink.upsert(repo, "abc")
+    assert "Status" not in json.loads(update.calls[-1].request.content)["properties"]
+
+    mock_api.get("/pages/page-1").respond(
+        json={"properties": {"Status": {"select": {"name": "New"}}}}
+    )
+    await sink.upsert(repo, "abc")
+    sent = json.loads(update.calls[-1].request.content)["properties"]
+    assert sent["Status"] == {"select": {"name": "Hidden"}}
+    await sink.aclose()
+
+
+def test_scam_risk_column() -> None:
+    assert build_properties(job(scam_risk="high"), [], new_page=False)["Scam Risk"] == {
+        "select": {"name": "High"}
+    }
+    assert "Scam Risk" not in build_properties(job(), [], new_page=False)

@@ -172,7 +172,11 @@ class EmailConfig(_Strict):
 
 class NotifyConfig(_Strict):
     alerts: bool = True
+    # Dry run (the default): alerts are logged and saved as previews in data/alerts/, not
+    # emailed. Set false once the previews look right.
+    dry_run: bool = True
     alert_batch_minutes: int = Field(default=10, ge=0, le=120)
+    max_alerts_per_day: int = Field(default=10, ge=1, le=100)
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 

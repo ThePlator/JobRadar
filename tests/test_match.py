@@ -112,6 +112,7 @@ async def test_llm_provider_maps_levels(repo: Repo, clock: FakeClock) -> None:
     assert answers.confidence == 0.6  # capped: LLM-only matches alert less readily
     prompt = fake.calls[0]["messages"][0]["content"]
     assert "CSE/IT only' for an Electrical candidate" in prompt
+    assert "Electrical with Electronics (EEE/ECE)" in prompt
     assert "Electrical Engineering" in prompt and "We build APIs." in prompt
 
 
@@ -202,9 +203,9 @@ async def test_hard_rules_need_no_provider(repo: Repo, queue: TaskQueue) -> None
     await run(queue, m)
     job = repo.get_job("job1")
     assert provider.calls == 0
-    assert job is not None and (job.score, job.score_reason) == (
-        None,
-        "Not eligible: batch 2023 only",
+    assert job is not None and (job.status, job.score_reason) == (
+        JobStatus.HIDDEN,
+        "not eligible: batch 2023 only",
     )
 
 
@@ -244,3 +245,47 @@ async def test_closed_jobs_are_left_alone(repo: Repo, queue: TaskQueue) -> None:
     queue.enqueue(MATCH, "job1")
     await run(queue, matcher(repo, queue, provider))
     assert provider.calls == 0
+
+
+class Alerts:
+    def __init__(self) -> None:
+        self.queued: list[str] = []
+
+    def queue_alert(self, job_id: str) -> None:
+        self.queued.append(job_id)
+
+
+async def test_strong_match_alerts_weak_one_hides(repo: Repo, queue: TaskQueue) -> None:
+    from jobradar.config import ScoringConfig
+
+    seed_job(repo, "strong")
+    seed_job(repo, "weak")
+    alerts = Alerts()
+    weak = GOOD.model_copy(update={"skills_coverage": 0.0, "role_alignment": 0.0})
+    answers = {"strong": GOOD, "weak": weak}
+
+    class ByJob:
+        name = "llm"
+
+        async def match(self, job: JobView, profile: dict[str, Any]) -> MatchAnswers:
+            return answers["strong" if job.posting.role == "Strong" else "weak"]
+
+    repo.save_extraction("strong", posting(role="Strong").model_dump_json(), "Acme", "Strong",
+                         None, "rules-v1", JobStatus.EXTRACTED)  # fmt: skip
+    m = Matcher(repo, queue, [ByJob()], PROFILE, "v1", MatchingConfig(), FILTERS,
+                ScoringConfig(alert_above=75), alerts)  # fmt: skip
+    for job_id in ("strong", "weak"):
+        queue.enqueue(MATCH, job_id)
+    await run(queue, m)
+    assert alerts.queued == ["strong"]
+    weak_job = repo.get_job("weak")
+    assert weak_job is not None and weak_job.status == JobStatus.HIDDEN
+    assert weak_job.score_reason == "weak match (30)"
+    strong_job = repo.get_job("strong")
+    assert strong_job is not None and strong_job.scam_risk == "low"
+
+    # Startup catch-up re-decides but never alerts: old jobs can't flood your inbox.
+    alerts.queued.clear()
+    repo.set_match_score("strong", 0, "x")  # force a change
+    assert m.catch_up()[0] == 1
+    assert alerts.queued == []

@@ -58,6 +58,8 @@ STATUS_OPTION = {
     JobStatus.DISCARDED: "Hidden",  # the extractor decided it is not a job posting
 }
 _AGENT_HIDES = (JobStatus.HIDDEN, JobStatus.DISCARDED)
+_AGENT_OWNED = (None, "New", "Hidden")  # Status values the agent may still change
+_SCAM_OPTION = {"low": "Low", "medium": "Medium", "high": "High"}
 _WORK_MODE = {"onsite": "Onsite", "hybrid": "Hybrid", "remote": "Remote"}
 MAX_SKILLS = 10
 
@@ -191,6 +193,13 @@ class NotionClient:
         )
         return str(page["id"])
 
+    async def page_status(self, page_id: str) -> str | None:
+        """The Status option currently set on a page (None when empty)."""
+        page = await self.request("GET", f"/pages/{page_id}")
+        select = (page.get("properties", {}).get("Status") or {}).get("select") or {}
+        name = select.get("name")
+        return str(name) if name else None
+
     async def update_page(self, page_id: str, properties: dict[str, Any]) -> None:
         await self.request("PATCH", f"/pages/{page_id}", {"properties": properties})
 
@@ -290,6 +299,8 @@ def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> 
         props["Company"] = {"rich_text": _text(job.company)}
     if job.score is not None:
         props["Match Score"] = {"number": job.score}
+    if job.scam_risk in _SCAM_OPTION:
+        props["Scam Risk"] = {"select": {"name": _SCAM_OPTION[job.scam_risk]}}
     apply = job.canonical_url
     if (p := posting_of(job)) is not None:
         if p.locations:
@@ -404,10 +415,13 @@ class NotionSink:
         sightings = repo.job_sightings(job_id)
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
         if page_id:
+            props = build_properties(job, sightings, new_page=False)
             try:
-                await self.client.update_page(
-                    page_id, build_properties(job, sightings, new_page=False)
-                )
+                if "Status" in props and await self.client.page_status(page_id) not in _AGENT_OWNED:
+                    # You moved it (Shortlisted, Applied…): your status wins over a hide.
+                    del props["Status"]
+                    log.info("kept your Notion status", extra={"job_id": job_id[:10]})
+                await self.client.update_page(page_id, props)
             except PageGone:
                 # Deleted by the user: forget it; a later change to the job creates it again.
                 log.info("notion page gone", extra={"job_id": job_id[:10]})

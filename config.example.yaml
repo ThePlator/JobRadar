@@ -38,11 +38,13 @@ matching:
     seniority_fit: 0.15
     location_ok: 0.15
   min_confidence: 0.5                   # below: "unsure", never alerted
-  branch_strict: false                  # true: "CSE/IT only" jobs count as not eligible
+  branch_strict: false                  # true: "CSE/IT only" jobs count as not eligible (hidden)
+  hide_if_eligible_below: 0.2           # hide jobs you're clearly not eligible for
+  alert_if_eligible_above: 0.7          # alert only when clearly eligible
 
 scoring:
   hide_below: 40          # below → Hidden
-  alert_above: 85         # at or above → email alert
+  alert_above: 85         # at or above → email alert (if eligible, confident and not a scam)
   auto_resume_above: 85   # at or above → resume + kit built automatically; null = only on Shortlisted
 
 resume:
@@ -65,6 +67,9 @@ email:
 
 notify:
   alerts: true
+  dry_run: true           # alerts are saved to data/alerts/*.html, not emailed; set false
+                          #   once those previews look right
   alert_batch_minutes: 10 # alerts inside this window arrive as one email
+  max_alerts_per_day: 10
   digest_times: ["09:00", "19:00"]
   timezone: Asia/Kolkata

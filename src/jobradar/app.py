@@ -9,7 +9,7 @@ import signal
 
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
-from jobradar.llm import LLM
+from jobradar.llm import LLM, load_prompt
 from jobradar.pipeline.extract import Extractor
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.ingest import Ingest, make_emit
@@ -22,6 +22,7 @@ from jobradar.pipeline.task_types import (
     NOTION_BODY,
     NOTION_UPSERT,
     PROCESS_MESSAGE,
+    SEND_ALERTS,
 )
 from jobradar.profile import compact_profile, load_profile, profile_version
 from jobradar.providers.base import MatchProvider
@@ -30,6 +31,7 @@ from jobradar.providers.skills_rule import SkillsRule
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
 from jobradar.sinks import notion
+from jobradar.sinks.email_notify import AlertSender
 from jobradar.sources.telegram import TelegramSource
 
 log = logging.getLogger(__name__)
@@ -61,8 +63,23 @@ def make_ingest(
     return ingest, expander
 
 
+def make_alerts(settings: Settings, repo: Repo, queue: TaskQueue) -> AlertSender | None:
+    """Email alerts, or None (with a warning) when they are off or email isn't set up."""
+    notify = settings.config.notify
+    if not notify.alerts:
+        return None
+    if not notify.dry_run and (missing := settings.missing("email")):
+        log.warning("email alerts are off: add to .env " + ", ".join(missing))
+        return None
+    return AlertSender(settings, repo, queue)
+
+
 def make_matcher(
-    settings: Settings, repo: Repo, queue: TaskQueue, llm: LLM | None
+    settings: Settings,
+    repo: Repo,
+    queue: TaskQueue,
+    llm: LLM | None,
+    alerts: AlertSender | None = None,
 ) -> Matcher | None:
     """The matcher, or None (with a warning) when matching is off or has no profile."""
     config = settings.config
@@ -86,9 +103,12 @@ def make_matcher(
     if not providers:
         log.warning("matching is off: no provider available (add an LLM key or skills_rule)")
         return None
+    # A new prompt asks different questions: match open jobs again, as for a profile edit.
+    version = profile_version({**profile, "_prompt": load_prompt("match").version})
     return Matcher(
-        repo, queue, providers, profile, profile_version(profile), config.matching, config.filters
-    )
+        repo, queue, providers, profile, version, config.matching,
+        config.filters, config.scoring, alerts,
+    )  # fmt: skip
 
 
 class Pipeline:
@@ -104,7 +124,8 @@ class Pipeline:
         }
         llm_config = settings.config.llm
         llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
-        self.matcher = make_matcher(settings, repo, queue, llm)
+        alerts = make_alerts(settings, repo, queue)
+        self.matcher = make_matcher(settings, repo, queue, llm, alerts)
         extractor = Extractor(
             repo,
             queue,
@@ -117,6 +138,8 @@ class Pipeline:
         handlers[FETCH], handlers[EXTRACT] = extractor.fetch, extractor.extract
         if self.matcher is not None:
             handlers[MATCH] = self.matcher.match
+        if alerts is not None:
+            handlers[SEND_ALERTS] = alerts.send
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
@@ -137,9 +160,9 @@ async def run(settings: Settings) -> None:
     if hidden := pipeline.ingest.sweep_promos():
         log.info("hid promo links found in earlier posts", extra={"count": hidden})
     if pipeline.matcher is not None:
-        rescored, queued = pipeline.matcher.catch_up()
-        if rescored or queued:
-            log.info("matching caught up", extra={"rescored": rescored, "queued": queued})
+        changed, queued = pipeline.matcher.catch_up()
+        if changed or queued:
+            log.info("matching caught up", extra={"changed": changed, "queued": queued})
     source = TelegramSource(settings, repo)
 
     loop = asyncio.get_running_loop()
