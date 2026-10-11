@@ -280,6 +280,30 @@ def alerts(
 
 
 @app.command()
+def digest(
+    now: Annotated[
+        bool, typer.Option("--now", help="Send the digest for the current window right away.")
+    ] = False,
+) -> None:
+    """Morning and evening summary email (sent automatically by `jobradar run`)."""
+    from jobradar import app as application
+    from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.sinks.digest import Digest
+
+    if not now:
+        _fail("Nothing to do: pass --now to send the digest for the current window.")
+    settings = _settings()
+    if not settings.config.notify.dry_run and (missing := settings.missing("email")):
+        _fail("Add to .env first: " + ", ".join(missing))
+    repo, queue = application.open_store()
+    try:
+        outcome = asyncio.run(Digest(settings, repo, queue).send_now())
+    except (PermanentError, RetryableError) as e:
+        _fail(f"Not sent: {e}")
+    typer.secho(f"✓ {outcome}", fg="green")
+
+
+@app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
     from jobradar import app as application

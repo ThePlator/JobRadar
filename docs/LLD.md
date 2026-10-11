@@ -779,6 +779,7 @@ flowchart LR
 - Sends over SMTP with STARTTLS (`aiosmtplib`) from `EMAIL_ADDRESS` to `NOTIFY_TO` only; there is no other recipient.
 - **Alert** (decide rule 5, or a shortlisted job closing within 24 h): subject `[JobRadar 82] Backend Intern @ Acme · closes 12 Oct`; body has role, company, score, the reason line, deadline, apply link, Notion page link, and the resume link if one was auto-built. One alert per job (task key = job id); alerts inside `alert_batch_minutes` are combined into one email; at most `max_alerts_per_day`, the rest go to the next digest.
 - **Digest** at `digest_times`: counts of new, top matches, auto-built resumes, closing in 48 h, failures and LLM budget status, with a link to the Notion Inbox view.
+- *As built:* `sinks/digest.py`. Each slot is a `digest` task keyed by local slot time ("2026-10-12 09:00") and queued with a delay; `jobradar run` queues the next slot at start-up and each send queues the one after. The window runs from the previous slot to now. Top 5 open (`new`) jobs created in the window, by score; closing = `new`/`shortlisted`/`resume_ready` jobs with a deadline from today to today + 2; hidden jobs are grouped as not eligible / weak match / ads and other by their reason. Empty windows (no new jobs, nothing closing, no failed tasks) send nothing. Missed slots while the machine is off are skipped, not sent late.
 - Each email is multipart (plain text + simple HTML) and sets `List-Id: jobradar` so users can filter it into a label.
 - Sending failure → retry with backoff like any task; never blocks the pipeline.
 

@@ -16,6 +16,7 @@ from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
 from jobradar.pipeline.match import Matcher
 from jobradar.pipeline.task_types import (
+    DIGEST,
     EXTRACT,
     FETCH,
     MATCH,
@@ -31,6 +32,7 @@ from jobradar.providers.skills_rule import SkillsRule
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
 from jobradar.sinks import notion
+from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
 from jobradar.sources.telegram import TelegramSource
 
@@ -72,6 +74,17 @@ def make_alerts(settings: Settings, repo: Repo, queue: TaskQueue) -> AlertSender
         log.warning("email alerts are off: add to .env " + ", ".join(missing))
         return None
     return AlertSender(settings, repo, queue)
+
+
+def make_digest(settings: Settings, repo: Repo, queue: TaskQueue) -> Digest | None:
+    """The digest, or None (with a warning) when it is off or email isn't set up."""
+    notify = settings.config.notify
+    if not notify.digest or not notify.digest_times:
+        return None
+    if not notify.dry_run and (missing := settings.missing("email")):
+        log.warning("digest is off: add to .env " + ", ".join(missing))
+        return None
+    return Digest(settings, repo, queue)
 
 
 def make_matcher(
@@ -141,6 +154,9 @@ class Pipeline:
             handlers[MATCH] = self.matcher.match
         if alerts is not None:
             handlers[SEND_ALERTS] = alerts.send
+        self.digest = make_digest(settings, repo, queue)
+        if self.digest is not None:
+            handlers[DIGEST] = self.digest.send
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
@@ -164,6 +180,9 @@ async def run(settings: Settings) -> None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
+    if pipeline.digest is not None:
+        at = pipeline.digest.schedule_next()
+        log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})
     source = TelegramSource(settings, repo)
 
     loop = asyncio.get_running_loop()

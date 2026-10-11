@@ -6,6 +6,11 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Daily digest**
+- A summary email at each `notify.digest_times` slot (09:00 and 19:00 by default) covering everything since the previous one: new jobs, the top 5 still in your Inbox with score and reason, jobs closing in the next 2 days, what was hidden and why, alerts sent, failed tasks and Gemini spend. A window with nothing to report sends nothing.
+- Dry run applies: digests are saved to `data/alerts/digest-*.html` instead.
+- `jobradar digest --now` sends the digest for the current window right away.
+
 **v0.2 part B2: decide and email alerts**
 - After matching, each job is decided in order: not eligible or an excluded company → hidden; likely scam → flagged, never emailed; unsure → Inbox; score below `scoring.hide_below` → hidden ("weak match"); strong, clearly eligible and confident → email alert; otherwise → Inbox.
 - With `matching.branch_strict: true`, jobs limited to branches that clearly exclude yours are hidden. Close branches (Electrical with Electronics, "or related branches") still count.

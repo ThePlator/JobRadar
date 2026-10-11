@@ -614,6 +614,28 @@ class Repo:
                     {"job": job_id, "outcome": outcome, "now": self._now()},
                 )
 
+    # ---- digest -------------------------------------------------------------------------------
+
+    def jobs_created_since(self, since: str) -> list[Job]:
+        with Session(self.engine) as s:
+            query = select(Job).where(col(Job.created_at) >= since)
+            return list(s.exec(query))
+
+    def jobs_closing(self, first_day: str, last_day: str) -> list[Job]:
+        """Jobs you may still apply to whose deadline falls in these days (inclusive)."""
+        open_ = [JobStatus.NEW.value, JobStatus.SHORTLISTED.value, JobStatus.RESUME_READY.value]
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(
+                    col(Job.status).in_(open_),
+                    col(Job.deadline) >= first_day,
+                    col(Job.deadline) <= last_day,
+                )
+                .order_by(col(Job.deadline), col(Job.score).desc())
+            )
+            return list(s.exec(query))
+
     def jobs_read_by_llm(self) -> list[Job]:
         """Jobs with extraction data, for comparing extraction methods."""
         with Session(self.engine) as s:
