@@ -156,6 +156,19 @@ class FetchedPage(SQLModel, table=True):
     fetched_at: str
 
 
+class MatchResult(SQLModel, table=True):
+    """A provider's answers for one job against one version of the profile. Scores are
+    computed from these by code, so new weights need no new provider calls."""
+
+    __tablename__ = "match_result"
+
+    job_id: str = Field(foreign_key="job.id", primary_key=True)
+    profile_version: str = Field(primary_key=True)
+    provider: str
+    answers_json: str  # MatchAnswers
+    created_at: str
+
+
 class LLMCache(SQLModel, table=True):
     __tablename__ = "llm_cache"
 

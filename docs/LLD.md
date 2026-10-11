@@ -641,7 +641,9 @@ flowchart TB
 If the result has low confidence and no company or role → status `discarded` (not a job post).
 
 
-### `pipeline/match.py`, `providers/` (planned, v0.2 B)
+### `pipeline/match.py`, `providers/` (v0.2 B1 built; Jev is B3)
+
+*As built (B1):* `extract` queues `match` for every job it reads (when `matching.enabled` and `profile.yaml` exists). `profile.py` builds the compact profile; `profile_version` is the first 16 hex of its sha1. **Hard rules** in code run first: `filters.batch_years` with no overlap, or `experience_min > filters.max_experience_years`, gives `MatchAnswers(provider="rules", eligible=0, confidence=1)` and the reason "Not eligible: batch 2023-2024 only", with no provider call and no score. Providers are `llm` (`prompts/match.md`, levels mapped to 0-1: yes 0.95 / no 0.05 / unclear 0.5; `not_eligible_because` under 8 words is the only free text) and `skills_rule`; `ProviderUnavailable` (bad output, rejected key, no skills) moves to the next one, while rate limits and the budget retry the task. A missing dimension is left out of the weighted mean rather than counted as zero. The job becomes `new`; `notion_upsert` writes Match Score and `notion_body` puts the reason first in the toggle (a callout). At startup `Matcher.catch_up()` re-scores stored answers with the current weights and queues open jobs with no answers for the current profile version. Soft skills ("Communication", "Problem solving") are neither counted nor listed as missing; skill names compare through an alias map ("JS" = "JavaScript", "JavaScript (ES6+)" also covers "ES6").
 
 **Compact profile.** Built from `profile.yaml`: education (degree, branch, graduation year, CGPA), skills, experience and project bullets with tags, `preferences` (target roles, work modes) and `filters.locations`. `basics` (name, email, phone, links) is never included. `profile_version = sha1(canonical JSON)`.
 

@@ -105,6 +105,49 @@ class ScoringConfig(_Strict):
         return self
 
 
+MatchProviderName = Literal["llm", "skills_rule"]
+
+
+class MatchingConfig(_Strict):
+    """How jobs are matched against config/profile.yaml (see docs/LLD.md, match.py)."""
+
+    enabled: bool = True
+    profile_path: Path = Path("config/profile.yaml")
+    # Tried in order; the first that answers wins. skills_rule needs no key but never alerts.
+    providers: list[MatchProviderName] = Field(
+        default_factory=lambda: ["llm", "skills_rule"]  # type: ignore[arg-type]
+    )
+    # Match Score = 100 x weighted sum of the answers (re-weighting needs no new calls).
+    weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "skills_coverage": 0.40, "role_alignment": 0.30,
+            "seniority_fit": 0.15, "location_ok": 0.15,
+        }
+    )  # fmt: skip
+    min_confidence: float = Field(default=0.5, ge=0, le=1)
+    hide_if_eligible_below: float = Field(default=0.2, ge=0, le=1)
+    alert_if_eligible_above: float = Field(default=0.7, ge=0, le=1)
+    # true: a job limited to other branches ("CSE/IT only") counts as not eligible.
+    branch_strict: bool = False
+
+    @field_validator("weights")
+    @classmethod
+    def _known_weights(cls, v: dict[str, float]) -> dict[str, float]:
+        known = {"skills_coverage", "role_alignment", "seniority_fit", "location_ok"}
+        if unknown := set(v) - known:
+            raise ValueError(f"unknown weight(s) {sorted(unknown)}; use {sorted(known)}")
+        if any(w < 0 for w in v.values()) or not sum(v.values()):
+            raise ValueError("weights must be >= 0 and not all zero")
+        return v
+
+    @field_validator("providers")
+    @classmethod
+    def _some_provider(cls, v: list[MatchProviderName]) -> list[MatchProviderName]:
+        if not v:
+            raise ValueError("list at least one provider")
+        return list(dict.fromkeys(v))
+
+
 class ResumeConfig(_Strict):
     template: str = "classic"
     max_pages: int = Field(default=1, ge=1, le=3)
@@ -162,6 +205,7 @@ class AppConfig(_Strict):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     filters: FiltersConfig = Field(default_factory=FiltersConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    matching: MatchingConfig = Field(default_factory=MatchingConfig)
     resume: ResumeConfig = Field(default_factory=ResumeConfig)
     links: LinksConfig = Field(default_factory=LinksConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)

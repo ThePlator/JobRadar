@@ -102,3 +102,15 @@ def test_bad_secret_type_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyP
     env = write(tmp_path, "TG_API_ID=not-a-number\n", ".env")
     with pytest.raises(ConfigError, match="tg_api_id"):
         load_settings(cfg, env)
+
+
+def test_matching_weights_are_checked() -> None:
+    from pydantic import ValidationError
+
+    from jobradar.config import MatchingConfig
+
+    assert MatchingConfig().providers == ["llm", "skills_rule"]
+    with pytest.raises(ValidationError, match="unknown weight"):
+        MatchingConfig(weights={"vibes": 1.0})
+    with pytest.raises(ValidationError, match="not all zero"):
+        MatchingConfig(weights={"skills_coverage": 0})

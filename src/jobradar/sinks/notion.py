@@ -245,6 +245,12 @@ def page_title(job: Job, sightings: list[Sighting]) -> str:
     return job.canonical_url or job.id
 
 
+def match_line(job: Job) -> str | None:
+    """The matcher's reason line. On other jobs score_reason says why they were hidden or
+    need review, which the toggle doesn't show."""
+    return job.score_reason if job.status == JobStatus.NEW else None
+
+
 def posting_of(job: Job) -> JobPosting | None:
     if not job.data_json:
         return None
@@ -282,6 +288,8 @@ def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> 
     }
     if job.company:
         props["Company"] = {"rich_text": _text(job.company)}
+    if job.score is not None:
+        props["Match Score"] = {"number": job.score}
     apply = job.canonical_url
     if (p := posting_of(job)) is not None:
         if p.locations:
@@ -348,10 +356,13 @@ def _posting_blocks(p: JobPosting) -> list[dict[str, Any]]:
 
 
 def build_body(
-    sightings: list[Sighting], posting: JobPosting | None = None
+    sightings: list[Sighting], posting: JobPosting | None = None, match: str | None = None
 ) -> list[dict[str, Any]]:
     """Agent-owned content lives inside one "JobRadar" toggle; anything else is the user's."""
-    inner: list[dict[str, Any]] = _posting_blocks(posting) if posting else []
+    inner: list[dict[str, Any]] = []
+    if match:
+        inner.append(_block("callout", _text("Match: " + match)))
+    inner += _posting_blocks(posting) if posting else []
     if sightings and sightings[0].text:
         inner.append(_block("paragraph", _text("Original post:")))
         inner.append(_block("quote", _text(sightings[0].text)))
@@ -407,7 +418,7 @@ class NotionSink:
             page_id = await self.client.create_page(
                 self.data_source_id,
                 build_properties(job, sightings, new_page=True),
-                build_body(sightings, posting_of(job)),
+                build_body(sightings, posting_of(job), match_line(job)),
             )
             log.info("notion page created", extra={"job_id": job_id[:10]})
         repo.set_notion_page(job_id, page_id)
@@ -425,7 +436,7 @@ class NotionSink:
                 title = "".join(t.get("plain_text", "") for t in block["toggle"]["rich_text"])
                 if title == TOGGLE_TITLE:
                     await self.client.delete_block(block["id"])
-        body = build_body(repo.job_sightings(job_id), posting_of(job))
+        body = build_body(repo.job_sightings(job_id), posting_of(job), match_line(job))
         await self.client.append_children(job.notion_page_id, body)
         log.info("notion page details written", extra={"job_id": job_id[:10]})
 

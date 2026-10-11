@@ -492,6 +492,72 @@ class Repo:
                  "now": self._now()},
             )  # fmt: skip
 
+    # ---- matching -----------------------------------------------------------------------------
+
+    def save_match(self, job_id: str, version: str, provider: str, answers_json: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    """
+                    INSERT INTO match_result (job_id, profile_version, provider, answers_json,
+                        created_at)
+                    VALUES (:job, :version, :provider, :answers, :now)
+                    ON CONFLICT (job_id, profile_version) DO UPDATE SET
+                        provider = excluded.provider, answers_json = excluded.answers_json,
+                        created_at = excluded.created_at
+                    """
+                ),
+                {"job": job_id, "version": version, "provider": provider,
+                 "answers": answers_json, "now": self._now()},
+            )  # fmt: skip
+
+    def set_match_score(self, job_id: str, score: int | None, reason: str) -> bool:
+        """Store the score; an extracted job becomes `new` (in the Inbox). True if changed."""
+        with self._tx() as c:
+            result = c.execute(
+                text(
+                    """
+                    UPDATE job SET score = :score, score_reason = :reason, updated_at = :now,
+                        status = CASE WHEN status = 'extracted' THEN 'new' ELSE status END
+                    WHERE id = :id AND (score IS NOT :score OR score_reason IS NOT :reason
+                        OR status = 'extracted')
+                    """
+                ),
+                {"id": job_id, "score": score, "reason": reason, "now": self._now()},
+            )
+        return bool(result.rowcount)
+
+    def jobs_to_match(self, version: str) -> list[str]:
+        """Open jobs without answers for this profile version."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    """
+                    SELECT id FROM job WHERE status IN ('extracted', 'new')
+                        AND NOT EXISTS (SELECT 1 FROM match_result m
+                            WHERE m.job_id = job.id AND m.profile_version = :version)
+                    ORDER BY created_at
+                    """
+                ),
+                {"version": version},
+            ).all()
+        return [str(r[0]) for r in rows]
+
+    def match_answers(self, version: str) -> list[tuple[str, str]]:
+        """(job_id, answers_json) for open jobs matched against this profile version."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    """
+                    SELECT m.job_id, m.answers_json FROM match_result m
+                    JOIN job ON job.id = m.job_id
+                    WHERE m.profile_version = :version AND job.status IN ('extracted', 'new')
+                    """
+                ),
+                {"version": version},
+            ).all()
+        return [(str(r[0]), str(r[1])) for r in rows]
+
     def jobs_read_by_llm(self) -> list[Job]:
         """Jobs with extraction data, for comparing extraction methods."""
         with Session(self.engine) as s:

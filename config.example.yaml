@@ -29,6 +29,17 @@ filters:
   max_experience_years: 1
   exclude_companies: []
 
+matching:
+  profile_path: config/profile.yaml     # copy profile.example.yaml there and fill it in
+  providers: [llm, skills_rule]         # tried in order; skills_rule needs no key, never alerts
+  weights:                              # Match Score = 100 x weighted answers; changing these
+    skills_coverage: 0.40               #   re-scores stored answers at the next start, free
+    role_alignment: 0.30
+    seniority_fit: 0.15
+    location_ok: 0.15
+  min_confidence: 0.5                   # below: "unsure", never alerted
+  branch_strict: false                  # true: "CSE/IT only" jobs count as not eligible
+
 scoring:
   hide_below: 40          # below → Hidden
   alert_above: 85         # at or above → email alert

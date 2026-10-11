@@ -287,3 +287,15 @@ def test_post_deadline_beats_boilerplate_page_deadline() -> None:
     year_end = {**page, "validThrough": "2026-12-31"}  # months away: a blog's default
     assert "deadline" not in free_fields(year_end, None, posted)[0]
     assert free_fields(page, None, posted)[0]["deadline"] == date(2026, 10, 31)
+
+
+async def test_matching_is_queued_after_extraction(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    from jobradar.pipeline.task_types import MATCH
+
+    seed(repo, LABELLED)
+    ex = extractor(repo, queue, clock, FakeFetcher(Page("u", None, "text")), FakeCompletion())
+    ex.match = True
+    queue.enqueue(FETCH, "job1")
+    assert await run(queue, ex) == [FETCH, EXTRACT, NOTION_UPSERT, NOTION_BODY, MATCH]
