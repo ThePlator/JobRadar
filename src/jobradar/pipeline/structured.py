@@ -68,7 +68,7 @@ def _text(value: Any) -> str | None:
         value = value.get("name")
     if isinstance(value, list):
         value = value[0] if value else None
-    if isinstance(value, (str, int, float)):
+    if isinstance(value, str | int | float):
         text = " ".join(html_lib.unescape(str(value)).split())
         return text or None
     return None

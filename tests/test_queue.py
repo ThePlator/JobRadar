@@ -34,9 +34,13 @@ def test_run_after_and_type_filter(queue: TaskQueue, clock: FakeClock) -> None:
     assert queue.claim(["digest"]) is None  # not due yet
     task = queue.claim(["digest", "notion_upsert"])
     assert task is None
-    assert (t := queue.claim(["fetch"])) is not None and t.key == "j1"
+    task = queue.claim(["fetch"])
+    assert task is not None
+    assert task.key == "j1"
     clock.advance(61)
-    assert (t := queue.claim(["digest"])) is not None and t.key == "2026-10-08/am"
+    task = queue.claim(["digest"])
+    assert task is not None
+    assert task.key == "2026-10-08/am"
 
 
 def test_done_task_can_be_enqueued_again(queue: TaskQueue, repo: Repo) -> None:

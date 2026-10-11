@@ -23,7 +23,7 @@ def _as_list(value: Any) -> list[Any]:
     """A single value where a list belongs becomes a one-item list; None becomes []."""
     if value is None:
         return []
-    return list(value) if isinstance(value, (list, tuple, set)) else [value]
+    return list(value) if isinstance(value, list | tuple | set) else [value]
 
 
 def _str_list(value: Any) -> list[str]:
