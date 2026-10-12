@@ -172,6 +172,8 @@ Your education, skills, experience, projects (each bullet with an `id` and tags)
 
 ## CLI
 
+Every command with examples, log reading, settings and fixes: [docs/COMMANDS.md](docs/COMMANDS.md).
+
 | Command | What it does |
 |---|---|
 | `jobradar init` | Copy example configs, Telegram login, Google OAuth, Notion schema check |
