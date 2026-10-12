@@ -27,8 +27,14 @@ gantt
     Filters, scam rules, score       :b3, after b2, 5d
     Gate · 90% extraction accuracy    :milestone, g2, after b3, 0d
 
+    section v0.2.5 Statuses + job feeds
+    Notion status sync               :f1, after b3, 2d
+    Greenhouse, Lever, Ashby feeds   :f2, after f1, 4d
+    Suggestions, boards CLI, Source  :f3, after f2, 3d
+    Gate · board alert in 30 min      :milestone, gf, after f3, 0d
+
     section v0.3 Resume
-    Tailor + grounding validator     :c1, after b3, 5d
+    Tailor + grounding validator     :c1, after f3, 5d
     Render, compile, page limit      :c2, after c1, 4d
     Drive upload + triggers          :c3, after c2, 5d
     Gate · 50 jobs, 0 unknown skills  :milestone, g3, after c3, 0d
@@ -51,6 +57,7 @@ flowchart LR
     CFG[config.py] --> DB[db/ models + repo]
     DB --> Q[queue/ tasks + worker]
     Q --> SRC[sources/telegram]
+    Q --> FEEDS[sources/feeds/*] --> DED
     Q --> LINKS[pipeline/links] --> DED[pipeline/dedupe]
     DED --> NOTION[sinks/notion]
     DED --> FETCH[pipeline/fetch] --> EXT[pipeline/extract]
@@ -59,7 +66,7 @@ flowchart LR
     SCORE --> RES[resume/*] --> GD[storage/gdrive] --> NOTION
     SCORE --> KIT[kit/answers] --> NOTION
     SCORE --> MAIL[sinks/email_notify]
-    NOTION -- poll --> RES
+    NOTION -- poll statuses --> RES
 ```
 
 Build bottom-up: config → DB → queue first, because every later module is a task on that queue.
@@ -147,24 +154,79 @@ Goal: every row has structured details and a trustworthy match score.
 
 - [x] `llm.py`: LiteLLM `structured()` with our own JSON validation + one repair (no instructor dependency); Gemini default, Groq alternative; cache key `sha1(model|prompt_version|input)`; cost logged to `llm_cache.cost_inr`; daily budget pause until midnight IST; one repair retry on schema errors
 - [x] `prompts/extract.md` with a `version:` header; untrusted text inside tags
-- [ ] (part B) `prompts/score.md`
+- [x] (part B) `prompts/match.md` (replaced the planned `score.md`): fixed questions answered as levels; the score is computed in code
 
 **Understanding and matching**
 
 - [x] `pipeline/extract.py`: page text (12k-character cap) + message + OCR → `JobPosting`; `confidence < 0.4` with no company or role → `discarded`; schema failure → `needs_review`
 - [ ] (part C) Fingerprint dedupe after extraction (30-day window)
-- [ ] (part B) `pipeline/score.py`: hard filters → `hidden` with reason; scam points (fee +3, gmail-only +1, unrealistic pay +1, urgency +1); LLM `ScoreResult`; route `hidden` / `new` / `notify_alert`
+- [x] (part B) Free extraction first: page JSON-LD and post labels, Gemini only as fallback (B4a)
+- [x] (part B) `pipeline/match.py` + `providers/` (LLM, skills rule) + `pipeline/decide.py` + `pipeline/scam.py` (built instead of `score.py`): hard rules, weighted Match Score, ordered decide policy, scam points, route `hidden` / `new` / alert
+- [ ] (part B3) Jev provider, run alongside Gemini first (needs a TypeSafe key)
+- [ ] (part B4b) Candidate finders + Jev picks between the free layers and the LLM
 - [x] Notion: fill Company, Location, Skills, Experience, Salary, Deadline, Work Mode and the details body
-- [ ] (part B) Notion: Match Score, Scam Risk and the match reason
+- [x] (part B) Notion: Match Score, Scam Risk and the match reason
+- [ ] (next) `pipeline/liveness.py`: before `decide`, ask the hiring platform whether the posting is still open. Greenhouse, Lever and Workday have per-job public APIs (200 = open); Ashby has an org board, so check this posting is still listed. Only a 404/410 or a clear closed marker hides the job with reason "posting closed"; timeouts, 429/5xx, redirects and unknown sites mean "unknown" and the job carries on. Requests go only to fixed API hosts, built from path segments of the link with a strict charset, and redirects are refused. No LLM calls. _Borrowed from career-ops `liveness-api.mjs`._
 
 **Tests**
 
 - [ ] Collect and hand-label 100 real postings in `tests/fixtures/` (start in week 2; it takes a while)
 - [ ] Golden test: per-field accuracy report; runs whenever a prompt version changes
 - [ ] Unit: filters, scam rules, fingerprint `norm()`, SSRF guard
+- [ ] Liveness: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
 - [ ] Recorded HTTP (respx / vcrpy) for fetch; mock LLM for integration
 
 **Exit gate:** over 90% extraction accuracy (role, company, deadline) on the 100 labelled jobs.
+
+---
+
+## v0.2.5 Your statuses and job feeds — before resumes
+
+Goal: JobRadar knows what you did with each job, and sees jobs on company boards minutes after they're posted, before any channel reposts them. Plan with diagrams: [Job feeds](https://claude.ai/artifact/ADfAHymemE5AaMZv1vzre9).
+
+**Notion status sync** (needed by resumes, threshold tuning and the digest)
+
+- [ ] `sinks/notion.py` read path: poll the data source every 2 min for pages whose Status the user changed (Shortlisted, Applied, Interview, Offer, Rejected, Skipped) and mirror it to `job.status`; never write Status back except the existing agent hides
+- [ ] Digest: "Shortlisted, closing in 48 h" section; alert when a shortlisted job closes within 24 h
+- [ ] `jobradar stats`: suggest `scoring.alert_above` from Shortlisted vs Skipped scores
+- [ ] Tests: status mapping, a page you moved is never re-hidden, re-match skips closed statuses
+
+**Job feeds: company boards** (public APIs, no keys)
+
+- [ ] `sources/feeds/base.py`: `Feed` plugin protocol (provider name, poll interval, credit rule) returning one `FeedPosting` shape (title, company, location, url, posted_at, description, source label); loaded through the `jobradar.sources` entry-point group
+- [ ] `sources/feeds/greenhouse.py`, `lever.py` (global and EU hosts), `ashby.py`
+- [ ] `feed_board` table: provider, company slug, enabled, last checked, last seen ids, consecutive real 404s
+- [ ] Board check: every 15–30 min with jitter; **first check records existing jobs without alerting**; new ids → filter (India or remote, target-role words, `intern` / `graduate` / `new grad`) → `process_message`-equivalent with the `FRESH` priority; structured fields skip the LLM extractor
+- [ ] An error or 404 never means "no jobs": keep the last list. Dead boards: only a real 404 counts as a miss; after 3 misses skip the board and recheck after 30 days; timeouts, 429s and DNS errors never count. _From career-ops `dead-boards.mjs`._
+- [ ] Jobs that vanish from their board → Notion Status "Closed" (only if Status is still New)
+- [ ] Platform detection from a link's host (`greenhouse.io`, `lever.co`, `ashbyhq.com`, `myworkdayjobs.com`, …), shared with `pipeline/liveness.py`; unknown hosts stay generic. _From career-ops `ats-vendor.mjs`._
+- [ ] Config `sources.boards` (`every_minutes`, `list` of `{ats, company}`), documented in `config.example.yaml`
+
+**Seeing and managing feeds**
+
+- [ ] Suggestions: count board links seen in Telegram posts per company; `jobradar boards suggest` lists them; nothing is added without the user
+- [ ] `jobradar boards add <ats> <company>` (checks the board exists first), `boards list` (last check, jobs found, new today, errors), `boards remove`
+- [ ] Notion **Source** column ("Telegram · Freshershunt", "Greenhouse · Commvault") and a view per source
+- [ ] Emails: "posted 4 min ago on Commvault's Greenhouse board"; digest section "From company boards"
+- [ ] Starter company list for Indian freshers (career-ops' `portals.example.yml` is mostly US and European companies)
+
+**More providers** (same pattern, after the gate)
+
+- [ ] SmartRecruiters, Recruitee, Workable
+- [ ] `sources/search/adzuna.py` (India, free key), optional Jooble: keyword searches in `sources.search`
+- [ ] Workday (unofficial `cxs` endpoint; may break)
+- [ ] Remotive and RemoteOK (remote only): respect their limits (Remotive 4 checks a day) and show the required credit and link back
+
+**Tests**
+
+- [ ] Recorded responses per provider (respx): normal list, empty list, 404, 429, timeout, malformed JSON
+- [ ] First-check baseline sends no alerts; a later new posting does; a vanished one is marked Closed
+- [ ] An error never wipes the last known list; dead-board counting only on real 404s
+- [ ] A posting also linked from Telegram stays one job (dedupe by canonical URL)
+
+Not possible: LinkedIn, Naukri and Indeed have no public job API and forbid scraping; their jobs keep arriving through Telegram.
+
+**Exit gate:** a job posted on a watched board reaches your inbox in under 30 minutes, with no alerts from the first check and no false "Closed".
 
 ---
 
@@ -188,6 +250,7 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 **Tests**
 
 - [ ] Grounding validator with adversarial cases (invented skill, changed number, unknown `ref_id`)
+- [ ] More grounding cases, borrowed from career-ops `verify-cv-facts.mjs`: a number inside bold or other markup; size words with no digits ("doubled", "10x", "halved"); a tool name buried in a sentence; a phrase from a configurable banned list; a missing or unreadable `profile.yaml` fails loudly instead of passing
 - [ ] LaTeX escaping of every special character
 - [ ] Each template compiles with `profile.example.yaml` across 10 sample jobs, at one page (added to CI)
 - [ ] Trigger routing: auto threshold, Shortlisted, already-built job not rebuilt
@@ -203,10 +266,12 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 - [ ] `prompts/kit.md`; `kit/answers.py`: exact matches from `profile.answers` / `basics` first; generated answers otherwise (under 120 words, `[FILL IN: …]` when a fact is missing)
 - [ ] Cover letter when the job asks for one or the Cover Letter checkbox is ticked (poller → `build_kit(cover_letter=true)`)
 - [ ] Notion body: one code block per form answer, the cover letter, "Seen in" with message links
-- [ ] `sinks/email_notify.py`: SMTP + STARTTLS to `NOTIFY_TO` only; alerts with role, company, score, deadline, reason, Notion link and resume link; shortlisted jobs closing within 24 h; batch alerts within `alert_batch_minutes`; `List-Id` header
-- [ ] Digest email at 09:00 and 19:00 IST: new, top matches, auto-built resumes, closing in 48 h, failures, budget status
+- [x] `sinks/email_notify.py` (built early, in v0.2 B2): SMTP + STARTTLS to `NOTIFY_TO` only; first alert instant, follow-ups grouped within `alert_batch_minutes`; dry run; shared email template
+- [ ] Alerts: resume link once v0.3 lands; `List-Id` header
+- [x] Digest email at 09:00 and 19:00 IST: new, top matches, closing in 48 h, hidden, failures, budget status (built early)
+- [ ] Digest: auto-built resumes section (with v0.3)
 - [ ] `sources/email_forward.py`: IMAP folder poll; accept only your own address with DKIM/SPF pass; body text, links and image attachments → `process_message`
-- [ ] Tests against a local SMTP/IMAP test server (e.g. aiosmtpd); `init` sends a test email
+- [ ] Tests against a local SMTP/IMAP test server (e.g. aiosmtpd); `init` sends a test email (`jobradar alerts --test` exists)
 - [ ] CLI `doctor` (`stats` landed early, in v0.1, for the duplicate check)
 
 **Exit gate:** timed run — open a shortlisted job, submit the real form, in under 5 minutes.
