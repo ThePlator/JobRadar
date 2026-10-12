@@ -30,7 +30,8 @@ gantt
     section v0.2.5 Statuses + job feeds
     Notion status sync               :f1, after b3, 2d
     Greenhouse, Lever, Ashby feeds   :f2, after f1, 4d
-    Suggestions, boards CLI, Source  :f3, after f2, 3d
+    Still-open check                 :f4, after f2, 1d
+    Suggestions, boards CLI, Source  :f3, after f4, 3d
     Gate · board alert in 30 min      :milestone, gf, after f3, 0d
 
     section v0.3 Resume
@@ -166,14 +167,13 @@ Goal: every row has structured details and a trustworthy match score.
 - [ ] (part B4b) Candidate finders + Jev picks between the free layers and the LLM
 - [x] Notion: fill Company, Location, Skills, Experience, Salary, Deadline, Work Mode and the details body
 - [x] (part B) Notion: Match Score, Scam Risk and the match reason
-- [ ] (next) `pipeline/liveness.py`: before `decide`, ask the hiring platform whether the posting is still open. Greenhouse, Lever and Workday have per-job public APIs (200 = open); Ashby has an org board, so check this posting is still listed. Only a 404/410 or a clear closed marker hides the job with reason "posting closed"; timeouts, 429/5xx, redirects and unknown sites mean "unknown" and the job carries on. Requests go only to fixed API hosts, built from path segments of the link with a strict charset, and redirects are refused. No LLM calls. _Borrowed from career-ops `liveness-api.mjs`._
+- Still-open check moved to v0.2.5, next to the board feeds that share its platform code
 
 **Tests**
 
 - [ ] Collect and hand-label 100 real postings in `tests/fixtures/` (start in week 2; it takes a while)
 - [ ] Golden test: per-field accuracy report; runs whenever a prompt version changes
 - [ ] Unit: filters, scam rules, fingerprint `norm()`, SSRF guard
-- [ ] Liveness: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
 - [ ] Recorded HTTP (respx / vcrpy) for fetch; mock LLM for integration
 
 **Exit gate:** over 90% extraction accuracy (role, company, deadline) on the 100 labelled jobs.
@@ -202,6 +202,11 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [ ] Platform detection from a link's host (`greenhouse.io`, `lever.co`, `ashbyhq.com`, `myworkdayjobs.com`, …), shared with `pipeline/liveness.py`; unknown hosts stay generic. _From career-ops `ats-vendor.mjs`._
 - [ ] Config `sources.boards` (`every_minutes`, `list` of `{ats, company}`), documented in `config.example.yaml`
 
+**Still-open check** (for links from Telegram too, not only watched boards)
+
+- [ ] `pipeline/liveness.py`: before `decide`, ask the hiring platform whether the posting is still open. Greenhouse, Lever and Workday have per-job public APIs (200 = open); Ashby has an org board, so check this posting is still listed. Only a 404/410 or a clear closed marker hides the job with reason "posting closed"; timeouts, 429/5xx, redirects and unknown sites mean "unknown" and the job carries on. Requests go only to fixed API hosts, built from path segments of the link with a strict charset, and redirects are refused. No LLM calls. _From career-ops `liveness-api.mjs`._
+- [ ] Recheck before a Shortlisted job's "closing soon" alert, so you aren't reminded about a job that already closed
+
 **Seeing and managing feeds**
 
 - [ ] Suggestions: count board links seen in Telegram posts per company; `jobradar boards suggest` lists them; nothing is added without the user
@@ -223,6 +228,7 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [ ] First-check baseline sends no alerts; a later new posting does; a vanished one is marked Closed
 - [ ] An error never wipes the last known list; dead-board counting only on real 404s
 - [ ] A posting also linked from Telegram stays one job (dedupe by canonical URL)
+- [ ] Still-open check: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
 
 Not possible: LinkedIn, Naukri and Indeed have no public job API and forbid scraping; their jobs keep arriving through Telegram.
 
@@ -243,7 +249,7 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 - [ ] `resume/validate.py`: pypdf page count; trim the lowest-ranked bullet and recompile up to 3 times
 - [ ] File naming `{company}_{role}_{yyyymmdd}_v{n}.pdf`
 - [ ] `storage/local.py`; `storage/gdrive.py`: OAuth installed-app flow, monthly folders, link-sharing off, `webViewLink` → `artifact.drive_url`; refresh failure → keep local + email the owner
-- [ ] **Triggers:** in `score.py`, `score ≥ auto_resume_above` and `scam_risk != high` → `build_resume` + `build_kit`; `sinks/notion.py` read path polls every 2 min, and Shortlisted with no resume → `build_resume`
+- [ ] **Triggers:** in `pipeline/decide.py`, `score ≥ auto_resume_above` and `scam_risk != high` → `build_resume` + `build_kit`; the v0.2.5 status sync sees Shortlisted with no resume → `build_resume`
 - [ ] Notion: Resume = Drive link; the Status of auto-built jobs stays New
 - [ ] CLI: `resume <job-id> [--template]` (new version), `init` adds Google OAuth
 
@@ -311,6 +317,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 | Alert emails go to spam | Test email not in inbox | Send from your own account to yourself; add a filter on `List-Id: jobradar` |
 | Tectonic cold start in Docker | Slow first compile, network errors | Pre-warm the package cache in the image |
 | Notion rate limits | 429s during backfill | Rely on the limiter; batch body appends |
+| A hiring platform changes its public API | Board errors or "unknown" still-open results jump in `boards list` | Treat as unknown (never closed); fix that provider; recorded-response tests catch the shape change |
 
 ## Metrics to verify before v1.0
 
