@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (inline-styled email HTML reads better one element per line)
 """The digest: one summary email at each `notify.digest_times` slot (09:00 and 19:00 by
 default), covering everything since the previous slot.
 
@@ -23,6 +24,21 @@ from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.task_types import DIGEST
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
+from jobradar.sinks.email_template import (
+    ACCENT,
+    CARD,
+    FAIR,
+    INK,
+    LINE,
+    MUTED,
+    button,
+    day_month,
+    esc,
+    heading,
+    job_card,
+    layout,
+    stats_row,
+)
 
 log = logging.getLogger(__name__)
 
@@ -107,92 +123,96 @@ def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> 
 
 
 def _title(job: Job) -> str:
-    role = job.role or "A job"
+    role = job.role or "Role not stated"
     return f"{role} @ {job.company}" if job.company else role
 
 
-def _links(job: Job) -> str:
-    links = []
-    if job.canonical_url:
-        links.append(f'<a href="{html.escape(job.canonical_url, quote=True)}">Apply</a>')
-    if page := notion_url(job.notion_page_id):
-        links.append(f'<a href="{html.escape(page, quote=True)}">Notion</a>')
-    return " · ".join(links)
-
-
-def _deadline(job: Job) -> str:
-    try:
-        day = datetime.fromisoformat(job.deadline or "")
-    except ValueError:
-        return ""
-    return f"{day.day} {day:%b}"
+def part_of_day(at: datetime) -> str:
+    return "Morning" if at.hour < 12 else "Afternoon" if at.hour < 17 else "Evening"
 
 
 def build_digest(data: DigestData, sender: str, to: str, database_id: str | None) -> EmailMessage:
-    part = "Morning" if data.until.hour < 12 else "Evening"
+    part = part_of_day(data.until)
     strong = sum(1 for j in data.inbox if (j.score or 0) >= 75)
+    hidden = sum(data.hidden.values())
     bits = [f"{data.new} new"]
     if strong:
         bits.append(f"{strong} strong")
     if data.closing:
         bits.append(f"{len(data.closing)} closing soon")
     subject = f"[JobRadar] {part} digest · " + " · ".join(bits)
+    since = f"{data.since.day} {data.since:%b, %H:%M}"
+    title = f"{part} digest"
+    subtitle = f"{data.until:%A} {data.until.day} {data.until:%B} · since {since}"
 
-    text: list[str] = [subject.removeprefix("[JobRadar] "), ""]
-    body: list[str] = [f"<h2 style='margin:0 0 4px;font-size:18px'>{html.escape(part)} digest</h2>"]
-    since = f"{data.since.day} {data.since:%b %H:%M}"
-    hidden = sum(data.hidden.values())
-    summary = (
-        f"Since {since}: {data.new} new jobs · {len(data.inbox)} kept in your Inbox · "
-        f"{hidden} hidden · {data.alerts} alert{'s' if data.alerts != 1 else ''} sent"
-    )
-    text.append(summary)
-    body.append(f"<p style='color:#5b6372;margin:0 0 16px'>{html.escape(summary)}</p>")
+    rows = [
+        stats_row(
+            [
+                (str(data.new), "new jobs"),
+                (str(len(data.inbox)), "in your Inbox"),
+                (str(hidden), "hidden"),
+                (str(data.alerts), "alerts"),
+            ]
+        )
+    ]
+    text = [f"{title} · since {since}", "",
+            f"{data.new} new · {len(data.inbox)} in your Inbox · {hidden} hidden · "
+            f"{data.alerts} alerts"]  # fmt: skip
 
     if data.inbox:
-        text += ["", "Top matches"]
-        body.append("<h3 style='font-size:15px;margin:16px 0 8px'>Top matches</h3>")
+        rows.append(heading("Top matches"))
+        text += ["", "TOP MATCHES"]
         for job in data.inbox[:TOP]:
-            score = "\u2013" if job.score is None else str(job.score)
-            text.append(f"  {score}  {_title(job)}  {job.score_reason or ''}")
-            body.append(
-                "<div style='margin:0 0 12px'>"
-                f"<b style='color:#2456c4'>{score}</b> <b>{html.escape(_title(job))}</b>"
-                f"<div style='color:#5b6372'>{html.escape(job.score_reason or '')}</div>"
-                f"<div>{_links(job)}</div></div>"
-            )
+            card, card_text = job_card(job, notion=notion_url(job.notion_page_id), compact=True)
+            rows.append(card)
+            text.append(card_text)
         if len(data.inbox) > TOP:
-            more = f"…and {len(data.inbox) - TOP} more in your Inbox."
-            text.append("  " + more)
-            body.append(f"<p style='color:#5b6372'>{html.escape(more)}</p>")
+            more = f"{len(data.inbox) - TOP} more in your Notion Inbox."
+            rows.append(
+                f"<tr><td style='font-size:13px;color:{MUTED};padding:0 0 4px'>{esc(more)}</td></tr>"
+            )
+            text.append(more)
 
     if data.closing:
-        text += ["", f"Closing in {CLOSING_DAYS} days"]
-        body.append(
-            f"<h3 style='font-size:15px;margin:16px 0 8px'>Closing in {CLOSING_DAYS} days</h3>"
-        )
-        for job in data.closing[:10]:
-            text.append(f"  {_deadline(job)}  {_title(job)}")
-            body.append(
-                f"<div style='margin:0 0 8px'><b>{html.escape(_deadline(job))}</b> · "
-                f"{html.escape(_title(job))} · {_links(job)}</div>"
+        rows.append(heading(f"Closing in the next {CLOSING_DAYS} days"))
+        text += ["", "CLOSING SOON"]
+        items = "".join(
+            f"<tr><td width='64' style='padding:10px 0 10px 14px;font-size:13px;font-weight:700;color:{FAIR[1]}'>{esc(day_month(job.deadline))}</td>"
+            f"<td style='padding:10px 14px 10px 8px;font-size:14px;color:{INK}'>{esc(_title(job))}</td>"
+            f"<td align='right' style='padding:10px 14px 10px 0;font-size:13px;white-space:nowrap'>"
+            + (
+                f"<a href='{esc(job.canonical_url)}' style='color:{ACCENT};font-weight:600;text-decoration:none'>Apply</a>"
+                if job.canonical_url
+                else ""
             )
+            + "</td></tr>"
+            for job in data.closing[:10]
+        )
+        rows.append(
+            f"<tr><td><table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            f"style='background:{CARD};border:1px solid {LINE};border-radius:12px'>{items}</table></td></tr>"
+        )
+        text += [f"  {day_month(j.deadline)}  {_title(j)}" for j in data.closing[:10]]
 
     if data.hidden:
         detail = ", ".join(f"{n} {kind}" for kind, n in sorted(data.hidden.items()))
-        line = f"Hidden: {detail}. They're in Notion under Status = Hidden."
+        line = f"Hidden: {detail}. Find them in Notion under Status = Hidden."
+        rows.append(
+            f"<tr><td style='padding:18px 0 0;font-size:13px;color:{MUTED}'>{esc(line)}</td></tr>"
+        )
         text += ["", line]
-        body.append(f"<p style='color:#5b6372'>{html.escape(line)}</p>")
 
-    status = f"Gemini today: about ₹{data.spent_inr:.0f} of ₹{data.budget_inr:.0f} (list price)."
+    if database_id and (url := notion_url(database_id)):
+        rows.append(
+            f"<tr><td style='padding:20px 0 0'>{button('Open your Notion Inbox', url)}</td></tr>"
+        )
+        text += ["", f"Notion: {url}"]
+
+    status = f"Gemini today: about ₹{data.spent_inr:.0f} of your ₹{data.budget_inr:.0f} daily budget (list price)."
     if data.failed:
-        status += f" {data.failed} task(s) failed: run `jobradar retry --failed`."
-    text += ["", status]
-    body.append(f"<p style='color:#5b6372;font-size:12px'>{html.escape(status)}</p>")
-    if database_id:
-        url = notion_url(database_id) or ""
-        text.append(f"Notion: {url}")
-        body.append(f"<p><a href='{html.escape(url, quote=True)}'>Open your Notion Inbox</a></p>")
+        status += f" {data.failed} task(s) failed: run <code>jobradar retry --failed</code>."
+    footer = status + "<br>Sent by JobRadar to you only."
+    text += ["", html.unescape(status.replace("<code>", "").replace("</code>", ""))]
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -200,9 +220,14 @@ def build_digest(data: DigestData, sender: str, to: str, database_id: str | None
     msg["To"] = to
     msg.set_content("\n".join(text) + "\n\n— JobRadar\n")
     msg.add_alternative(
-        "<div style='font-family:system-ui,sans-serif;font-size:14px;color:#16191f'>"
-        + "".join(body)
-        + "</div>",
+        layout(
+            "JobRadar digest",
+            title,
+            subtitle,
+            subject.removeprefix("[JobRadar] "),
+            "".join(rows),
+            footer,
+        ),
         subtype="html",
     )
     return msg

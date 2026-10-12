@@ -19,7 +19,7 @@ from jobradar.config import FiltersConfig, MatchingConfig, ScoringConfig
 from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline import scam
-from jobradar.pipeline.decide import decide
+from jobradar.pipeline.decide import Decision, contradicts, decide
 from jobradar.pipeline.extract import PAGE_TEXT_LIMIT, own_post
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import MATCH, NOTION_BODY, NOTION_UPSERT
@@ -72,7 +72,9 @@ def reason(
     if answers.provider == "rules":
         return f"Not eligible: {answers.not_eligible_because}"
     bits: list[str] = []
-    if answers.provider == "llm" and answers.confidence < min_confidence:
+    if (answers.provider == "llm" and answers.confidence < min_confidence) or contradicts(
+        answers, value
+    ):
         bits.append("unsure")
     if answers.overall_fit is not None:
         bits.append(_FIT_WORDS[round(answers.overall_fit * 4)])
@@ -186,6 +188,8 @@ class Matcher:
         decision = decide(
             answers, value, job.company, risk, self.matching, self.scoring, self.filters
         )
+        if not posting.is_job:  # an ad, course or event that got through extraction
+            decision = Decision("not_a_job", hide_because="not a job posting (ad or event)")
         if decision.hide_because:
             self.repo.set_job_status(job_id, JobStatus.HIDDEN, decision.hide_because)
             log.info("job hidden", extra={"job_id": job_id[:10], "why": decision.hide_because})

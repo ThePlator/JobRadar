@@ -48,3 +48,12 @@ def test_reasons() -> None:
     assert r.hide_because == "not eligible: batch 2027 only"
     weak = decide(answers(), 31, None, "low", MatchingConfig(), SCORING, FiltersConfig())
     assert weak.hide_because == "weak match (31)"
+
+
+def test_contradicting_answers_never_alert() -> None:
+    # The Scaler webinar ad: every dimension "perfect" (99) but the overall verdict "Not a fit".
+    ad = answers(overall_fit=0.0)
+    result = decide(ad, 99, "Scaler", "low", MatchingConfig(), SCORING, FiltersConfig())
+    assert result.rule == "unsure" and not result.alert
+    agreeing = answers(overall_fit=1.0)
+    assert decide(agreeing, 99, "Acme", "low", MatchingConfig(), SCORING, FiltersConfig()).alert

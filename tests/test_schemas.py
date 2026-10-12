@@ -37,6 +37,7 @@ def test_scalars_where_lists_belong() -> None:
 
 
 def test_is_job() -> None:
-    assert JobPosting(company="Acme", confidence=0.1).is_job
+    assert JobPosting(role="SDE", confidence=0.1).is_job
+    assert not JobPosting(company="Scaler", confidence=0.05).is_job  # an ad: no role
     assert not JobPosting(confidence=0.2).is_job
     assert JobPosting(confidence=0.9).is_job

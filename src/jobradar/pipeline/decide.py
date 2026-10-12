@@ -5,7 +5,7 @@ wins. Thresholds come from config (`matching`, `scoring`, `filters`).
 |---|------|------|
 | 1 | not eligible, or an excluded company | hidden |
 | 2 | scam risk high | stays in the Inbox flagged, never emailed |
-| 3 | the provider isn't confident | stays in the Inbox, never emailed |
+| 3 | not confident, or the answers contradict each other | stays in the Inbox, never emailed |
 | 4 | score below `scoring.hide_below` | hidden ("weak match") |
 | 5 | strong score, clearly eligible, a real provider | email alert |
 | 6 | otherwise | stays in the Inbox |
@@ -17,6 +17,16 @@ from dataclasses import dataclass
 
 from jobradar.config import FiltersConfig, MatchingConfig, ScoringConfig
 from jobradar.providers.base import MatchAnswers
+
+CONTRADICTION = 0.5  # score and overall verdict this far apart (on 0-1): don't trust either
+
+
+def contradicts(answers: MatchAnswers, score: int | None) -> bool:
+    """The weighted answers and the provider's own overall verdict disagree badly, e.g. a
+    99 score with "Not a fit". Happens on things that aren't really jobs."""
+    if score is None or answers.overall_fit is None:
+        return False
+    return abs(score / 100 - answers.overall_fit) > CONTRADICTION
 
 
 @dataclass(frozen=True)
@@ -46,6 +56,8 @@ def decide(
     if scam_risk == "high":
         return Decision("scam")
     if answers.provider != "rules" and answers.confidence < matching.min_confidence:
+        return Decision("unsure")
+    if contradicts(answers, score):
         return Decision("unsure")
     if score is not None and score < scoring.hide_below:
         return Decision("weak", hide_because=f"weak match ({score})")
