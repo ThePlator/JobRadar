@@ -6,6 +6,10 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Readable emails**
+- Alerts, digests and the test email share a new design built for email clients: a card per job with a coloured score tile, role and company, labels for fit, eligibility, freshness and deadline, "You have / Missing" skill rows, and Apply / Open in Notion buttons. The digest opens with four numbers (new, in your Inbox, hidden, alerts) and has clear sections. Plain-text versions are tidier too.
+- The digest is named by time of day (morning, afternoon, evening).
+
 **Instant alerts**
 - The first alert is emailed as soon as the job is matched, about 30 seconds after the post. Strong jobs arriving within `notify.alert_batch_minutes` of an email are grouped into one follow-up at the end of that window, so a burst of posts doesn't flood your inbox.
 - Each alert says when and where the job was posted ("posted 3 min ago in Freshershunt").
@@ -64,6 +68,8 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The default extraction model is `gemini/gemini-flash-lite-latest`.
 
 ### Fixed
+- An ad with a company name but no role (a "free webinar" post) no longer counts as a job; the matcher hides any that got through.
+- A match whose answers contradict each other (a 99 score with the verdict "Not a fit") is marked unsure and never emailed.
 - Notion rejected long posts with emoji, because it counts them as two characters.
 - `go.acciojob.com` links weren't expanded, so a course ad became a fake job.
 - Telegram "Apply" buttons were missed with the newer Telegram API layer.

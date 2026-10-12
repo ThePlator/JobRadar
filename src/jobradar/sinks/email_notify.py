@@ -24,9 +24,9 @@ from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import Settings
 from jobradar.db.models import Job
 from jobradar.db.repo import Repo, TaskRecord
-from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import FRESH, SEND_ALERTS
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
+from jobradar.sinks.email_template import day_month, job_card, layout
 
 log = logging.getLogger(__name__)
 
@@ -40,26 +40,14 @@ def notion_url(page_id: str | None) -> str | None:
     return f"https://www.notion.so/{page_id.replace('-', '')}" if page_id else None
 
 
-def _posting(job: Job) -> JobPosting | None:
-    try:
-        return JobPosting.model_validate_json(job.data_json) if job.data_json else None
-    except ValueError:
-        return None
-
-
 def _title(job: Job) -> str:
-    role = job.role or "A job"
+    role = job.role or "Role not stated"
     return f"{role} @ {job.company}" if job.company else role
 
 
 def _closes(job: Job) -> str:
-    if not job.deadline:
-        return ""
-    try:
-        day = datetime.fromisoformat(job.deadline)
-        return f" · closes {day.day} {day:%b}"
-    except ValueError:
-        return ""
+    closes = day_month(job.deadline)
+    return f" · closes {closes}" if closes else ""
 
 
 def subject(jobs: list[Job]) -> str:
@@ -87,46 +75,39 @@ def posted_ago(posted_at: str, chat: str | None, now: datetime) -> str:
 def build_email(
     jobs: list[Job], sender: str, to: str, seen: dict[str, str] | None = None
 ) -> EmailMessage:
-    """Plain text and HTML versions of one alert email covering these jobs. `seen` maps a
-    job id to where and when it was posted."""
+    """One alert email covering these jobs, as HTML and plain text. `seen` maps a job id to
+    where and when it was posted."""
     seen = seen or {}
-    text_parts: list[str] = []
-    html_parts: list[str] = []
-    for job in jobs:
-        posting = _posting(job)
-        apply = (posting.apply_url if posting else None) or job.canonical_url
-        page = notion_url(job.notion_page_id)
-        fresh = seen.get(job.id, "")
-        lines = [f"{_title(job)} · {job.score}{_closes(job)}", fresh, job.score_reason or ""]
-        if apply:
-            lines.append(f"Apply: {apply}")
-        if page:
-            lines.append(f"Notion: {page}")
-        text_parts.append("\n".join(line for line in lines if line))
-
-        links = []
-        if apply:
-            links.append(f'<a href="{html.escape(apply, quote=True)}">Apply</a>')
-        if page:
-            links.append(f'<a href="{html.escape(page, quote=True)}">Open in Notion</a>')
-        html_parts.append(
-            "<div style='margin:0 0 20px'>"
-            f"<div style='font-size:16px;font-weight:600'>{html.escape(_title(job))}"
-            f" <span style='color:#2456c4'>{job.score}</span>"
-            f"<span style='color:#5b6372;font-weight:400'>{html.escape(_closes(job))}</span></div>"
-            f"<div style='color:#1f7a4a;margin:2px 0'>{html.escape(fresh)}</div>"
-            f"<div style='color:#5b6372;margin:4px 0'>{html.escape(job.score_reason or '')}</div>"
-            f"<div>{' · '.join(links)}</div></div>"
-        )
+    cards = [job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id)) for job in jobs]
+    if len(jobs) == 1:
+        title = "New strong match"
+        subtitle = seen.get(jobs[0].id, "") or "Apply early: fresh posts get read first."
+        if subtitle.startswith("posted"):
+            subtitle = f"Apply early: it was {subtitle}."
+    else:
+        title = f"{len(jobs)} new strong matches"
+        subtitle = "Best first. Apply early: fresh posts get read first."
+    ordered = sorted(zip(jobs, cards, strict=True), key=lambda pair: -(pair[0].score or 0))
+    footer = (
+        "Sent by JobRadar to you only. Each job alerts once; you get alerts for new jobs "
+        "scoring at or above <code>scoring.alert_above</code>."
+    )
     msg = EmailMessage()
     msg["Subject"] = subject(jobs)
     msg["From"] = sender
     msg["To"] = to
-    msg.set_content("\n\n".join(text_parts) + "\n\n— JobRadar\n")
+    msg.set_content(
+        f"{title}\n\n" + "\n\n".join(text for _, (_, text) in ordered) + "\n\n— JobRadar\n"
+    )
     msg.add_alternative(
-        "<div style='font-family:system-ui,sans-serif;font-size:14px;color:#16191f'>"
-        + "".join(html_parts)
-        + "<div style='color:#5b6372;font-size:12px'>Sent by JobRadar to you only.</div></div>",
+        layout(
+            "JobRadar alert",
+            title,
+            subtitle,
+            subject(jobs).removeprefix("[JobRadar] "),
+            "".join(card for _, (card, _) in ordered),
+            footer,
+        ),
         subtype="html",
     )
     return msg

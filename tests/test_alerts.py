@@ -88,7 +88,8 @@ async def test_first_alert_is_instant_followups_are_grouped(
     assert msg["To"] == "phone@example.com" and msg["From"] == "me@example.com"
     assert msg["Subject"] == "[JobRadar] 2 strong matches · best: SDE c @ Acme (92)"
     text = msg.get_body(("plain",)).get_content()
-    assert "Good fit · 80" in text and "https://www.notion.so/1234abcd" in text
+    assert "80  SDE b — Acme" in text and "Good fit · Eligible" in text
+    assert "Notion: https://www.notion.so/1234abcd" in text
     assert repo.pending_alerts() == []
 
 
@@ -213,3 +214,9 @@ def test_test_email_command(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "test email sent to phone@example.com" in result.output
     assert sent[0]["Subject"] == "[JobRadar] Test email: alerts reach you"
     assert "Backend Engineer (example)" in sent[0].get_body(("plain",)).get_content()
+
+
+def test_email_styles_stay_inside_their_attributes() -> None:
+    from jobradar.sinks.email_template import FONT
+
+    assert "'" not in FONT  # a quote here would end style='…' early and drop the rest

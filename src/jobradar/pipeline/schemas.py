@@ -138,5 +138,6 @@ class JobPosting(BaseModel):
 
     @property
     def is_job(self) -> bool:
-        """False when the LLM thinks this is not a real single job posting."""
-        return not (self.confidence < 0.4 and not (self.company or self.role))
+        """False when the LLM thinks this is not a real single job posting. A company name
+        alone doesn't make an ad ("Join Scaler's free class") a job: it needs a role."""
+        return not (self.confidence < 0.4 and not self.role)

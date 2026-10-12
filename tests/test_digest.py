@@ -84,7 +84,9 @@ async def test_digest_email(
     msg = sent[0]
     assert msg["Subject"] == "[JobRadar] Evening digest · 5 new · 2 strong · 1 closing soon"
     text = msg.get_body(("plain",)).get_content()
-    assert "5 new jobs · 3 kept in your Inbox · 2 hidden" in text
+    assert "5 new · 3 in your Inbox · 2 hidden" in text
+    html_body = msg.get_body(("html",)).get_content()
+    assert "Top matches" in html_body and "Open your Notion Inbox" in html_body
     assert text.index("Role a") < text.index("Role e") < text.index("Role b")  # best first
     assert "9 Oct  Role e @ Acme" in text
     assert "Hidden: 1 not eligible, 1 weak match" in text

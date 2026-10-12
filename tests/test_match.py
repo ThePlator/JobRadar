@@ -262,7 +262,9 @@ async def test_strong_match_alerts_weak_one_hides(repo: Repo, queue: TaskQueue) 
     seed_job(repo, "strong")
     seed_job(repo, "weak")
     alerts = Alerts()
-    weak = GOOD.model_copy(update={"skills_coverage": 0.0, "role_alignment": 0.0})
+    weak = GOOD.model_copy(
+        update={"skills_coverage": 0.0, "role_alignment": 0.0, "overall_fit": 0.25}
+    )
     answers = {"strong": GOOD, "weak": weak}
 
     class ByJob:
@@ -336,3 +338,16 @@ async def test_only_fresh_open_jobs_alert(
     assert (alerts.queued == ["job1"]) == alerted
     job = repo.get_job("job1")
     assert job is not None and job.status == JobStatus.NEW  # stays in the Inbox either way
+
+
+async def test_ads_that_slipped_through_extraction_are_hidden(repo: Repo, queue: TaskQueue) -> None:
+    seed_job(repo, role=None, confidence=0.05, summary="A free webinar, not a job.")
+    alerts = Alerts()
+    m = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, alerts=alerts, clock=CLOCK)  # fmt: skip
+    queue.enqueue(MATCH, "job1")
+    await run(queue, m)
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.HIDDEN
+    assert job.score_reason == "not a job posting (ad or event)"
+    assert alerts.queued == []
