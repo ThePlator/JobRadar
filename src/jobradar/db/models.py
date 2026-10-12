@@ -138,6 +138,7 @@ class Task(SQLModel, table=True):
     run_after: str
     started_at: str | None = None  # set on claim; finds tasks stuck after a crash
     rerun: bool = False  # re-enqueued while running: run again after this attempt
+    priority: int | None = None  # higher runs first (FRESH: work for a job that just arrived)
     last_error: str | None = None
 
 

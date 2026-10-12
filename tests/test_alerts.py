@@ -63,31 +63,60 @@ async def run_due(queue: TaskQueue, alerts: AlertSender) -> int:
     return ran
 
 
-async def test_alerts_are_batched_and_sent_once(
+async def test_first_alert_is_instant_followups_are_grouped(
     repo: Repo, queue: TaskQueue, clock: FakeClock, tmp_path: Path
 ) -> None:
     alerts, outbox = sender(repo, queue, clock, tmp_path)
-    add_job(repo, "a", 88, "2026-10-12")
-    add_job(repo, "b", 80)
-    alerts.queue_alert("a")
-    clock.advance(120)
-    alerts.queue_alert("b")  # joins the batch the first alert opened
-    alerts.queue_alert("a")  # never twice
-    assert await run_due(queue, alerts) == 0  # the 10-minute window is still open
+    for job_id, score in (("a", 88), ("b", 80), ("c", 92)):
+        add_job(repo, job_id, score, "2026-10-12" if job_id == "a" else None)
 
-    clock.advance(8 * 60)
+    alerts.queue_alert("a")
+    assert await run_due(queue, alerts) == 1  # no email for a while: sent at once
+    assert outbox.sent[0]["Subject"] == "[JobRadar 88] SDE a @ Acme · closes 12 Oct"
+
+    clock.advance(120)
+    alerts.queue_alert("b")
+    clock.advance(60)
+    alerts.queue_alert("c")
+    alerts.queue_alert("a")  # never twice
+    assert await run_due(queue, alerts) == 0  # an email went out 3 min ago: wait
+
+    clock.advance(7 * 60)  # 10 minutes after the first email
     assert await run_due(queue, alerts) == 1
-    assert len(outbox.sent) == 1
-    msg = outbox.sent[0]
+    assert len(outbox.sent) == 2
+    msg = outbox.sent[1]
     assert msg["To"] == "phone@example.com" and msg["From"] == "me@example.com"
-    assert msg["Subject"] == "[JobRadar] 2 strong matches · best: SDE a @ Acme (88)"
+    assert msg["Subject"] == "[JobRadar] 2 strong matches · best: SDE c @ Acme (92)"
     text = msg.get_body(("plain",)).get_content()
-    assert "Good fit · 88" in text and "https://www.notion.so/1234abcd" in text
+    assert "Good fit · 80" in text and "https://www.notion.so/1234abcd" in text
     assert repo.pending_alerts() == []
 
-    alerts.queue_alert("a")
-    clock.advance(11 * 60)
-    assert await run_due(queue, alerts) == 0  # nothing new: no task was even queued
+
+async def test_alert_says_when_and_where_it_was_posted(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, tmp_path: Path
+) -> None:
+    from jobradar.db.models import Platform
+
+    alerts, outbox = sender(repo, queue, clock, tmp_path)
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Freshershunt")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, "1", "2026-10-08T08:57:00.000000Z", "post")
+    add_job(repo, "a", 90)
+    repo.add_job_source("a", raw_id)
+    alerts.queue_alert("a")  # the fake clock says 09:00: three minutes after the post
+    await run_due(queue, alerts)
+    assert "posted 3 min ago in Freshershunt" in outbox.sent[0].get_body(("plain",)).get_content()
+
+
+def test_posted_ago() -> None:
+    from datetime import UTC, datetime
+
+    from jobradar.sinks.email_notify import posted_ago
+
+    now = datetime(2026, 10, 8, 9, 0, tzinfo=UTC)
+    assert posted_ago("2026-10-08T08:59:50.000000Z", None, now) == "posted just now"
+    assert posted_ago("2026-10-08T06:00:00.000000Z", "Jobs", now) == "posted 3 h ago in Jobs"
+    assert posted_ago("2026-10-05T09:00:00.000000Z", None, now) == "posted 3 days ago"
 
 
 async def test_dry_run_saves_a_preview(

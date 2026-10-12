@@ -6,6 +6,12 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Instant alerts**
+- The first alert is emailed as soon as the job is matched, about 30 seconds after the post. Strong jobs arriving within `notify.alert_batch_minutes` of an email are grouped into one follow-up at the end of that window, so a burst of posts doesn't flood your inbox.
+- Each alert says when and where the job was posted ("posted 3 min ago in Freshershunt").
+- Fast lane: work for jobs first seen in the last hour runs before catch-ups, re-matches and backfills (new `task.priority` column, added automatically).
+- `scoring.alert_above` defaults to 75.
+
 **Daily digest**
 - A summary email at each `notify.digest_times` slot (09:00 and 19:00 by default) covering everything since the previous one: new jobs, the top 5 still in your Inbox with score and reason, jobs closing in the next 2 days, what was hidden and why, alerts sent, failed tasks and Gemini spend. A window with nothing to report sends nothing.
 - Dry run applies: digests are saved to `data/alerts/digest-*.html` instead.

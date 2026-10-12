@@ -302,7 +302,12 @@ class Repo:
     # ---- task queue ---------------------------------------------------------------------------
 
     def enqueue(
-        self, type_: str, key: str, payload: dict[str, Any] | None = None, run_after: str = ""
+        self,
+        type_: str,
+        key: str,
+        payload: dict[str, Any] | None = None,
+        run_after: str = "",
+        priority: int = 0,
     ) -> None:
         """Insert a task, or merge into the existing (type, key) row:
 
@@ -314,10 +319,12 @@ class Repo:
         with self._tx() as c:
             c.execute(
                 text(
-                    "INSERT INTO task (type, key, payload, status, attempts, run_after, rerun) "
-                    "VALUES (:type, :key, :payload, 'pending', 0, :run_after, 0) "
+                    "INSERT INTO task (type, key, payload, status, attempts, run_after, rerun,"
+                    " priority) "
+                    "VALUES (:type, :key, :payload, 'pending', 0, :run_after, 0, :priority) "
                     "ON CONFLICT (type, key) DO UPDATE SET "
                     " payload = excluded.payload,"
+                    " priority = max(coalesce(priority, 0), excluded.priority),"
                     " run_after = CASE status"
                     "   WHEN 'pending' THEN min(run_after, excluded.run_after)"
                     "   WHEN 'running' THEN run_after"
@@ -334,11 +341,13 @@ class Repo:
                     "key": key,
                     "payload": json.dumps(payload or {}),
                     "run_after": run_after or now,
+                    "priority": priority,
                 },
             )
 
     def claim(self, types: list[str] | None = None) -> TaskRecord | None:
-        """Atomically take the oldest ready task (optionally of the given types)."""
+        """Atomically take the next ready task (optionally of the given types): highest
+        priority first, then the oldest."""
         type_filter = ""
         params: dict[str, Any] = {"now": self._now()}
         if types:
@@ -351,7 +360,7 @@ class Repo:
                 "UPDATE task SET status = 'running', attempts = attempts + 1,"  # noqa: S608
                 " started_at = :now WHERE id = (SELECT id FROM task"
                 " WHERE status = 'pending' AND run_after <= :now"
-                f"{type_filter} ORDER BY run_after, id LIMIT 1) "
+                f"{type_filter} ORDER BY coalesce(priority, 0) DESC, run_after, id LIMIT 1) "
                 "RETURNING id, type, key, payload, attempts"
             )
             row = c.execute(
@@ -605,6 +614,14 @@ class Repo:
                 {"since": since},
             ).one()
         return int(row[0])
+
+    def last_alert_sent_at(self) -> str | None:
+        """When the latest alert email went out (or was previewed in a dry run)."""
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT max(sent_at) FROM alert WHERE outcome IN ('sent', 'dry_run')")
+            ).one()
+        return None if row[0] is None else str(row[0])
 
     def finish_alerts(self, job_ids: list[str], outcome: str) -> None:
         with self._tx() as c:

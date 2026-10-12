@@ -1,4 +1,8 @@
-"""Task type names, in pipeline order."""
+"""Task type names, in pipeline order, and task priorities."""
+
+from datetime import datetime, timedelta
+
+from jobradar.clock import from_iso
 
 PROCESS_MESSAGE = "process_message"  # post -> links -> jobs
 FETCH = "fetch"  # job link -> page text
@@ -8,3 +12,13 @@ SEND_ALERTS = "send_alerts"  # one email with every alert queued in the batch wi
 DIGEST = "digest"  # summary email at each notify.digest_times slot (key: local slot time)
 NOTION_UPSERT = "notion_upsert"  # job -> page properties
 NOTION_BODY = "notion_body"  # job -> page body (agent toggle)
+
+# Priorities: work for a job that just arrived runs before catch-ups and backfills, so an
+# alert isn't stuck behind re-matching 100 old jobs.
+FRESH = 1
+FRESH_FOR = timedelta(hours=1)
+
+
+def priority(created_at: str, now: datetime) -> int:
+    """FRESH for a job first seen within the last hour, else 0."""
+    return FRESH if now - from_iso(created_at) < FRESH_FOR else 0

@@ -140,3 +140,22 @@ def test_second_report_for_an_attempt_is_ignored(queue: TaskQueue, report: str) 
     queue.complete(t)
     REPORTS[report](queue, t)  # e.g. a handler that reports twice
     assert queue.claim() is None
+
+
+def test_fresh_work_jumps_the_queue(queue: TaskQueue, clock: FakeClock) -> None:
+    from jobradar.pipeline.task_types import FRESH, priority
+
+    for n in range(3):
+        queue.enqueue("match", f"old{n}")  # e.g. a re-match of 100 old jobs
+    clock.advance(1)
+    queue.enqueue("match", "new", priority=FRESH)
+    queue.enqueue("match", "old0", priority=0)  # re-enqueueing never lowers a priority
+    first = queue.claim()
+    assert first is not None and first.key == "new"
+    second = queue.claim()
+    assert second is not None and second.key == "old0"
+
+    created = "2026-10-08T08:30:00.000000Z"
+    assert priority(created, clock()) == FRESH  # 30 minutes old
+    clock.advance(3600)
+    assert priority(created, clock()) == 0

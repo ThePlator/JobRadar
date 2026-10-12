@@ -59,9 +59,14 @@ class TaskQueue:
         return to_iso(self._clock() + timedelta(seconds=seconds))
 
     def enqueue(
-        self, type_: str, key: str, payload: dict[str, Any] | None = None, delay: float = 0
+        self,
+        type_: str,
+        key: str,
+        payload: dict[str, Any] | None = None,
+        delay: float = 0,
+        priority: int = 0,
     ) -> None:
-        self.repo.enqueue(type_, key, payload, run_after=self._at(delay))
+        self.repo.enqueue(type_, key, payload, run_after=self._at(delay), priority=priority)
 
     def claim(self, types: list[str] | None = None) -> TaskRecord | None:
         return self.repo.claim(types)

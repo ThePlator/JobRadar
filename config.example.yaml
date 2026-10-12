@@ -44,7 +44,7 @@ matching:
 
 scoring:
   hide_below: 40          # below → Hidden
-  alert_above: 85         # at or above → email alert (if eligible, confident and not a scam)
+  alert_above: 75         # at or above → email alert (if eligible, confident and not a scam)
   auto_resume_above: 85   # at or above → resume + kit built automatically; null = only on Shortlisted
 
 resume:
@@ -69,7 +69,7 @@ notify:
   alerts: true
   dry_run: true           # alerts are saved to data/alerts/*.html, not emailed; set false
                           #   once those previews look right
-  alert_batch_minutes: 10 # alerts inside this window arrive as one email
+  alert_batch_minutes: 10 # first alert is instant; later ones within 10 min come as one email
   max_alerts_per_day: 10
   alert_max_age_days: 2   # only jobs first seen this recently can alert
   digest: true            # summary email at each digest time (skipped when nothing happened)
