@@ -71,3 +71,45 @@ def test_new_columns_are_added_to_an_old_database(tmp_path: Path) -> None:
         assert "structured_json" in columns
         assert c.execute(text("SELECT count(*) FROM fetched_page")).scalar() == 1
     eng.dispose()
+
+
+def test_source_platform_list_is_upgraded_in_place(tmp_path: Path) -> None:
+    import sqlite3
+
+    from jobradar.db.models import Platform
+
+    path = tmp_path / "old.db"
+    eng = make_engine(path)
+    init_db(eng)
+    with eng.begin() as c:  # make `source` look like it did before boards existed
+        c.execute(text("PRAGMA foreign_keys = OFF"))
+        sql = c.execute(text("SELECT sql FROM sqlite_master WHERE name = 'source'")).scalar()
+        assert sql is not None
+        c.execute(text("PRAGMA writable_schema = ON"))
+        c.execute(
+            text("UPDATE sqlite_master SET sql = :sql WHERE name = 'source'"),
+            {"sql": sql.replace(", 'board'", "")},
+        )
+        c.execute(text("PRAGMA writable_schema = OFF"))
+    eng.dispose()
+    eng = make_engine(path)
+    repo = Repo(eng)
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Jobs")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, "1", "2026-10-08T08:00:00.000000Z", "post")
+    with pytest.raises(IntegrityError):  # the old list refuses boards
+        repo.upsert_source(Platform.BOARD, "greenhouse:stripe", "Greenhouse · Stripe")
+    eng.dispose()
+
+    eng = make_engine(path)
+    init_db(eng)  # upgrades `source`, keeping rows and links
+    init_db(eng)  # and is a no-op the second time
+    repo = Repo(eng)
+    board = repo.upsert_source(Platform.BOARD, "greenhouse:stripe", "Greenhouse · Stripe")
+    assert board.id is not None
+    assert repo.get_raw_message(raw_id) is not None
+    assert (tmp_path / "old.db.before-board-sources.bak").exists()
+    with eng.connect() as c:
+        assert c.execute(text("PRAGMA foreign_key_check")).all() == []
+    eng.dispose()
+    sqlite3.connect(path).close()

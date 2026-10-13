@@ -68,6 +68,8 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar extract --compare` | Check how well free reading (page data, post labels) agrees with earlier Gemini answers |
 | `jobradar stats --days 7` | Posts received, jobs created, reposts merged, ads hidden, likely duplicates, failed tasks |
 | `jobradar retry --failed` | Put failed tasks back in the queue; they run on the next `jobradar run` |
+| `jobradar boards` | Company job boards you watch: postings, how many were passed on, last read, problems |
+| `jobradar boards --check` | Read every board now (the first read only records a baseline) |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
 | `jobradar resume <job_id>` | *Not built yet (v0.3)*: rebuild a tailored resume |

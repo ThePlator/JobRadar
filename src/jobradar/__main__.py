@@ -252,6 +252,66 @@ def doctor() -> None:
 
 
 @app.command()
+def boards(
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check", help="Read every board once now (the first time records a baseline)."
+        ),
+    ] = False,
+) -> None:
+    """Company job boards you watch (sources.boards in config), and how each is doing."""
+    import json
+
+    from jobradar import app as application
+    from jobradar.pipeline.ingest import make_emit
+    from jobradar.sources.boards.watcher import BoardWatcher
+
+    settings = _settings()
+    config = settings.config.sources.boards
+    if not config.companies:
+        _fail(
+            "No boards yet: add sources.boards.companies to config/config.yaml "
+            "(see config.example.yaml)."
+        )
+    repo, queue = application.open_store()
+    if check:
+        watcher = BoardWatcher(config, repo, queue, make_emit(repo, queue))
+
+        async def read_all() -> None:
+            try:
+                for ref in config.companies:
+                    await watcher.check_board(ref)
+            finally:
+                await watcher.aclose()
+
+        _run(read_all())
+        typer.echo("Read every board. New postings (if any) are queued for `jobradar run`.\n")
+    rows = []
+    for ref in config.companies:
+        b = repo.get_board(ref.key)
+        if b.skip_until:
+            state = f"not found 3 times: check the name (retry {b.skip_until[:10]})"
+        elif b.last_error:
+            state = b.last_error[:60]
+        elif b.seen_json is None:
+            state = "not read yet"
+        else:
+            state = "ok"
+        worth = 0
+        if b.seen_json:
+            worth = len(json.loads(b.seen_json))
+        rows.append((ref.label, str(worth) if b.seen_json else "-", str(b.new_total),
+                     (b.last_ok or "")[:16].replace("T", " "), state))  # fmt: skip
+    width = max(len(r[0]) for r in rows)
+    typer.echo(
+        f"{'Board':<{width}}  {'postings':>8}  {'passed on':>9}  {'last read (UTC)':<16}  status"
+    )
+    for label, postings, new, last, state in rows:
+        typer.echo(f"{label:<{width}}  {postings:>8}  {new:>9}  {last:<16}  {state}")
+
+
+@app.command()
 def alerts(
     test: Annotated[
         bool, typer.Option("--test", help="Send yourself one test email, even in dry run.")

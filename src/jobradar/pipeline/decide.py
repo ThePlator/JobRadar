@@ -38,6 +38,7 @@ def hidden_kind(reason: str | None) -> str:
         ("not a job", "not a job"),
         ("hidden by you", "hidden by you"),
         ("company excluded", "excluded company"),
+        ("closed on the company board", "closed on its board"),
     ):
         if why.startswith(prefix):
             return kind

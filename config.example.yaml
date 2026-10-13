@@ -5,6 +5,14 @@ sources:
     enabled: true
     chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]  # `jobradar chats` lists ids
     backfill_days: 3
+  boards:                   # company job boards, read directly: jobs arrive minutes after posting
+    enabled: true
+    every_minutes: 20       # each board is read this often (spread out)
+    companies:              # ats: greenhouse | lever | ashby | smartrecruiters
+      - { ats: greenhouse, company: stripe, name: Stripe }
+      - { ats: lever, company: meesho, name: Meesho }
+      - { ats: ashby, company: sarvam, name: Sarvam AI }
+      - { ats: smartrecruiters, company: BoschGroup, name: Bosch }   # India postings only
   email_forward:
     enabled: true
     folder: JobRadar      # forward jobs here (Gmail: a label + filter)

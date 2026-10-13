@@ -55,8 +55,50 @@ class WhatsAppSourceConfig(_Strict):
     port: int = Field(default=8765, ge=1024, le=65535)
 
 
+BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters"]
+_ATS_NAMES = {
+    "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
+    "smartrecruiters": "SmartRecruiters",
+}  # fmt: skip
+
+
+class BoardRef(_Strict):
+    """One company job board: its hiring system and the company's name in that system's
+    board address (e.g. boards.greenhouse.io/**stripe**)."""
+
+    ats: BoardATS
+    company: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
+    name: str | None = None  # how it shows in Notion and emails; default: the company slug
+
+    @property
+    def key(self) -> str:
+        return f"{self.ats}:{self.company}"
+
+    @property
+    def label(self) -> str:
+        """'Greenhouse · Stripe': how the board shows in Notion and emails."""
+        return f"{_ATS_NAMES[self.ats]} · {self.name or self.company}"
+
+
+class BoardsConfig(_Strict):
+    """Company job boards checked directly, so new postings arrive before channels repost them."""
+
+    enabled: bool = True
+    every_minutes: int = Field(default=20, ge=5, le=240)
+    companies: list[BoardRef] = Field(default_factory=list)
+
+    @field_validator("companies")
+    @classmethod
+    def _unique(cls, v: list[BoardRef]) -> list[BoardRef]:
+        keys = [b.key for b in v]
+        if dupes := sorted({k for k in keys if keys.count(k) > 1}):
+            raise ValueError(f"listed twice: {', '.join(dupes)}")
+        return v
+
+
 class SourcesConfig(_Strict):
     telegram: TelegramSourceConfig = Field(default_factory=TelegramSourceConfig)
+    boards: BoardsConfig = Field(default_factory=BoardsConfig)
     email_forward: EmailForwardSourceConfig = Field(default_factory=EmailForwardSourceConfig)
     whatsapp: WhatsAppSourceConfig = Field(default_factory=WhatsAppSourceConfig)
 

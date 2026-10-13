@@ -16,6 +16,8 @@ from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
 from jobradar.pipeline.match import Matcher
 from jobradar.pipeline.task_types import (
+    BOARD_CHECK,
+    BOARDS_TICK,
     DIGEST,
     EXTRACT,
     FETCH,
@@ -36,6 +38,7 @@ from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
 from jobradar.sinks.notion_sync import StatusSync
+from jobradar.sources.boards.watcher import BoardWatcher
 from jobradar.sources.telegram import TelegramSource
 
 log = logging.getLogger(__name__)
@@ -158,12 +161,19 @@ class Pipeline:
             handlers[SEND_ALERTS] = alerts.send
         self.status_sync = StatusSync(repo, queue, sink.client, sink.data_source_id)
         handlers[NOTION_POLL] = self.status_sync.poll
+        boards = settings.config.sources.boards
+        self.boards: BoardWatcher | None = None
+        if boards.enabled and boards.companies:
+            self.boards = BoardWatcher(boards, repo, queue, make_emit(repo, queue))
+            handlers[BOARDS_TICK], handlers[BOARD_CHECK] = self.boards.tick, self.boards.check
         self.digest = make_digest(settings, repo, queue)
         if self.digest is not None:
             handlers[DIGEST] = self.digest.send
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
+        if self.boards is not None:
+            await self.boards.aclose()
         await self.expander.aclose()
         await self.fetcher.aclose()
 
@@ -185,6 +195,9 @@ async def run(settings: Settings) -> None:
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
     pipeline.status_sync.schedule()  # then every 2 minutes
+    if pipeline.boards is not None:
+        pipeline.boards.schedule()  # then every minute: read the boards that are due
+        log.info("watching company boards", extra={"boards": len(pipeline.boards.boards)})
     if pipeline.digest is not None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})
