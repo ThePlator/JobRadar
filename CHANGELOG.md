@@ -74,6 +74,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The default extraction model is `gemini/gemini-flash-lite-latest`.
 
 ### Fixed
+- `jobradar stats` called every hidden job an ad. It now breaks hidden jobs down by reason (not eligible, weak match, not a job, hidden by you, ad or promo link) and lists only real ads as ads.
 - An ad with a company name but no role (a "free webinar" post) no longer counts as a job; the matcher hides any that got through.
 - A match whose answers contradict each other (a 99 score with the verdict "Not a fit") is marked unsure and never emailed.
 - Notion rejected long posts with emoji, because it counts them as two characters.

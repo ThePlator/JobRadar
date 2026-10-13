@@ -9,6 +9,7 @@ from datetime import timedelta
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db.models import JobStatus, TaskStatus
 from jobradar.db.repo import Repo
+from jobradar.pipeline.decide import hidden_kind
 from jobradar.pipeline.titles import title_from_post, title_key
 
 
@@ -28,7 +29,8 @@ class Report:
     no_link: int = 0
     jobs: int = 0
     sightings: int = 0
-    hidden_ads: list[JobLine] = field(default_factory=list)
+    hidden_ads: list[JobLine] = field(default_factory=list)  # hidden as ad or promo links
+    hidden: dict[str, int] = field(default_factory=dict)  # every hidden job, by reason
     per_chat: list[tuple[str, int, int]] = field(default_factory=list)
     duplicate_groups: list[list[JobLine]] = field(default_factory=list)
     tasks: dict[TaskStatus, int] = field(default_factory=dict)
@@ -99,11 +101,14 @@ def build_report(
     report.failures = repo.recent_failures()
 
     groups: dict[str, list[JobLine]] = defaultdict(list)
-    for job_id, url, status, sightings, first_post, first_text in repo.jobs_since(since):
+    for job_id, url, status, sightings, first_post, first_text, reason in repo.jobs_since(since):
         title = title_from_post(first_text) or ""
         line = JobLine(job_id, url or "", title, sightings, first_post)
         if status == JobStatus.HIDDEN:
-            report.hidden_ads.append(line)
+            kind = hidden_kind(reason)
+            report.hidden[kind] = report.hidden.get(kind, 0) + 1
+            if kind == "ad or promo link":
+                report.hidden_ads.append(line)
             continue
         report.jobs += 1
         report.sightings += sightings
@@ -122,11 +127,13 @@ def render(report: Report, max_groups: int = 10) -> str:
     out = [f"Last {report.days} days", ""]
     out.append(f"  Posts received        {report.messages:>6}")
     out.append(
-        f"  …with no job link     {report.no_link:>6}   (text-only / images: handled in v0.2)"
+        f"  …with no job link     {report.no_link:>6}   (text-only / image posts: not read yet)"
     )
-    out.append(f"  Jobs (Notion rows)    {report.jobs:>6}")
+    out.append(f"  Jobs kept (Inbox etc) {report.jobs:>6}")
     out.append(f"  Reposts merged by URL {report.merged:>6}")
-    out.append(f"  Ad/promo links hidden {len(report.hidden_ads):>6}")
+    out.append(f"  Jobs hidden           {sum(report.hidden.values()):>6}")
+    for kind, count in sorted(report.hidden.items(), key=lambda kv: -kv[1]):
+        out.append(f"    {kind:<19} {count:>6}")
     rate = report.duplicate_rate
     verdict = "under the 5% target" if rate < 0.05 else "over the 5% target"
     out.append(f"  Likely duplicate rows {report.extra_rows:>6}   {rate:.1%} of jobs, {verdict}")
@@ -147,7 +154,7 @@ def render(report: Report, max_groups: int = 10) -> str:
             out.append(f"  … and {len(report.duplicate_groups) - max_groups} more groups")
 
     if report.hidden_ads:
-        out += ["", "Hidden as ads (link attached to posts about different jobs)"]
+        out += ["", "Hidden as ads (a link attached to posts about different jobs, or a deny rule)"]
         for ad in sorted(report.hidden_ads, key=lambda a: -a.sightings)[:max_groups]:
             out.append(f"  {ad.sightings:>4} posts  {ad.url[:90]}")
 

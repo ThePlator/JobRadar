@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from jobradar.db.models import Platform
+from jobradar.db.models import JobStatus, Platform
 from jobradar.db.repo import Repo
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.queue.tasks import TaskQueue
@@ -88,3 +88,18 @@ def test_alert_threshold_suggestion() -> None:
     line = suggest_alert_above(scores, 85) or ""
     assert "Suggested scoring.alert_above: 75 (now 85)" in line
     assert "1 job(s) you skipped also score that high" in line
+
+
+def test_hidden_jobs_are_counted_by_reason(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.stats import build_report, render
+
+    for job_id, reason in (("e", "not eligible: batch 2027 only"), ("w", "weak match (29)"),
+                           ("a", "promo link"), ("y", None)):  # fmt: skip
+        repo.get_or_create_job(job_id, f"https://acme.com/{job_id}")
+        if reason:
+            repo.set_job_status(job_id, JobStatus.HIDDEN, reason)
+    report = build_report(repo, 3, clock=clock)
+    assert report.hidden == {"not eligible": 1, "weak match": 1, "ad or promo link": 1}
+    assert [ad.job_id for ad in report.hidden_ads] == ["a"]  # only real ads are listed as ads
+    text = render(report)
+    assert "Jobs hidden                3" in text and "not eligible             1" in text

@@ -804,8 +804,9 @@ class Repo:
 
     def jobs_since(
         self, since: str
-    ) -> list[tuple[str, str | None, str, int, int | None, str | None]]:
-        """(id, URL, status, sightings, first post id, first post text) for jobs created since."""
+    ) -> list[tuple[str, str | None, str, int, int | None, str | None, str | None]]:
+        """(id, URL, status, sightings, first post id, first post text, reason) for jobs
+        created since."""
         with self._tx() as c:
             rows = c.execute(
                 text(
@@ -813,13 +814,14 @@ class Repo:
                     " min(js.raw_message_id),"
                     " (SELECT m.text FROM job_source x"
                     "  JOIN raw_message m ON m.id = x.raw_message_id"
-                    "  WHERE x.job_id = j.id ORDER BY m.posted_at, m.id LIMIT 1) "
+                    "  WHERE x.job_id = j.id ORDER BY m.posted_at, m.id LIMIT 1), "
+                    " j.score_reason "
                     "FROM job j LEFT JOIN job_source js ON js.job_id = j.id "
                     "WHERE j.created_at >= :since GROUP BY j.id ORDER BY j.created_at"
                 ),
                 {"since": since},
             ).all()
-        return [(str(r[0]), r[1], str(r[2]), int(r[3]), r[4], r[5]) for r in rows]
+        return [(str(r[0]), r[1], str(r[2]), int(r[3]), r[4], r[5], r[6]) for r in rows]
 
     def recent_failures(self, limit: int = 5) -> list[tuple[str, str, str]]:
         with self._tx() as c:
