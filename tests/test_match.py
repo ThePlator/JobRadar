@@ -351,3 +351,19 @@ async def test_ads_that_slipped_through_extraction_are_hidden(repo: Repo, queue:
     assert job is not None and job.status == JobStatus.HIDDEN
     assert job.score_reason == "not a job posting (ad or event)"
     assert alerts.queued == []
+
+
+async def test_your_status_is_never_overridden(repo: Repo, queue: TaskQueue) -> None:
+    seed_job(repo)
+    repo.set_user_status("job1", JobStatus.NEW)  # you un-hid it in Notion
+    weak = GOOD.model_copy(
+        update={"skills_coverage": 0.0, "role_alignment": 0.0, "overall_fit": 0.25}
+    )
+    alerts = Alerts()
+    m = Matcher(repo, queue, [FakeProvider("llm", weak)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, alerts=alerts, clock=CLOCK)  # fmt: skip
+    queue.enqueue(MATCH, "job1")
+    await run(queue, m)
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.NEW  # weak, but you chose to keep it
+    assert job.score == 30 and alerts.queued == []

@@ -21,6 +21,7 @@ from jobradar.pipeline.task_types import (
     FETCH,
     MATCH,
     NOTION_BODY,
+    NOTION_POLL,
     NOTION_UPSERT,
     PROCESS_MESSAGE,
     SEND_ALERTS,
@@ -34,6 +35,7 @@ from jobradar.queue.worker import Handler, Worker
 from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
+from jobradar.sinks.notion_sync import StatusSync
 from jobradar.sources.telegram import TelegramSource
 
 log = logging.getLogger(__name__)
@@ -154,6 +156,8 @@ class Pipeline:
             handlers[MATCH] = self.matcher.match
         if alerts is not None:
             handlers[SEND_ALERTS] = alerts.send
+        self.status_sync = StatusSync(repo, queue, sink.client, sink.data_source_id)
+        handlers[NOTION_POLL] = self.status_sync.poll
         self.digest = make_digest(settings, repo, queue)
         if self.digest is not None:
             handlers[DIGEST] = self.digest.send
@@ -180,6 +184,7 @@ async def run(settings: Settings) -> None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
+    pipeline.status_sync.schedule()  # then every 2 minutes
     if pipeline.digest is not None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})

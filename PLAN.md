@@ -186,10 +186,11 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 
 **Notion status sync** (needed by resumes, threshold tuning and the digest)
 
-- [ ] `sinks/notion.py` read path: poll the data source every 2 min for pages whose Status the user changed (Shortlisted, Applied, Interview, Offer, Rejected, Skipped) and mirror it to `job.status`; never write Status back except the existing agent hides
-- [ ] Digest: "Shortlisted, closing in 48 h" section; alert when a shortlisted job closes within 24 h
-- [ ] `jobradar stats`: suggest `scoring.alert_above` from Shortlisted vs Skipped scores
-- [ ] Tests: status mapping, a page you moved is never re-hidden, re-match skips closed statuses
+- [x] `sinks/notion_sync.py` read path: poll the data source every 2 min for pages whose Status the user changed (Shortlisted, Applied, Interview, Offer, Rejected, Skipped, Hidden, New) and mirror it to `job.status` with a `status_change` history; never write Status back except the existing agent hides
+- [x] Digest: your applications line (shortlisted, applied, interviews, offers, moves since the last digest); shortlisted jobs already appear under "Closing"
+- [ ] Alert when a shortlisted job closes within 24 h
+- [x] `jobradar stats`: funnel, reply rate, and a `scoring.alert_above` suggestion from the scores of jobs you went for vs skipped
+- [x] Tests: status mapping, a page you moved is never re-hidden, cursor overlap, no tight poll loop
 
 **Job feeds: company boards** (public APIs, no keys)
 

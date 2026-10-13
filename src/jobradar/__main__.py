@@ -309,8 +309,9 @@ def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> Non
     from jobradar import app as application
     from jobradar.stats import build_report, render
 
+    settings = _settings()
     repo, _ = application.open_store()
-    typer.echo(render(build_report(repo, days)))
+    typer.echo(render(build_report(repo, days, alert_above=settings.config.scoring.alert_above)))
 
 
 if __name__ == "__main__":

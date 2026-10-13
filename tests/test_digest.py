@@ -135,3 +135,17 @@ def test_digest_command(monkeypatch: pytest.MonkeyPatch, repo: Repo, queue: Task
     result = CliRunner().invoke(cli.app, ["digest", "--now"])
     assert result.exit_code == 0, result.output
     assert "nothing new since the last digest" in result.output
+
+
+def test_pipeline_line() -> None:
+    from jobradar.sinks.digest import DigestData, pipeline_line
+
+    at = datetime(2026, 10, 13, 19, 0, tzinfo=IST)
+    data = DigestData(since=at, until=at)
+    assert pipeline_line(data) is None
+    data.pipeline = {"shortlisted": 2, "applied": 15, "interview": 3, "offer": 0}
+    data.moved = {"applied": 2, "new": 1}
+    assert pipeline_line(data) == (
+        "Your applications: 2 shortlisted · 15 applied · 3 interviews · 0 offers "
+        "(+2 applied since then)"
+    )

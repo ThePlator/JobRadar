@@ -997,6 +997,8 @@ sequenceDiagram
 4. Cover Letter newly checked → enqueue `build_kit` with `cover_letter=true`.
 5. Any other Status change → store it locally (no action), used for stats.
 
+*As built (v0.2.5):* `sinks/notion_sync.py`. The cursor lives in the `setting` table (`notion_poll_since`); the first poll reads every page once. A page's Status counts as yours only when it differs from what JobRadar itself shows for that job (`STATUS_OPTION`), since JobRadar's own edits also bump `last_edited_time`. Yours → `job.status`, `job.user_status_at`, one `status_change` row (funnel history). The matcher keeps updating the score of such a job but never hides or alerts on it. Two alternating task keys (`a`/`b`) carry the 2-minute loop, because re-queueing the running task would rerun it at once. Unknown options are logged once and ignored. Resume triggers on Shortlisted come with v0.3.
+
 ### Page body layout
 
 ```text

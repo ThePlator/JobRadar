@@ -582,6 +582,76 @@ class Repo:
                 {"id": job_id, "risk": risk},
             )
 
+    # ---- your statuses (Notion read path) ----------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        with self._tx() as c:
+            row = c.execute(text("SELECT value FROM setting WHERE key = :k"), {"k": key}).first()
+        return None if row is None else str(row[0])
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "INSERT INTO setting (key, value) VALUES (:k, :v) "
+                    "ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+                ),
+                {"k": key, "v": value},
+            )
+
+    def set_user_status(self, job_id: str, status: JobStatus) -> bool:
+        """Record a Status you set in Notion. False if the job is unknown or unchanged."""
+        now = self._now()
+        with self._tx() as c:
+            result = c.execute(
+                text(
+                    """
+                    UPDATE job SET status = :status, user_status_at = :now, updated_at = :now,
+                        score_reason = CASE WHEN :status = 'hidden' THEN 'hidden by you'
+                                            ELSE score_reason END
+                    WHERE id = :id AND (status != :status OR user_status_at IS NULL)
+                    """
+                ),
+                {"id": job_id, "status": status.value, "now": now},
+            )
+            if not result.rowcount:
+                return False
+            c.execute(
+                text(
+                    "INSERT INTO status_change (job_id, status, changed_at) "
+                    "VALUES (:id, :status, :now)"
+                ),
+                {"id": job_id, "status": status.value, "now": now},
+            )
+        return True
+
+    def status_counts(self) -> dict[str, int]:
+        """How many jobs are in each status right now."""
+        with self._tx() as c:
+            rows = c.execute(text("SELECT status, count(*) FROM job GROUP BY status")).all()
+        return {str(r[0]): int(r[1]) for r in rows}
+
+    def status_changes_since(self, since: str) -> dict[str, int]:
+        """How many jobs you moved into each status since this time."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT status, count(DISTINCT job_id) FROM status_change "
+                    "WHERE changed_at >= :since GROUP BY status"
+                ),
+                {"since": since},
+            ).all()
+        return {str(r[0]): int(r[1]) for r in rows}
+
+    def scores_by_status(self) -> dict[str, list[int]]:
+        """Match Scores of the jobs in each status (jobs without a score are left out)."""
+        with self._tx() as c:
+            rows = c.execute(text("SELECT status, score FROM job WHERE score IS NOT NULL")).all()
+        scores: dict[str, list[int]] = {}
+        for status, score in rows:
+            scores.setdefault(str(status), []).append(int(score))
+        return scores
+
     # ---- alerts -------------------------------------------------------------------------------
 
     def queue_alert(self, job_id: str) -> bool:

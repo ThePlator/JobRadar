@@ -179,6 +179,21 @@ class NotionClient:
         pages = result.get("results") or []
         return str(pages[0]["id"]) if pages else None
 
+    async def changed_pages(self, data_source_id: str, since: str) -> list[dict[str, Any]]:
+        """Every page edited at or after `since` (ISO time), oldest first, all result pages."""
+        pages: list[dict[str, Any]] = []
+        body: dict[str, Any] = {
+            "filter": {"timestamp": "last_edited_time", "last_edited_time": {"on_or_after": since}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "ascending"}],
+            "page_size": 100,
+        }
+        while True:
+            result = await self.request("POST", f"/data_sources/{data_source_id}/query", body)
+            pages += result.get("results") or []
+            if not result.get("has_more"):
+                return pages
+            body["start_cursor"] = result["next_cursor"]
+
     async def create_page(
         self, data_source_id: str, properties: dict[str, Any], children: list[dict[str, Any]]
     ) -> str:
