@@ -112,9 +112,15 @@ class BoardsConfig(_Strict):
 
     enabled: bool = True
     every_minutes: int = Field(default=20, ge=5, le=240)
+    # One section per hiring system: `Name: board name` (or a link to that board). A plain
+    # list of board names also works, e.g. `greenhouse: [stripe, rubrik]`.
+    greenhouse: dict[str, str] | list[str] = Field(default_factory=dict)
+    lever: dict[str, str] | list[str] = Field(default_factory=dict)
+    ashby: dict[str, str] | list[str] = Field(default_factory=dict)
+    smartrecruiters: dict[str, str] | list[str] = Field(default_factory=dict)
+    # Every board as a flat list; filled from the sections above (or given directly).
     companies: list[BoardRef] = Field(default_factory=list)
 
-    @field_validator("companies", mode="before")
     @classmethod
     def _from_links(cls, v: Any) -> Any:
         """`Name: board link` pairs (the readable form) become BoardRefs."""
@@ -125,6 +131,36 @@ class BoardsConfig(_Strict):
             ats, company = board_from_link(str(link))
             refs.append({"ats": ats, "company": company, "name": str(name)})
         return refs
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sections(cls, data: Any) -> Any:
+        """Turn the per-hiring-system sections into the flat `companies` list."""
+        if not isinstance(data, dict):
+            return data
+        listed = data.get("companies") or []
+        refs: list[Any] = (
+            list(cls._from_links(listed)) if isinstance(listed, dict) else list(listed)
+        )
+        for ats in _ATS_NAMES:
+            section = data.get(ats) or {}
+            if isinstance(section, dict):
+                pairs = [(str(k), str(v)) for k, v in section.items()]
+            elif isinstance(section, list):
+                pairs = [(str(b), str(b)) for b in section]
+            else:
+                raise ValueError(f"{ats}: list boards as 'Name: board name' lines")
+            for name, value in pairs:
+                board = value.strip()
+                if "/" in board:  # a link to the board (or to a job on it)
+                    found, board = board_from_link(board)
+                    if found != ats:
+                        raise ValueError(
+                            f"{ats} > {name}: that's a {_ATS_NAMES[found]} link; "
+                            f"move it under {found}:"
+                        )
+                refs.append({"ats": ats, "company": board, "name": name})
+        return {**data, "companies": refs}
 
     @field_validator("companies")
     @classmethod

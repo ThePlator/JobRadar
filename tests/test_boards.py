@@ -263,6 +263,28 @@ def test_board_links(link: str, ats: str, company: str) -> None:
     assert board_from_link(link) == (ats, company)
 
 
+def test_boards_grouped_by_hiring_system() -> None:
+    from pydantic import ValidationError
+
+    config = BoardsConfig.model_validate({
+        "greenhouse": {"Stripe": "stripe", "Rubrik": "https://job-boards.greenhouse.io/rubrik"},
+        "lever": ["meesho"],  # a plain list: the board name is the display name
+        "smartrecruiters": {"Bosch": "BoschGroup"},
+    })  # fmt: skip
+    assert [(b.key, b.label) for b in config.companies] == [
+        ("greenhouse:stripe", "Greenhouse · Stripe"),
+        ("greenhouse:rubrik", "Greenhouse · Rubrik"),
+        ("lever:meesho", "Lever · meesho"),
+        ("smartrecruiters:BoschGroup", "SmartRecruiters · Bosch"),
+    ]
+    with pytest.raises(ValidationError, match="that's a Lever link; move it under lever"):
+        BoardsConfig.model_validate({"greenhouse": {"Meesho": "https://jobs.lever.co/meesho"}})
+    with pytest.raises(ValidationError):
+        BoardsConfig.model_validate({"lever": {"X": "bad name!"}})
+    with pytest.raises(ValidationError, match="listed twice"):
+        BoardsConfig.model_validate({"greenhouse": ["stripe", "stripe"]})
+
+
 def test_readable_board_list() -> None:
     from pydantic import ValidationError
 
