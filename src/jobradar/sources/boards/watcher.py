@@ -31,7 +31,7 @@ from jobradar.pipeline.task_types import BOARD_CHECK, BOARDS_TICK, NOTION_UPSERT
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sources.base import Emit, IncomingMessage
 from jobradar.sources.boards.base import BoardGone, BoardPosting, BoardUnavailable
-from jobradar.sources.boards.filters import worth_a_look
+from jobradar.sources.boards.filters import why_skipped
 from jobradar.sources.boards.readers import READERS
 
 log = logging.getLogger(__name__)
@@ -54,6 +54,16 @@ def post_text(board: BoardRef, posting: BoardPosting) -> str:
         posting.url,
     ]
     return "\n".join(line for line in lines if line)
+
+
+def latest(postings: list[BoardPosting], seen_at: datetime) -> str:
+    """The newest of these postings, with what the filters made of it, for `jobradar boards`."""
+    newest = max(postings, key=lambda p: p.posted_at.timestamp() if p.posted_at else 0.0)
+    why = why_skipped(newest.title, newest.location, newest.level)
+    return json.dumps({
+        "title": newest.title, "where": newest.location,
+        "verdict": "passed" if why is None else why, "seen": to_iso(seen_at),
+    })  # fmt: skip
 
 
 def _offset(key: str, every: timedelta) -> timedelta:
@@ -145,6 +155,8 @@ class BoardWatcher:
         board.misses, board.skip_until, board.last_error = 0, None, None
         board.last_ok = to_iso(now)
         if seen is None:
+            if postings:
+                board.latest_json = latest(postings, now)
             log.info("board baseline: existing postings recorded, no alerts",
                      extra={"board": ref.key, "postings": len(current)})  # fmt: skip
         elif seen and not current:
@@ -156,7 +168,18 @@ class BoardWatcher:
             return
         else:
             fresh = [p for p in postings if p.id not in seen]
-            passed = [p for p in fresh if worth_a_look(p.title, p.location, p.level)]
+            passed = []
+            for posting in fresh:
+                why = why_skipped(posting.title, posting.location, posting.level)
+                about = {"board": ref.key, "title": posting.title[:80],
+                         "where": posting.location[:60]}  # fmt: skip
+                if why is None:
+                    passed.append(posting)
+                    log.info("board posting passed", extra=about)
+                else:
+                    log.info("board posting skipped", extra=about | {"why": why})
+            if fresh:
+                board.latest_json = latest(fresh, now)
             for posting in passed:
                 await self.emit(
                     IncomingMessage(
@@ -174,6 +197,8 @@ class BoardWatcher:
             if fresh or any(closed):
                 log.info("board checked", extra={"board": ref.key, "new": len(fresh),
                          "passed_filters": len(passed), "closed": sum(closed)})  # fmt: skip
+        if board.latest_json is None and postings:  # boards read before this was kept
+            board.latest_json = latest(postings, now)
         board.seen_json = json.dumps(current)
         board.jobs_on_board = len(current)
         self.repo.save_board(board)

@@ -11,7 +11,8 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The first read of a board only records what's there: no alerts for old postings. Later reads pass new postings in India (or remote with no other country named), with a tech title and not clearly senior, into the normal pipeline as posts from "Greenhouse · Stripe": dedupe, free extraction, matching, alerts and digest work as for Telegram.
 - A posting that leaves its board hides its job ("closed on the company board") if it's still untouched in your Inbox.
 - Errors never look like an empty board: a 404 counts towards "board gone" (3 in a row: retried after 30 days), any other error changes nothing, and a board that suddenly lists nothing is ignored for that round.
-- `jobradar boards` shows each board's health; `jobradar boards --check` reads them all now.
+- `jobradar boards` shows each board's health and its newest posting with what the filters made of it; `jobradar boards --check` reads them all now.
+- Every new board posting is logged as `board posting passed` or `board posting skipped` with the reason (not in India, remote but not open to India, not a tech role, too senior).
 - Existing databases get the new "board" source type through a one-time table upgrade, with a backup written first (`jobradar.db.before-board-sources.bak`).
 
 **Your statuses from Notion**

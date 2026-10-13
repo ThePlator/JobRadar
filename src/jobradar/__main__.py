@@ -310,6 +310,17 @@ def boards(
             last = (b.last_ok or "")[:16].replace("T", " ")
             name = ref.name or ref.company
             typer.echo(f"  {name:<{width}}{postings:>8}  {b.new_total:>9}  {last:<16}  {state}")
+            if b.latest_json:
+                newest = json.loads(b.latest_json)
+                verdict = newest["verdict"]
+                mark = "✓ passed" if verdict == "passed" else f"skipped: {verdict}"
+                where = f" · {newest['where'][:30]}" if newest.get("where") else ""
+                passed = verdict == "passed"
+                typer.secho(
+                    f"    latest: {newest['title'][:60]}{where}  ({mark})",
+                    fg="green" if passed else None,
+                    dim=not passed,
+                )
 
 
 @app.command()

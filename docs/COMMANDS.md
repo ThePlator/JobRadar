@@ -68,7 +68,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar extract --compare` | Check how well free reading (page data, post labels) agrees with earlier Gemini answers |
 | `jobradar stats --days 7` | Posts received, jobs created, reposts merged, ads hidden, likely duplicates, failed tasks |
 | `jobradar retry --failed` | Put failed tasks back in the queue; they run on the next `jobradar run` |
-| `jobradar boards` | Company job boards you watch: postings, how many were passed on, last read, problems |
+| `jobradar boards` | Company job boards you watch: postings, how many were passed on, last read, problems, and each board's newest posting with why it passed or was skipped |
 | `jobradar boards --check` | Read every board now (the first read only records a baseline) |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
@@ -130,6 +130,7 @@ Everything JobRadar does is written to `data/run.log`.
 |---|---|
 | Follow the log live (`Ctrl+c` stops watching only) | `tail -f data/run.log` |
 | Follow only the important lines | `tail -f data/run.log \| grep --line-buffered -E "new job\|job extracted\|job matched\|job hidden\|alert email\|would have emailed\|digest\|budget\|ERROR\|Traceback"` |
+| What the company boards found, and why each posting was skipped | `grep -E "board posting (passed\|skipped)" data/run.log \| tail -20 \| cut -c1-200` |
 | Watch for alerts | `tail -f data/run.log \| grep --line-buffered -E "new job\|decision=alert\|alert skipped\|alert email sent\|could not send"` |
 | What was hidden today, and why | `grep "job hidden" data/run.log \| grep "$(date +%F)" \| cut -c1-160` |
 | Emails sent | `grep -E "alert email sent\|digest sent" data/run.log \| tail` |
