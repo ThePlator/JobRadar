@@ -8,11 +8,11 @@ sources:
   boards:                   # company job boards, read directly: jobs arrive minutes after posting
     enabled: true
     every_minutes: 20       # each board is read this often (spread out)
-    companies:              # ats: greenhouse | lever | ashby | smartrecruiters
-      - { ats: greenhouse, company: stripe, name: Stripe }
-      - { ats: lever, company: meesho, name: Meesho }
-      - { ats: ashby, company: sarvam, name: Sarvam AI }
-      - { ats: smartrecruiters, company: BoschGroup, name: Bosch }   # India postings only
+    companies:              # Name: link to the company's Greenhouse, Lever, Ashby or SmartRecruiters board
+      Stripe:    https://job-boards.greenhouse.io/stripe
+      Meesho:    https://jobs.lever.co/meesho
+      Sarvam AI: https://jobs.ashbyhq.com/sarvam
+      Bosch:     https://jobs.smartrecruiters.com/BoschGroup    # India postings only
   email_forward:
     enabled: true
     folder: JobRadar      # forward jobs here (Gmail: a label + filter)

@@ -241,4 +241,36 @@ def test_board_config() -> None:
         BoardRef(ats="greenhouse", company="../../etc")  # board names can't steer requests
     with pytest.raises(ValidationError, match="listed twice"):
         BoardsConfig(companies=[STRIPE, STRIPE])
+
+
+@pytest.mark.parametrize(
+    ("link", "ats", "company"),
+    [
+        ("https://job-boards.greenhouse.io/stripe", "greenhouse", "stripe"),
+        ("https://boards.greenhouse.io/razorpaysoftwareprivatelimited/jobs/12?gh_src=x",
+         "greenhouse", "razorpaysoftwareprivatelimited"),
+        ("job-boards.eu.greenhouse.io/acme", "greenhouse", "acme"),
+        ("https://jobs.lever.co/meesho", "lever", "meesho"),
+        ("https://jobs.eu.lever.co/zeta/0a1b2c", "lever", "zeta"),
+        ("https://jobs.ashbyhq.com/sarvam", "ashby", "sarvam"),
+        ("https://jobs.smartrecruiters.com/BoschGroup", "smartrecruiters", "BoschGroup"),
+        ("https://careers.smartrecruiters.com/Freshworks", "smartrecruiters", "Freshworks"),
+    ],
+)  # fmt: skip
+def test_board_links(link: str, ats: str, company: str) -> None:
+    from jobradar.config import board_from_link
+
+    assert board_from_link(link) == (ats, company)
+
+
+def test_readable_board_list() -> None:
+    from pydantic import ValidationError
+
+    config = BoardsConfig.model_validate({"companies": {
+        "Stripe": "https://job-boards.greenhouse.io/stripe",
+        "Bosch": "https://jobs.smartrecruiters.com/BoschGroup",
+    }})  # fmt: skip
+    assert [b.label for b in config.companies] == ["Greenhouse · Stripe", "SmartRecruiters · Bosch"]
+    with pytest.raises(ValidationError, match="isn't a Greenhouse, Lever, Ashby"):
+        BoardsConfig.model_validate({"companies": {"Google": "https://careers.google.com/jobs"}})
     assert json.loads("[]") == []

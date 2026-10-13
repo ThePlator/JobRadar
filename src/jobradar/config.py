@@ -62,6 +62,33 @@ _ATS_NAMES = {
 }  # fmt: skip
 
 
+_BOARD_LINKS = [
+    (
+        "greenhouse",
+        r"(?:job-boards|boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9._-]+)",
+    ),
+    ("greenhouse", r"boards-api\.greenhouse\.io/v1/boards/([A-Za-z0-9._-]+)"),
+    ("lever", r"jobs(?:\.eu)?\.lever\.co/([A-Za-z0-9._-]+)"),
+    ("lever", r"api(?:\.eu)?\.lever\.co/v0/postings/([A-Za-z0-9._-]+)"),
+    ("ashby", r"jobs\.ashbyhq\.com/([A-Za-z0-9._-]+)"),
+    ("ashby", r"api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9._-]+)"),
+    ("smartrecruiters", r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9._-]+)"),
+    ("smartrecruiters", r"api\.smartrecruiters\.com/v1/companies/([A-Za-z0-9._-]+)"),
+]
+
+
+def board_from_link(link: str) -> tuple[str, str]:
+    """('greenhouse', 'stripe') from https://job-boards.greenhouse.io/stripe (or a job link
+    on that board)."""
+    for ats, pattern in _BOARD_LINKS:
+        if m := re.search(r"^(?:https?://)?(?:www\.)?" + pattern, link.strip(), re.IGNORECASE):
+            return ats, m.group(1)
+    raise ValueError(
+        f"{link!r} isn't a Greenhouse, Lever, Ashby or SmartRecruiters board link "
+        "(e.g. https://job-boards.greenhouse.io/stripe)"
+    )
+
+
 class BoardRef(_Strict):
     """One company job board: its hiring system and the company's name in that system's
     board address (e.g. boards.greenhouse.io/**stripe**)."""
@@ -86,6 +113,18 @@ class BoardsConfig(_Strict):
     enabled: bool = True
     every_minutes: int = Field(default=20, ge=5, le=240)
     companies: list[BoardRef] = Field(default_factory=list)
+
+    @field_validator("companies", mode="before")
+    @classmethod
+    def _from_links(cls, v: Any) -> Any:
+        """`Name: board link` pairs (the readable form) become BoardRefs."""
+        if not isinstance(v, dict):
+            return v
+        refs = []
+        for name, link in v.items():
+            ats, company = board_from_link(str(link))
+            refs.append({"ats": ats, "company": company, "name": str(name)})
+        return refs
 
     @field_validator("companies")
     @classmethod

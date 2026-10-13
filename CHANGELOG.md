@@ -7,7 +7,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 ### Added
 
 **Company job boards (job feeds)**
-- JobRadar reads company job boards directly through their public APIs (Greenhouse, Lever, Ashby, SmartRecruiters), every 20 minutes per board, so new postings arrive minutes after they go up instead of when a channel reposts them. Configure them under `sources.boards.companies`.
+- JobRadar reads company job boards directly through their public APIs (Greenhouse, Lever, Ashby, SmartRecruiters), every 20 minutes per board, so new postings arrive minutes after they go up instead of when a channel reposts them. List them under `sources.boards.companies` as `Name: board link` (e.g. `Stripe: https://job-boards.greenhouse.io/stripe`); JobRadar works out the hiring system from the link.
 - The first read of a board only records what's there: no alerts for old postings. Later reads pass new postings in India (or remote with no other country named), with a tech title and not clearly senior, into the normal pipeline as posts from "Greenhouse · Stripe": dedupe, free extraction, matching, alerts and digest work as for Telegram.
 - A posting that leaves its board hides its job ("closed on the company board") if it's still untouched in your Inbox.
 - Errors never look like an empty board: a 404 counts towards "board gone" (3 in a row: retried after 30 days), any other error changes nothing, and a board that suddenly lists nothing is ignored for that round.
