@@ -60,5 +60,16 @@ def level_ok(level: str | None) -> bool:
     return (level or "").casefold() not in _SENIOR_LEVELS
 
 
+def why_skipped(title: str, location: str, level: str | None = None) -> str | None:
+    """Why a posting isn't worth a look, in a few words; None when it is."""
+    if not where_ok(location):
+        return "remote, but not open to India" if _REMOTE.search(location) else "not in India"
+    if _NOT_TECH.search(title) or not _TECH.search(title):
+        return "not a tech role"
+    if _SENIOR.search(title) or not level_ok(level):
+        return "too senior"
+    return None
+
+
 def worth_a_look(title: str, location: str, level: str | None = None) -> bool:
-    return where_ok(location) and title_ok(title) and level_ok(level)
+    return why_skipped(title, location, level) is None

@@ -296,3 +296,50 @@ def test_readable_board_list() -> None:
     with pytest.raises(ValidationError, match="isn't a Greenhouse, Lever, Ashby"):
         BoardsConfig.model_validate({"companies": {"Google": "https://careers.google.com/jobs"}})
     assert json.loads("[]") == []
+
+
+@pytest.mark.parametrize(
+    ("title", "location", "level", "why"),
+    [
+        ("Software Engineer, Intern", "Bengaluru, India", None, None),
+        ("Software Engineer", "Tokyo, Japan", None, "not in India"),
+        ("Software Engineer", "Remote - US", None, "remote, but not open to India"),
+        ("Global Partner Program Operations Specialist", "Bengaluru, India", None,
+         "not a tech role"),
+        ("Territory Manager, Bank Retail", "Kolkata", None, "not a tech role"),
+        ("Lead Software Development Engineer", "Bengaluru", None, "too senior"),
+        ("Software Engineer", "Pune, India", "mid_senior_level", "too senior"),
+    ],
+)  # fmt: skip
+def test_why_skipped(title: str, location: str, level: str | None, why: str | None) -> None:
+    from jobradar.sources.boards.filters import why_skipped
+
+    assert why_skipped(title, location, level) == why
+
+
+@respx.mock
+async def test_skipped_postings_are_explained(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    w = watcher(repo, queue, clock, Inbox())
+    route = respx.get(GH)
+    route.respond(json={"jobs": [gh_job(1, "Software Engineer")]})
+    await w.check_board(STRIPE)
+    latest = json.loads(repo.get_board("greenhouse:stripe").latest_json or "{}")
+    assert (latest["title"], latest["verdict"]) == ("Software Engineer", "passed")
+
+    route.respond(json={"jobs": [gh_job(1, "Software Engineer"),
+                                 gh_job(2, "Lead Software Development Engineer")]})  # fmt: skip
+    with caplog.at_level(logging.INFO, logger="jobradar.sources.boards.watcher"):
+        await w.check_board(STRIPE)
+    skipped = [r for r in caplog.records if r.getMessage() == "board posting skipped"]
+    assert len(skipped) == 1
+    assert (skipped[0].title, skipped[0].why) == (
+        "Lead Software Development Engineer",
+        "too senior",
+    )  # type: ignore[attr-defined]
+    latest = json.loads(repo.get_board("greenhouse:stripe").latest_json or "{}")
+    assert latest["verdict"] == "too senior"
+    await w.aclose()

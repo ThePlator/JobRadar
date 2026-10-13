@@ -197,6 +197,7 @@ class FeedBoard(SQLModel, table=True):
     last_error: str | None = None
     misses: int = 0  # real 404s in a row; other errors never count
     skip_until: str | None = None  # a board that 404s 3 times is retried after 30 days
+    latest_json: str | None = None  # newest posting seen: title, location, verdict, when
 
 
 class Setting(SQLModel, table=True):
