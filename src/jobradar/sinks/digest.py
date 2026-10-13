@@ -28,6 +28,7 @@ from jobradar.sinks.email_template import (
     ACCENT,
     CARD,
     FAIR,
+    GOOD,
     INK,
     LINE,
     MUTED,
@@ -93,6 +94,8 @@ class DigestData:
     failed: int = 0
     spent_inr: float = 0.0
     budget_inr: float = 0.0
+    pipeline: dict[str, int] = field(default_factory=dict)  # applied/interview/offer now
+    moved: dict[str, int] = field(default_factory=dict)  # statuses you set in the window
 
     @property
     def empty(self) -> bool:
@@ -119,7 +122,24 @@ def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> 
     midnight = until.replace(hour=0, minute=0, second=0, microsecond=0)
     data.spent_inr = repo.llm_spend_since(to_iso(midnight))
     data.budget_inr = settings.config.llm.daily_budget_inr
+    counts = repo.status_counts()
+    data.pipeline = {s: counts.get(s, 0) for s in _PIPELINE}
+    data.moved = repo.status_changes_since(to_iso(since))
     return data
+
+
+_PIPELINE = ("shortlisted", "applied", "interview", "offer")
+
+
+def pipeline_line(data: DigestData) -> str | None:
+    """'Your applications: 15 applied · 3 interviews · 0 offers (+2 applied today)'."""
+    if not any(data.pipeline.values()):
+        return None
+    words = {"shortlisted": "shortlisted", "applied": "applied",
+             "interview": "interviews", "offer": "offers"}  # fmt: skip
+    line = " · ".join(f"{data.pipeline[s]} {words[s]}" for s in _PIPELINE)
+    moved = [f"+{n} {s}" for s, n in data.moved.items() if s in _PIPELINE and n]
+    return f"Your applications: {line}" + (f" ({', '.join(moved)} since then)" if moved else "")
 
 
 def _title(job: Job) -> str:
@@ -158,6 +178,12 @@ def build_digest(data: DigestData, sender: str, to: str, database_id: str | None
     text = [f"{title} · since {since}", "",
             f"{data.new} new · {len(data.inbox)} in your Inbox · {hidden} hidden · "
             f"{data.alerts} alerts"]  # fmt: skip
+    if line := pipeline_line(data):
+        rows.append(
+            f"<tr><td style='padding:12px 0 0;font-size:14px;color:{INK}'>"
+            f"<b style='color:{GOOD[1]}'>{esc(line.split(':', 1)[0])}:</b>{esc(line.split(':', 1)[1])}</td></tr>"
+        )
+        text += ["", line]
 
     if data.inbox:
         rows.append(heading("Top matches"))

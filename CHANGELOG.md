@@ -6,6 +6,12 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Your statuses from Notion**
+- Every 2 minutes JobRadar reads the Status you set in Notion (Shortlisted, Applied, Interview, Offer, Rejected, Skipped, Hidden, or New to un-hide) and keeps a dated history of it.
+- A job you've set yourself is never hidden, re-decided or alerted on by JobRadar again; its score still updates.
+- The digest shows "Your applications: 15 applied · 3 interviews · 0 offers (+2 applied since then)".
+- `jobradar stats` shows your funnel (shortlisted → applied → interview → offer), your reply rate and alerts sent, and suggests `scoring.alert_above` from the scores of the jobs you went for.
+
 **Readable emails**
 - Alerts, digests and the test email share a new design built for email clients: a card per job with a coloured score tile, role and company, labels for fit, eligibility, freshness and deadline, "You have / Missing" skill rows, and Apply / Open in Notion buttons. The digest opens with four numbers (new, in your Inbox, hidden, alerts) and has clear sections. Plain-text versions are tidier too.
 - The digest is named by time of day (morning, afternoon, evening).

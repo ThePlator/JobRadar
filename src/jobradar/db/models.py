@@ -96,6 +96,7 @@ class Job(SQLModel, table=True):
     notion_page_id: str | None = None
     notion_synced_at: str | None = None
     prompt_version: str | None = None
+    user_status_at: str | None = None  # you set the Status in Notion: JobRadar never overrides it
     created_at: str
     updated_at: str
 
@@ -168,6 +169,26 @@ class MatchResult(SQLModel, table=True):
     provider: str
     answers_json: str  # MatchAnswers
     created_at: str
+
+
+class StatusChange(SQLModel, table=True):
+    """Every Status you set in Notion, with when JobRadar noticed: your application funnel."""
+
+    __tablename__ = "status_change"
+
+    id: int | None = Field(default=None, primary_key=True)
+    job_id: str = Field(foreign_key="job.id", index=True)
+    status: str
+    changed_at: str
+
+
+class Setting(SQLModel, table=True):
+    """Small bits of state that outlive a run, e.g. the Notion poll cursor."""
+
+    __tablename__ = "setting"
+
+    key: str = Field(primary_key=True)
+    value: str
 
 
 class Alert(SQLModel, table=True):

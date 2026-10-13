@@ -78,3 +78,13 @@ def test_empty_database(repo: Repo, clock: FakeClock) -> None:
     report = build_report(repo, clock=clock)
     assert report.jobs == 0 and report.duplicate_rate == 0
     assert "Queue: 0 waiting, 0 failed" in render(report)
+
+
+def test_alert_threshold_suggestion() -> None:
+    from jobradar.stats import suggest_alert_above
+
+    assert "at least 5" in (suggest_alert_above({"applied": [90, 80]}, 75) or "")
+    scores = {"applied": [92, 88, 81, 79, 77], "interview": [86], "skipped": [80, 40]}
+    line = suggest_alert_above(scores, 85) or ""
+    assert "Suggested scoring.alert_above: 75 (now 85)" in line
+    assert "1 job(s) you skipped also score that high" in line

@@ -190,6 +190,9 @@ class Matcher:
         )
         if not posting.is_job:  # an ad, course or event that got through extraction
             decision = Decision("not_a_job", hide_because="not a job posting (ad or event)")
+        if job.user_status_at is not None:
+            # You set this job's Status in Notion: keep the score fresh, decide nothing.
+            decision = Decision("yours")
         if decision.hide_because:
             self.repo.set_job_status(job_id, JobStatus.HIDDEN, decision.hide_because)
             log.info("job hidden", extra={"job_id": job_id[:10], "why": decision.hide_because})
