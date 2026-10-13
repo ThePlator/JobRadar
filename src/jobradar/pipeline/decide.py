@@ -29,6 +29,21 @@ def contradicts(answers: MatchAnswers, score: int | None) -> bool:
     return abs(score / 100 - answers.overall_fit) > CONTRADICTION
 
 
+def hidden_kind(reason: str | None) -> str:
+    """Why a hidden job is hidden, in a few words, from its stored reason."""
+    why = (reason or "").casefold()
+    for prefix, kind in (
+        ("not eligible", "not eligible"),
+        ("weak match", "weak match"),
+        ("not a job", "not a job"),
+        ("hidden by you", "hidden by you"),
+        ("company excluded", "excluded company"),
+    ):
+        if why.startswith(prefix):
+            return kind
+    return "ad or promo link"
+
+
 @dataclass(frozen=True)
 class Decision:
     rule: str  # for logs and tests

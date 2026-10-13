@@ -21,6 +21,7 @@ from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.config import Settings
 from jobradar.db.models import Job, JobStatus, TaskStatus
 from jobradar.db.repo import Repo, TaskRecord
+from jobradar.pipeline.decide import hidden_kind
 from jobradar.pipeline.task_types import DIGEST
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
@@ -73,15 +74,6 @@ def previous_slot(before: datetime, times: list[str]) -> datetime:
     raise ValueError("no digest times configured")
 
 
-def _hidden_kind(job: Job) -> str:
-    why = (job.score_reason or "").lower()
-    if why.startswith("not eligible"):
-        return "not eligible"
-    if why.startswith("weak match"):
-        return "weak match"
-    return "ads and other"
-
-
 @dataclass
 class DigestData:
     since: datetime
@@ -111,7 +103,7 @@ def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> 
     )
     for job in jobs:
         if job.status in (JobStatus.HIDDEN.value, JobStatus.DISCARDED.value):
-            kind = _hidden_kind(job)
+            kind = hidden_kind(job.score_reason)
             data.hidden[kind] = data.hidden.get(kind, 0) + 1
     today = until.date()
     data.closing = repo.jobs_closing(
