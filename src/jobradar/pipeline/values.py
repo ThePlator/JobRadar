@@ -162,6 +162,13 @@ _PLACEHOLDER_ROLES = re.compile(
 )
 
 
+_REGIONS = {
+    "india", "in", "karnataka", "maharashtra", "telangana", "tamil nadu", "tamilnadu",
+    "haryana", "uttar pradesh", "west bengal", "gujarat", "kerala", "rajasthan",
+    "andhra pradesh", "madhya pradesh", "punjab", "odisha", "bihar", "goa",
+}  # fmt: skip
+
+
 def parse_locations(value: str) -> list[str]:
     """Split "Bangalore (Hybrid), Pune / Remote" into places; the brackets are dropped
     (read them with parse_work_mode)."""
@@ -172,7 +179,10 @@ def parse_locations(value: str) -> list[str]:
         known = place.lower() in _NOT_PLACES or place.lower() in (p.lower() for p in places)
         if place and len(place) <= 60 and not known:
             places.append(place)
-    return places[:10]
+    # "Bengaluru, Karnataka, India" is one place: drop the country and state when a city
+    # is named too.
+    cities = [p for p in places if p.casefold() not in _REGIONS]
+    return (cities or places)[:10]
 
 
 def clean_company(value: str) -> str | None:

@@ -6,6 +6,14 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Company job boards (job feeds)**
+- JobRadar reads company job boards directly through their public APIs (Greenhouse, Lever, Ashby, SmartRecruiters), every 20 minutes per board, so new postings arrive minutes after they go up instead of when a channel reposts them. List them in `sources.boards` under their hiring system as `Name: board name`, e.g. `greenhouse: {Stripe: stripe}` (a board link works too).
+- The first read of a board only records what's there: no alerts for old postings. Later reads pass new postings in India (or remote with no other country named), with a tech title and not clearly senior, into the normal pipeline as posts from "Greenhouse · Stripe": dedupe, free extraction, matching, alerts and digest work as for Telegram.
+- A posting that leaves its board hides its job ("closed on the company board") if it's still untouched in your Inbox.
+- Errors never look like an empty board: a 404 counts towards "board gone" (3 in a row: retried after 30 days), any other error changes nothing, and a board that suddenly lists nothing is ignored for that round.
+- `jobradar boards` shows each board's health; `jobradar boards --check` reads them all now.
+- Existing databases get the new "board" source type through a one-time table upgrade, with a backup written first (`jobradar.db.before-board-sources.bak`).
+
 **Your statuses from Notion**
 - Every 2 minutes JobRadar reads the Status you set in Notion (Shortlisted, Applied, Interview, Offer, Rejected, Skipped, Hidden, or New to un-hide) and keeps a dated history of it.
 - A job you've set yourself is never hidden, re-decided or alerted on by JobRadar again; its score still updates.

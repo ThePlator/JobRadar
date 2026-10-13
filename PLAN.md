@@ -194,14 +194,14 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 
 **Job feeds: company boards** (public APIs, no keys)
 
-- [ ] `sources/feeds/base.py`: `Feed` plugin protocol (provider name, poll interval, credit rule) returning one `FeedPosting` shape (title, company, location, url, posted_at, description, source label); loaded through the `jobradar.sources` entry-point group
-- [ ] `sources/feeds/greenhouse.py`, `lever.py` (global and EU hosts), `ashby.py`
-- [ ] `feed_board` table: provider, company slug, enabled, last checked, last seen ids, consecutive real 404s
-- [ ] Board check: every 15–30 min with jitter; **first check records existing jobs without alerting**; new ids → filter (India or remote, target-role words, `intern` / `graduate` / `new grad`) → `process_message`-equivalent with the `FRESH` priority; structured fields skip the LLM extractor
-- [ ] An error or 404 never means "no jobs": keep the last list. Dead boards: only a real 404 counts as a miss; after 3 misses skip the board and recheck after 30 days; timeouts, 429s and DNS errors never count. _From career-ops `dead-boards.mjs`._
-- [ ] Jobs that vanish from their board → Notion Status "Closed" (only if Status is still New)
+- [x] `sources/boards/`: one reader per hiring system returning one `BoardPosting` shape (built in-tree; entry-point loading comes with the first third-party plugin)
+- [x] Greenhouse, Lever (global and EU hosts), Ashby, and SmartRecruiters (India only, experience level) readers
+- [x] `feed_board` table: last seen ids and links, postings on the board, passed on, last checked / good read, last error, real 404s in a row, skip-until
+- [x] Board check: every `every_minutes` with a per-board spread; first read is a baseline; new postings → filters (India or remote naming no other place, tech title, not senior) → a labelled post through ingest, so the free extraction layer reads it without the LLM
+- [x] An error or 404 never means "no jobs": keep the last list; a sudden empty list is ignored. Dead boards: only a real 404 counts as a miss; after 3 misses skip the board and recheck after 30 days. _From career-ops `dead-boards.mjs`._
+- [x] Jobs that vanish from their board → hidden "closed on the company board" (only if still untouched in the Inbox)
 - [ ] Platform detection from a link's host (`greenhouse.io`, `lever.co`, `ashbyhq.com`, `myworkdayjobs.com`, …), shared with `pipeline/liveness.py`; unknown hosts stay generic. _From career-ops `ats-vendor.mjs`._
-- [ ] Config `sources.boards` (`every_minutes`, `list` of `{ats, company}`), documented in `config.example.yaml`
+- [x] Config `sources.boards` (`enabled`, `every_minutes`, `companies` of `{ats, company, name}`), documented in `config.example.yaml`
 
 **Still-open check** (for links from Telegram too, not only watched boards)
 
@@ -211,23 +211,25 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 **Seeing and managing feeds**
 
 - [ ] Suggestions: count board links seen in Telegram posts per company; `jobradar boards suggest` lists them; nothing is added without the user
-- [ ] `jobradar boards add <ats> <company>` (checks the board exists first), `boards list` (last check, jobs found, new today, errors), `boards remove`
+- [x] `jobradar boards` (health) and `boards --check`
+- [ ] `jobradar boards add <ats> <company>` (checks the board exists first), `boards remove`
 - [ ] Notion **Source** column ("Telegram · Freshershunt", "Greenhouse · Commvault") and a view per source
 - [ ] Emails: "posted 4 min ago on Commvault's Greenhouse board"; digest section "From company boards"
 - [ ] Starter company list for Indian freshers (career-ops' `portals.example.yml` is mostly US and European companies)
 
 **More providers** (same pattern, after the gate)
 
-- [ ] SmartRecruiters, Recruitee, Workable
+- [x] SmartRecruiters (pulled forward for Bosch)
+- [ ] Recruitee, Workable
 - [ ] `sources/search/adzuna.py` (India, free key), optional Jooble: keyword searches in `sources.search`
 - [ ] Workday (unofficial `cxs` endpoint; may break)
 - [ ] Remotive and RemoteOK (remote only): respect their limits (Remotive 4 checks a day) and show the required credit and link back
 
 **Tests**
 
-- [ ] Recorded responses per provider (respx): normal list, empty list, 404, 429, timeout, malformed JSON
-- [ ] First-check baseline sends no alerts; a later new posting does; a vanished one is marked Closed
-- [ ] An error never wipes the last known list; dead-board counting only on real 404s
+- [x] Recorded responses per provider (respx): normal list, 404 (and Lever's EU fallback), 503, non-JSON
+- [x] First-check baseline sends no alerts; a later new posting does; a vanished one is closed
+- [x] An error never wipes the last known list; dead-board counting only on real 404s
 - [ ] A posting also linked from Telegram stays one job (dedupe by canonical URL)
 - [ ] Still-open check: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
 

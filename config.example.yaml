@@ -5,6 +5,20 @@ sources:
     enabled: true
     chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]  # `jobradar chats` lists ids
     backfill_days: 3
+  boards:                   # company job boards, read directly: jobs arrive minutes after posting
+    enabled: true
+    every_minutes: 20       # each board is read this often (spread out)
+    # One section per hiring system: "Name: board name", the last part of the board's
+    # address (job-boards.greenhouse.io/stripe -> stripe). A link to the board works too.
+    greenhouse:
+      Stripe:    stripe
+      Razorpay:  razorpaysoftwareprivatelimited
+    lever:
+      Meesho:    meesho
+    ashby:
+      Sarvam AI: sarvam
+    smartrecruiters:        # India postings only
+      Bosch:     BoschGroup
   email_forward:
     enabled: true
     folder: JobRadar      # forward jobs here (Gmail: a label + filter)

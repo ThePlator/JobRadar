@@ -252,6 +252,67 @@ def doctor() -> None:
 
 
 @app.command()
+def boards(
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check", help="Read every board once now (the first time records a baseline)."
+        ),
+    ] = False,
+) -> None:
+    """Company job boards you watch (sources.boards in config), and how each is doing."""
+    import json
+
+    from jobradar import app as application
+    from jobradar.pipeline.ingest import make_emit
+    from jobradar.sources.boards.watcher import BoardWatcher
+
+    settings = _settings()
+    config = settings.config.sources.boards
+    if not config.companies:
+        _fail(
+            "No boards yet: add sources.boards.companies to config/config.yaml "
+            "(see config.example.yaml)."
+        )
+    repo, queue = application.open_store()
+    if check:
+        watcher = BoardWatcher(config, repo, queue, make_emit(repo, queue))
+
+        async def read_all() -> None:
+            try:
+                for ref in config.companies:
+                    await watcher.check_board(ref)
+            finally:
+                await watcher.aclose()
+
+        _run(read_all())
+        typer.echo("Read every board. New postings (if any) are queued for `jobradar run`.\n")
+    ats_names = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
+                 "smartrecruiters": "SmartRecruiters"}  # fmt: skip
+    width = max(len(ref.name or ref.company) for ref in config.companies) + 2
+    typer.echo(f"  {'':<{width}}{'postings':>8}  {'passed on':>9}  {'last read (UTC)':<16}  status")
+    for ats, title in ats_names.items():
+        refs = [ref for ref in config.companies if ref.ats == ats]
+        if not refs:
+            continue
+        typer.secho(title, bold=True)
+        for ref in refs:
+            b = repo.get_board(ref.key)
+            if b.skip_until:
+                state = f"not found 3 times: check the name (retry {b.skip_until[:10]})"
+            elif b.last_error:
+                state = b.last_error[:60]
+            elif b.seen_json is None:
+                state = "not read yet"
+            else:
+                state = "ok"
+            postings = str(len(json.loads(b.seen_json))) if b.seen_json else "-"
+            last = (b.last_ok or "")[:16].replace("T", " ")
+            name = ref.name or ref.company
+            typer.echo(f"  {name:<{width}}{postings:>8}  {b.new_total:>9}  {last:<16}  {state}")
+
+
+@app.command()
 def alerts(
     test: Annotated[
         bool, typer.Option("--test", help="Send yourself one test email, even in dry run.")

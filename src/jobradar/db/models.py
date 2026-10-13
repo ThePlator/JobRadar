@@ -14,6 +14,7 @@ class Platform(StrEnum):
     EMAIL = "email"
     WHATSAPP = "whatsapp"
     MANUAL = "manual"  # `jobradar add <url>`
+    BOARD = "board"  # a company's job board (Greenhouse, Lever, Ashby, SmartRecruiters)
 
 
 class JobStatus(StrEnum):
@@ -180,6 +181,22 @@ class StatusChange(SQLModel, table=True):
     job_id: str = Field(foreign_key="job.id", index=True)
     status: str
     changed_at: str
+
+
+class FeedBoard(SQLModel, table=True):
+    """A company job board JobRadar watches, and what it saw there last time."""
+
+    __tablename__ = "feed_board"
+
+    key: str = Field(primary_key=True)  # "greenhouse:stripe"
+    seen_json: str | None = None  # posting ids at the last good check; None: never checked
+    jobs_on_board: int = 0  # all postings at the last good check, before filters
+    new_total: int = 0  # postings JobRadar passed on since it started watching
+    last_checked: str | None = None
+    last_ok: str | None = None
+    last_error: str | None = None
+    misses: int = 0  # real 404s in a row; other errors never count
+    skip_until: str | None = None  # a board that 404s 3 times is retried after 30 days
 
 
 class Setting(SQLModel, table=True):

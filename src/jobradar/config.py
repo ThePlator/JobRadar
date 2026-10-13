@@ -55,8 +55,125 @@ class WhatsAppSourceConfig(_Strict):
     port: int = Field(default=8765, ge=1024, le=65535)
 
 
+BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters"]
+_ATS_NAMES = {
+    "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
+    "smartrecruiters": "SmartRecruiters",
+}  # fmt: skip
+
+
+_BOARD_LINKS = [
+    (
+        "greenhouse",
+        r"(?:job-boards|boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9._-]+)",
+    ),
+    ("greenhouse", r"boards-api\.greenhouse\.io/v1/boards/([A-Za-z0-9._-]+)"),
+    ("lever", r"jobs(?:\.eu)?\.lever\.co/([A-Za-z0-9._-]+)"),
+    ("lever", r"api(?:\.eu)?\.lever\.co/v0/postings/([A-Za-z0-9._-]+)"),
+    ("ashby", r"jobs\.ashbyhq\.com/([A-Za-z0-9._-]+)"),
+    ("ashby", r"api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9._-]+)"),
+    ("smartrecruiters", r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9._-]+)"),
+    ("smartrecruiters", r"api\.smartrecruiters\.com/v1/companies/([A-Za-z0-9._-]+)"),
+]
+
+
+def board_from_link(link: str) -> tuple[str, str]:
+    """('greenhouse', 'stripe') from https://job-boards.greenhouse.io/stripe (or a job link
+    on that board)."""
+    for ats, pattern in _BOARD_LINKS:
+        if m := re.search(r"^(?:https?://)?(?:www\.)?" + pattern, link.strip(), re.IGNORECASE):
+            return ats, m.group(1)
+    raise ValueError(
+        f"{link!r} isn't a Greenhouse, Lever, Ashby or SmartRecruiters board link "
+        "(e.g. https://job-boards.greenhouse.io/stripe)"
+    )
+
+
+class BoardRef(_Strict):
+    """One company job board: its hiring system and the company's name in that system's
+    board address (e.g. boards.greenhouse.io/**stripe**)."""
+
+    ats: BoardATS
+    company: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
+    name: str | None = None  # how it shows in Notion and emails; default: the company slug
+
+    @property
+    def key(self) -> str:
+        return f"{self.ats}:{self.company}"
+
+    @property
+    def label(self) -> str:
+        """'Greenhouse · Stripe': how the board shows in Notion and emails."""
+        return f"{_ATS_NAMES[self.ats]} · {self.name or self.company}"
+
+
+class BoardsConfig(_Strict):
+    """Company job boards checked directly, so new postings arrive before channels repost them."""
+
+    enabled: bool = True
+    every_minutes: int = Field(default=20, ge=5, le=240)
+    # One section per hiring system: `Name: board name` (or a link to that board). A plain
+    # list of board names also works, e.g. `greenhouse: [stripe, rubrik]`.
+    greenhouse: dict[str, str] | list[str] = Field(default_factory=dict)
+    lever: dict[str, str] | list[str] = Field(default_factory=dict)
+    ashby: dict[str, str] | list[str] = Field(default_factory=dict)
+    smartrecruiters: dict[str, str] | list[str] = Field(default_factory=dict)
+    # Every board as a flat list; filled from the sections above (or given directly).
+    companies: list[BoardRef] = Field(default_factory=list)
+
+    @classmethod
+    def _from_links(cls, v: Any) -> Any:
+        """`Name: board link` pairs (the readable form) become BoardRefs."""
+        if not isinstance(v, dict):
+            return v
+        refs = []
+        for name, link in v.items():
+            ats, company = board_from_link(str(link))
+            refs.append({"ats": ats, "company": company, "name": str(name)})
+        return refs
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sections(cls, data: Any) -> Any:
+        """Turn the per-hiring-system sections into the flat `companies` list."""
+        if not isinstance(data, dict):
+            return data
+        listed = data.get("companies") or []
+        refs: list[Any] = (
+            list(cls._from_links(listed)) if isinstance(listed, dict) else list(listed)
+        )
+        for ats in _ATS_NAMES:
+            section = data.get(ats) or {}
+            if isinstance(section, dict):
+                pairs = [(str(k), str(v)) for k, v in section.items()]
+            elif isinstance(section, list):
+                pairs = [(str(b), str(b)) for b in section]
+            else:
+                raise ValueError(f"{ats}: list boards as 'Name: board name' lines")
+            for name, value in pairs:
+                board = value.strip()
+                if "/" in board:  # a link to the board (or to a job on it)
+                    found, board = board_from_link(board)
+                    if found != ats:
+                        raise ValueError(
+                            f"{ats} > {name}: that's a {_ATS_NAMES[found]} link; "
+                            f"move it under {found}:"
+                        )
+                refs.append({"ats": ats, "company": board, "name": name})
+        return {**data, "companies": refs}
+
+    @field_validator("companies")
+    @classmethod
+    def _unique(cls, v: list[BoardRef]) -> list[BoardRef]:
+        keys = [b.key for b in v]
+        if dupes := sorted({k for k in keys if keys.count(k) > 1}):
+            raise ValueError(f"listed twice: {', '.join(dupes)}")
+        return v
+
+
 class SourcesConfig(_Strict):
     telegram: TelegramSourceConfig = Field(default_factory=TelegramSourceConfig)
+    boards: BoardsConfig = Field(default_factory=BoardsConfig)
     email_forward: EmailForwardSourceConfig = Field(default_factory=EmailForwardSourceConfig)
     whatsapp: WhatsAppSourceConfig = Field(default_factory=WhatsAppSourceConfig)
 

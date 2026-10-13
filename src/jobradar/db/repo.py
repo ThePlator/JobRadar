@@ -7,6 +7,7 @@ statements, so they stay atomic even if the process dies between calls.
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -15,11 +16,13 @@ from typing import Any
 
 from sqlalchemy import Engine, event, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.schema import CreateTable
 from sqlmodel import Session, SQLModel, col, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
-from jobradar.db import models  # noqa: F401  (registers tables on SQLModel.metadata)
+from jobradar.db import models  # also registers every table on SQLModel.metadata
 from jobradar.db.models import (
+    FeedBoard,
     FetchedPage,
     Job,
     JobStatus,
@@ -51,6 +54,50 @@ def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
 def init_db(engine: Engine) -> None:
     SQLModel.metadata.create_all(engine)
     _add_new_columns(engine)
+    _refresh_source_platforms(engine)
+
+
+def _refresh_source_platforms(engine: Engine) -> None:
+    """SQLite can't change a CHECK constraint in place, so when a new source platform appears
+    (e.g. "board"), `source` is rebuilt with the new list. A backup of the database file is
+    written next to it first."""
+    with engine.connect() as c:
+        sql = c.execute(
+            text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'source'")
+        ).scalar()
+    if sql is None or all(f"'{p.value}'" in sql for p in Platform):
+        return
+    raw = engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection
+        if dbapi is None:
+            raise RuntimeError("no database connection to rebuild `source` with")
+        if path := engine.url.database:
+            backup = sqlite3.connect(f"{path}.before-board-sources.bak")
+            dbapi.backup(backup)
+            backup.close()
+        columns = ", ".join(c.name for c in models.Source.__table__.columns)  # type: ignore[attr-defined]
+        create = str(CreateTable(models.Source.__table__).compile(engine))  # type: ignore[attr-defined]
+        dbapi.execute("PRAGMA foreign_keys = OFF")
+        dbapi.execute("PRAGMA legacy_alter_table = ON")  # keep raw_message pointing at "source"
+        try:
+            dbapi.execute("BEGIN")
+            dbapi.execute("ALTER TABLE source RENAME TO source_old")
+            dbapi.execute(create)
+            dbapi.execute(f"INSERT INTO source ({columns}) SELECT {columns} FROM source_old")  # noqa: S608 (column names from the model)
+            dbapi.execute("DROP TABLE source_old")
+            problems = dbapi.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"foreign key problems after rebuilding source: {problems[:3]}")
+            dbapi.execute("COMMIT")
+        except Exception:
+            dbapi.execute("ROLLBACK")
+            raise
+        finally:
+            dbapi.execute("PRAGMA legacy_alter_table = OFF")
+            dbapi.execute("PRAGMA foreign_keys = ON")
+    finally:
+        raw.close()
 
 
 def _add_new_columns(engine: Engine) -> None:
@@ -651,6 +698,17 @@ class Repo:
         for status, score in rows:
             scores.setdefault(str(status), []).append(int(score))
         return scores
+
+    # ---- company job boards -------------------------------------------------------------------
+
+    def get_board(self, key: str) -> FeedBoard:
+        with Session(self.engine) as s:
+            return s.get(FeedBoard, key) or FeedBoard(key=key)
+
+    def save_board(self, board: FeedBoard) -> None:
+        with Session(self.engine) as s:
+            s.merge(board)
+            s.commit()
 
     # ---- alerts -------------------------------------------------------------------------------
 
