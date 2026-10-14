@@ -335,6 +335,12 @@ class Repo:
                 {"id": job_id, "status": status.value, "reason": reason, "now": self._now()},
             )
 
+    def jobs_in_notion(self) -> list[str]:
+        """Ids of jobs that have a Notion page."""
+        with self._tx() as c:
+            rows = c.execute(text("SELECT id FROM job WHERE notion_page_id IS NOT NULL")).all()
+        return [str(r[0]) for r in rows]
+
     def set_notion_page(self, job_id: str, page_id: str | None) -> None:
         with self._tx() as c:
             c.execute(

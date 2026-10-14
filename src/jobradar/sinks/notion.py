@@ -47,6 +47,12 @@ SCHEMA: dict[str, str] = {
     "Notes": "rich_text",
     "Added": "created_time",
 }
+# Columns added after the template shipped: JobRadar adds them to your database itself, and
+# works without them if it can't.
+ADDED_LATER: dict[str, str] = {
+    # Where the job was seen: "Telegram · Freshershunt", "Greenhouse · Stripe".
+    "Source": "multi_select",
+}
 
 # Agent-side status -> Notion Status option. Written only when the page is created; after
 # that the Status column belongs to the user.
@@ -159,9 +165,15 @@ class NotionClient:
             )
         return str(sources[0]["id"])
 
-    async def schema_problems(self, data_source_id: str) -> list[str]:
+    async def properties(self, data_source_id: str) -> dict[str, str]:
+        """Property name -> type of the data source."""
         ds = await self.request("GET", f"/data_sources/{data_source_id}")
-        have = {name: prop["type"] for name, prop in ds.get("properties", {}).items()}
+        return {name: prop["type"] for name, prop in ds.get("properties", {}).items()}
+
+    async def schema_problems(
+        self, data_source_id: str, have: dict[str, str] | None = None
+    ) -> list[str]:
+        have = have if have is not None else await self.properties(data_source_id)
         problems = []
         for name, kind in SCHEMA.items():
             if name not in have:
@@ -169,6 +181,13 @@ class NotionClient:
             elif have[name] != kind:
                 problems.append(f"property '{name}' should be {kind}, is {have[name]}")
         return problems
+
+    async def add_properties(self, data_source_id: str, wanted: dict[str, str]) -> None:
+        await self.request(
+            "PATCH",
+            f"/data_sources/{data_source_id}",
+            {"properties": {name: {kind: {}} for name, kind in wanted.items()}},
+        )
 
     async def find_page(self, data_source_id: str, job_id: str) -> str | None:
         result = await self.request(
@@ -245,7 +264,8 @@ async def connect(settings: Settings, http: httpx.AsyncClient | None = None) -> 
     client = NotionClient(token.get_secret_value(), http=http)
     try:
         ds = settings.secrets.notion_data_source_id or await client.resolve_data_source(database_id)
-        problems = await client.schema_problems(ds)
+        have = await client.properties(ds)
+        problems = await client.schema_problems(ds, have)
     except BaseException:
         await client.aclose()
         raise
@@ -254,7 +274,17 @@ async def connect(settings: Settings, http: httpx.AsyncClient | None = None) -> 
         raise ConfigError(
             "Notion database does not match the template:\n  - " + "\n  - ".join(problems)
         )
-    return NotionSink(client, ds)
+    extra = {name for name, kind in ADDED_LATER.items() if have.get(name) == kind}
+    added: set[str] = set()
+    if missing := {n: k for n, k in ADDED_LATER.items() if n not in have}:
+        try:
+            await client.add_properties(ds, missing)
+            added = set(missing)
+            log.info("added Notion columns", extra={"columns": ", ".join(sorted(added))})
+        except (PermanentError, RetryableError) as e:
+            log.warning("could not add Notion columns; carrying on without them: " + str(e)[:200],
+                        extra={"columns": ", ".join(sorted(missing))})  # fmt: skip
+    return NotionSink(client, ds, extra | added, added)
 
 
 # ---- job -> page ----------------------------------------------------------------------------
@@ -304,7 +334,22 @@ def _option(name: str) -> str:
     return name.replace(",", " ").strip()[:100]
 
 
-def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> dict[str, Any]:
+def source_label(s: Sighting) -> str:
+    """'Telegram · Freshershunt', 'Greenhouse · Stripe' (boards are titled that way)."""
+    match s.platform:
+        case "board":
+            return s.chat_title or s.chat_id
+        case "manual":
+            return "Added by you"
+        case "email":
+            return "Email"
+        case platform:
+            return f"{platform.capitalize()} · {s.chat_title or s.chat_id}"
+
+
+def build_properties(
+    job: Job, sightings: list[Sighting], *, new_page: bool, source: bool = False
+) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Role": {"title": _text(page_title(job, sightings))},
         "Seen In": {"number": len({(s.platform, s.chat_id) for s in sightings})},
@@ -312,6 +357,14 @@ def build_properties(job: Job, sightings: list[Sighting], *, new_page: bool) -> 
     }
     if job.company:
         props["Company"] = {"rich_text": _text(job.company)}
+    if source and (
+        labels := list(
+            dict.fromkeys(
+                _option(" ".join(source_label(s).replace(",", " ").split())) for s in sightings
+            )
+        )
+    ):
+        props["Source"] = {"multi_select": [{"name": n} for n in labels[:MAX_SKILLS]]}
     if job.score is not None:
         props["Match Score"] = {"number": job.score}
     if job.scam_risk in _SCAM_OPTION:
@@ -414,9 +467,17 @@ def _block(kind: str, rich_text: list[dict[str, Any]]) -> dict[str, Any]:
 class NotionSink:
     name = "notion"
 
-    def __init__(self, client: NotionClient, data_source_id: str) -> None:
+    def __init__(
+        self,
+        client: NotionClient,
+        data_source_id: str,
+        extra: set[str] | None = None,
+        added: set[str] | None = None,
+    ) -> None:
         self.client = client
         self.data_source_id = data_source_id
+        self.extra = extra or set()  # ADDED_LATER columns the database has
+        self.added = added or set()  # ...of which JobRadar added just now (fill old pages)
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -430,7 +491,7 @@ class NotionSink:
         sightings = repo.job_sightings(job_id)
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
         if page_id:
-            props = build_properties(job, sightings, new_page=False)
+            props = build_properties(job, sightings, new_page=False, source="Source" in self.extra)
             try:
                 if "Status" in props and await self.client.page_status(page_id) not in _AGENT_OWNED:
                     # You moved it (Shortlisted, Applied…): your status wins over a hide.
@@ -446,7 +507,7 @@ class NotionSink:
         else:
             page_id = await self.client.create_page(
                 self.data_source_id,
-                build_properties(job, sightings, new_page=True),
+                build_properties(job, sightings, new_page=True, source="Source" in self.extra),
                 build_body(sightings, posting_of(job), match_line(job)),
             )
             log.info("notion page created", extra={"job_id": job_id[:10]})

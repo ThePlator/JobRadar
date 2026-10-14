@@ -10,7 +10,7 @@ from jobradar.db.models import Job, JobStatus, Platform
 from jobradar.db.repo import Repo, Sighting
 from jobradar.queue.tasks import PermanentError, RetryableError
 from jobradar.sinks import notion
-from jobradar.sinks.notion import SCHEMA, NotionClient, build_properties, page_title
+from jobradar.sinks.notion import ADDED_LATER, SCHEMA, NotionClient, build_properties, page_title
 
 API = notion.API_URL
 DS = "ds-1"
@@ -29,7 +29,9 @@ def schema_response(
     overrides: dict[str, str] | None = None, drop: str | None = None
 ) -> dict[str, Any]:
     props = {
-        name: {"type": kind} for name, kind in (SCHEMA | (overrides or {})).items() if name != drop
+        name: {"type": kind}
+        for name, kind in (SCHEMA | ADDED_LATER | (overrides or {})).items()
+        if name != drop
     }
     return {"object": "data_source", "properties": props}
 
@@ -303,3 +305,41 @@ def test_scam_risk_column() -> None:
         "select": {"name": "High"}
     }
     assert "Scam Risk" not in build_properties(job(), [], new_page=False)
+
+
+async def test_connect_adds_the_source_column(mock_api: respx.MockRouter) -> None:
+    mock_api.get(f"/data_sources/{DS}").respond(json=schema_response(drop="Source"))
+    patch = mock_api.patch(f"/data_sources/{DS}").respond(json={})
+    sink = await notion.connect(settings(), http=http())
+    assert json.loads(patch.calls[0].request.content) == {
+        "properties": {"Source": {"multi_select": {}}}
+    }
+    assert sink.extra == sink.added == {"Source"}
+    await sink.aclose()
+
+
+async def test_connect_carries_on_without_the_source_column(mock_api: respx.MockRouter) -> None:
+    mock_api.get(f"/data_sources/{DS}").respond(json=schema_response(drop="Source"))
+    mock_api.patch(f"/data_sources/{DS}").respond(
+        403, json={"code": "restricted_resource", "message": "no edit access"}
+    )
+    sink = await notion.connect(settings(), http=http())
+    assert sink.extra == set()
+    await sink.aclose()
+
+
+@pytest.mark.parametrize(
+    ("platform", "chat", "label"),
+    [
+        ("board", "Greenhouse · Stripe", "Greenhouse · Stripe"),
+        ("telegram", "Freshershunt, Jobs", "Telegram · Freshershunt Jobs"),
+        ("manual", None, "Added by you"),
+        ("email", None, "Email"),
+    ],
+)
+def test_source_column(platform: str, chat: str | None, label: str) -> None:
+    job = Job(id="j", created_at="", updated_at="", status=JobStatus.NEW)
+    seen = [Sighting(platform, "c1", chat, "1", None, "2026-10-08")] * 2
+    props = build_properties(job, seen, new_page=True, source=True)
+    assert props["Source"] == {"multi_select": [{"name": label}]}
+    assert "Source" not in build_properties(job, seen, new_page=True)

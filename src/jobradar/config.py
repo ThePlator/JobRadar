@@ -160,7 +160,10 @@ class BoardsConfig(_Strict):
                             f"move it under {found}:"
                         )
                 refs.append({"ats": ats, "company": board, "name": name})
-        return {**data, "companies": refs}
+        emptied: dict[str, Any] = {
+            ats: {} for ats in _ATS_NAMES if data.get(ats) is None
+        }  # `lever:` alone
+        return {**data, **emptied, "companies": refs}
 
     @field_validator("companies")
     @classmethod
@@ -297,6 +300,8 @@ class NotifyConfig(_Strict):
     # Only jobs first seen this recently can alert; older ones were in your Inbox already.
     alert_max_age_days: float = Field(default=2, gt=0, le=30)
     digest: bool = True  # a summary email at each digest time
+    # An email when a job you shortlisted closes today or tomorrow (checked hourly, 8:00-22:00).
+    closing_reminders: bool = True
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 

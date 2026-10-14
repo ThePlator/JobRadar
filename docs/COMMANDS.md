@@ -70,6 +70,8 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar retry --failed` | Put failed tasks back in the queue; they run on the next `jobradar run` |
 | `jobradar boards` | Company job boards you watch: postings, how many were passed on, last read, problems, and each board's newest posting with why it passed or was skipped |
 | `jobradar boards --check` | Read every board now (the first read only records a baseline) |
+| `jobradar boards add <link>` | Add a board to config.yaml after checking it exists, e.g. `jobradar boards add https://jobs.lever.co/meesho --name Meesho` or `jobradar boards add greenhouse stripe --name Stripe`. Shows how many postings pass your filters now. Restart to start watching it |
+| `jobradar boards remove <name>` | Remove a board from config.yaml by its name, board name or link (`--ats lever` if the name is in several sections). Restart to stop reading it |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
 | `jobradar resume <job_id>` | *Not built yet (v0.3)*: rebuild a tailored resume |
@@ -132,6 +134,8 @@ Everything JobRadar does is written to `data/run.log`.
 | Follow only the important lines | `tail -f data/run.log \| grep --line-buffered -E "new job\|job extracted\|job matched\|job hidden\|alert email\|would have emailed\|digest\|budget\|ERROR\|Traceback"` |
 | What the company boards found, and why each posting was skipped | `grep -E "board posting (passed\|skipped)" data/run.log \| tail -20 \| cut -c1-200` |
 | Watch for alerts | `tail -f data/run.log \| grep --line-buffered -E "new job\|decision=alert\|alert skipped\|alert email sent\|could not send"` |
+| Jobs hidden because their posting had already closed | `grep "posting closed on the hiring site" data/run.log \| tail -20 \| cut -c1-160` |
+| Closing-soon reminders for jobs you shortlisted | `grep -E "closing reminder\|already closed; no reminder" data/run.log \| tail` |
 | What was hidden today, and why | `grep "job hidden" data/run.log \| grep "$(date +%F)" \| cut -c1-160` |
 | Emails sent | `grep -E "alert email sent\|digest sent" data/run.log \| tail` |
 | Problems only | `grep -E "WARNING\|ERROR\|Traceback" data/run.log \| tail -20` |
