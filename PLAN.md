@@ -188,7 +188,7 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 
 - [x] `sinks/notion_sync.py` read path: poll the data source every 2 min for pages whose Status the user changed (Shortlisted, Applied, Interview, Offer, Rejected, Skipped, Hidden, New) and mirror it to `job.status` with a `status_change` history; never write Status back except the existing agent hides
 - [x] Digest: your applications line (shortlisted, applied, interviews, offers, moves since the last digest); shortlisted jobs already appear under "Closing"
-- [ ] Alert when a shortlisted job closes within 24 h
+- [x] Alert when a shortlisted job closes within 24 h
 - [x] `jobradar stats`: funnel, reply rate, and a `scoring.alert_above` suggestion from the scores of jobs you went for vs skipped
 - [x] Tests: status mapping, a page you moved is never re-hidden, cursor overlap, no tight poll loop
 
@@ -200,22 +200,22 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] Board check: every `every_minutes` with a per-board spread; first read is a baseline; new postings → filters (India or remote naming no other place, tech title, not senior) → a labelled post through ingest, so the free extraction layer reads it without the LLM
 - [x] An error or 404 never means "no jobs": keep the last list; a sudden empty list is ignored. Dead boards: only a real 404 counts as a miss; after 3 misses skip the board and recheck after 30 days. _From career-ops `dead-boards.mjs`._
 - [x] Jobs that vanish from their board → hidden "closed on the company board" (only if still untouched in the Inbox)
-- [ ] Platform detection from a link's host (`greenhouse.io`, `lever.co`, `ashbyhq.com`, `myworkdayjobs.com`, …), shared with `pipeline/liveness.py`; unknown hosts stay generic. _From career-ops `ats-vendor.mjs`._
+- [x] Platform detection from a link's host (`greenhouse.io`, `lever.co`, `ashbyhq.com`, `smartrecruiters.com`) in `pipeline/liveness.py`; unknown hosts stay generic. Workday (`myworkdayjobs.com`) comes with its reader. _From career-ops `ats-vendor.mjs`._
 - [x] Config `sources.boards` (`enabled`, `every_minutes`, `companies` of `{ats, company, name}`), documented in `config.example.yaml`
 
 **Still-open check** (for links from Telegram too, not only watched boards)
 
-- [ ] `pipeline/liveness.py`: before `decide`, ask the hiring platform whether the posting is still open. Greenhouse, Lever and Workday have per-job public APIs (200 = open); Ashby has an org board, so check this posting is still listed. Only a 404/410 or a clear closed marker hides the job with reason "posting closed"; timeouts, 429/5xx, redirects and unknown sites mean "unknown" and the job carries on. Requests go only to fixed API hosts, built from path segments of the link with a strict charset, and redirects are refused. No LLM calls. _From career-ops `liveness-api.mjs`._
-- [ ] Recheck before a Shortlisted job's "closing soon" alert, so you aren't reminded about a job that already closed
+- [x] `pipeline/liveness.py`: before matching (no Gemini call for closed postings), ask the hiring platform whether the posting is still open. Greenhouse, Lever and SmartRecruiters have per-job public APIs (200 = open; Workday later); Ashby has an org board, so check this posting is still listed. Only a 404/410 or a clear closed marker hides the job with reason "posting closed"; timeouts, 429/5xx, redirects and unknown sites mean "unknown" and the job carries on. Requests go only to fixed API hosts, built from path segments of the link with a strict charset, and redirects are refused. No LLM calls. _From career-ops `liveness-api.mjs`._
+- [x] Recheck before a Shortlisted job's "closing soon" alert, so you aren't reminded about a job that already closed
 
 **Seeing and managing feeds**
 
 - [ ] Suggestions: count board links seen in Telegram posts per company; `jobradar boards suggest` lists them; nothing is added without the user
 - [x] `jobradar boards` (health) and `boards --check`
-- [ ] `jobradar boards add <ats> <company>` (checks the board exists first), `boards remove`
-- [ ] Notion **Source** column ("Telegram · Freshershunt", "Greenhouse · Commvault") and a view per source
-- [ ] Emails: "posted 4 min ago on Commvault's Greenhouse board"; digest section "From company boards"
-- [ ] Starter company list for Indian freshers (career-ops' `portals.example.yml` is mostly US and European companies)
+- [x] `jobradar boards add <ats> <company>` (checks the board exists first), `boards remove`
+- [x] Notion **Source** column ("Telegram · Freshershunt", "Greenhouse · Commvault"), added to the database automatically; a view grouped by Source is made in Notion (the API can't create views)
+- [x] Emails: "posted 4 min ago on Commvault's Greenhouse board"; digest section "From company boards"
+- [x] Starter company list for Indian freshers (career-ops' `portals.example.yml` is mostly US and European companies)
 
 **More providers** (same pattern, after the gate)
 
@@ -231,7 +231,7 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] First-check baseline sends no alerts; a later new posting does; a vanished one is closed
 - [x] An error never wipes the last known list; dead-board counting only on real 404s
 - [ ] A posting also linked from Telegram stays one job (dedupe by canonical URL)
-- [ ] Still-open check: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
+- [x] Still-open check: recorded responses per platform for open, 404, 410, closed marker, 429, timeout and redirect; only the definite closed cases hide the job; a crafted link can't change the request host
 
 Not possible: LinkedIn, Naukri and Indeed have no public job API and forbid scraping; their jobs keep arriving through Telegram.
 

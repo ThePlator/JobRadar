@@ -964,6 +964,7 @@ CI compiles every template with `profile.example.yaml` and fails if any template
 | `apply_url` or `canonical_url` | Apply Link | url |
 | latest resume `drive_url` | Resume | url |
 | count of `job_source` rows | Seen In | number |
+| chat of each sighting ("Telegram · Freshershunt", "Greenhouse · Stripe"; added to the database automatically) | Source | multi_select |
 | `scam_risk` | Scam Risk | select |
 | `id` | Job ID | rich_text |
 | (user-owned) | Cover Letter | checkbox |

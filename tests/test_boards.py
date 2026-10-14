@@ -343,3 +343,122 @@ async def test_skipped_postings_are_explained(
     latest = json.loads(repo.get_board("greenhouse:stripe").latest_json or "{}")
     assert latest["verdict"] == "too senior"
     await w.aclose()
+
+
+# ---- boards add / remove --------------------------------------------------------------------
+
+CONFIG = """\
+sources:
+  telegram:
+    enabled: false
+  boards:                 # company boards
+    every_minutes: 20
+    greenhouse:
+      Stripe:     stripe
+      Razorpay:   razorpaysoftwareprivatelimited
+    lever:
+      Meesho: https://jobs.lever.co/meesho
+  email_forward:
+    enabled: false
+llm:
+  daily_budget_inr: 40
+"""
+
+
+def test_add_board_lines_up_with_the_section() -> None:
+    from jobradar.sources.boards.config_edit import add_board
+
+    out = add_board(CONFIG, "greenhouse", "postman", "Postman")
+    assert (
+        "      Razorpay:   razorpaysoftwareprivatelimited\n      Postman:    postman\n    lever:"
+        in out
+    )
+    out = add_board(out, "ashby", "sarvam", "Sarvam AI")
+    assert (
+        "      Meesho: https://jobs.lever.co/meesho\n    ashby:\n      Sarvam AI: sarvam\n  email_forward:"
+        in out
+    )
+    out = add_board(out, "lever", "x", "A: B")
+    assert '      "A: B": x\n' in out
+    assert BoardsConfig.model_validate(yaml_boards(out)).companies[-1].name == "Sarvam AI"
+
+
+def yaml_boards(text: str) -> dict[str, Any]:
+    import yaml
+
+    return yaml.safe_load(text)["sources"]["boards"]  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize(
+    ("ats", "board", "name", "error"),
+    [
+        ("greenhouse", "STRIPE", "Stripe 2", r"already in config.yaml \(as Stripe\)"),
+        ("lever", "meesho", "M", "already in config.yaml"),  # listed as a link
+        ("greenhouse", "other", "razorpay", "already a greenhouse board named"),
+    ],
+)
+def test_add_board_refuses_duplicates(ats: str, board: str, name: str, error: str) -> None:
+    from jobradar.sources.boards.config_edit import EditError, add_board
+
+    with pytest.raises(EditError, match=error):
+        add_board(CONFIG, ats, board, name)
+
+
+def test_add_board_needs_a_boards_section() -> None:
+    from jobradar.sources.boards.config_edit import EditError, add_board
+
+    with pytest.raises(EditError, match="no `sources: boards:`"):
+        add_board("sources:\n  telegram:\n    enabled: false\n", "lever", "x", "X")
+    with pytest.raises(EditError, match="one line"):
+        add_board(CONFIG.replace("    lever:\n      Meesho: https://jobs.lever.co/meesho\n",
+                                 "    lever: [meesho]\n"), "lever", "x", "X")  # fmt: skip
+
+
+@pytest.mark.parametrize("which", ["stripe", "Stripe", "https://job-boards.greenhouse.io/stripe"])
+def test_remove_board(which: str) -> None:
+    from jobradar.sources.boards.config_edit import remove_board
+
+    out, ats, name = remove_board(CONFIG, which)
+    assert (ats, name) == ("greenhouse", "Stripe")
+    assert "stripe" not in out and "Razorpay:" in out
+    out, ats, name = remove_board(out, "meesho")  # listed as a link
+    assert (ats, name) == ("lever", "Meesho")
+    assert [b.key for b in BoardsConfig.model_validate(yaml_boards(out)).companies] == [
+        "greenhouse:razorpaysoftwareprivatelimited"
+    ]
+
+
+def test_remove_unknown_board() -> None:
+    from jobradar.sources.boards.config_edit import EditError, remove_board
+
+    with pytest.raises(EditError, match="no board 'acme'"):
+        remove_board(CONFIG, "acme")
+
+
+@respx.mock
+def test_boards_add_command(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from typer.testing import CliRunner
+
+    from jobradar import __main__ as cli
+
+    path = tmp_path / "config.yaml"
+    path.write_text(CONFIG)
+    monkeypatch.setattr(cli, "CONFIG_PATH", path)
+    respx.get("https://boards-api.greenhouse.io/v1/boards/postman/jobs").respond(
+        json={"jobs": [gh_job(1, "Software Engineer Intern"), gh_job(2, "Account Executive")]}
+    )
+    respx.get("https://boards-api.greenhouse.io/v1/boards/gone/jobs").respond(404)
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["boards", "add", "greenhouse", "postman", "--name", "Postman"])
+    assert result.exit_code == 0, result.output
+    assert "2 postings now, 1 pass your filters" in result.output
+    assert "Postman:    postman" in path.read_text()
+
+    result = runner.invoke(cli.app, ["boards", "add", "https://job-boards.greenhouse.io/gone"])
+    assert result.exit_code == 2 and "answered 404" in result.output
+    assert "gone" not in path.read_text()
+
+    result = runner.invoke(cli.app, ["boards", "remove", "postman"])
+    assert result.exit_code == 0, result.output
+    assert path.read_text() == CONFIG

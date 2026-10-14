@@ -78,6 +78,7 @@ Each job is one page in a Notion database you duplicate from the JobRadar templa
 | Apply Link | Canonical application URL |
 | Resume | Google Drive link to the tailored PDF |
 | Seen In | How many of your groups posted it |
+| Source | Where it was seen: "Telegram · Freshershunt", "Greenhouse · Stripe" (added automatically) |
 | Scam Risk | Low / Medium / High |
 
 Views included: **Inbox**, **Top matches**, **Closing soon**, **Board** (kanban by status) and **Applied**.

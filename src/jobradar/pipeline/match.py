@@ -1,5 +1,7 @@
 """extract -> match: answers about job vs. profile, turned into a Match Score and a reason.
 
+0. A posting on Greenhouse, Lever, Ashby or SmartRecruiters that the site says has closed is
+   hidden right away (`pipeline/liveness.py`).
 1. Hard rules in code (batch years, maximum experience): a job that fails them needs no
    provider call.
 2. Otherwise providers are tried in `matching.providers` order; the first that answers wins.
@@ -21,6 +23,7 @@ from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline import scam
 from jobradar.pipeline.decide import Decision, contradicts, decide
 from jobradar.pipeline.extract import PAGE_TEXT_LIMIT, own_post
+from jobradar.pipeline.liveness import Liveness, LivenessChecker
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import MATCH, NOTION_BODY, NOTION_UPSERT
 from jobradar.providers.base import JobView, MatchAnswers, MatchProvider, ProviderUnavailable
@@ -30,6 +33,7 @@ from jobradar.queue.tasks import TaskQueue
 log = logging.getLogger(__name__)
 
 _OPEN = (JobStatus.EXTRACTED.value, JobStatus.NEW.value)
+CLOSED_REASON = "posting closed on the hiring site"
 _FIT_WORDS = ["Not a fit", "Weak fit", "Partial fit", "Good fit", "Strong fit"]
 
 
@@ -124,6 +128,7 @@ class Matcher:
         alert_max_age_days: float = 2,
         tz: tzinfo | None = None,
         clock: Clock = utcnow,
+        liveness: LivenessChecker | None = None,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -137,22 +142,44 @@ class Matcher:
         self.alert_max_age_days = alert_max_age_days
         self.tz = tz
         self.clock = clock
+        self.liveness = liveness  # None: don't ask hiring sites whether postings are open
 
     async def match(self, task: TaskRecord) -> None:
         job = self.repo.get_job(task.key)
         if job is None or job.status not in _OPEN or not job.data_json:
             return
         posting = JobPosting.model_validate_json(job.data_json)
+        # Only a job's first match may alert: re-matching after a profile or prompt change
+        # must not email you about jobs you've already seen.
+        first = not self.repo.ever_matched(job.id)
+        if first and await self._closed(job, posting):
+            return
         answers = hard_rules(posting, self.filters) or await self._ask(job.id, posting)
         if answers is None:
             log.info("no match provider could answer", extra={"job_id": job.id[:10]})
             self.repo.set_match_score(job.id, None, "not matched")
             return
-        # Only a job's first match may alert: re-matching after a profile or prompt change
-        # must not email you about jobs you've already seen.
-        first = not self.repo.ever_matched(job.id)
         self.repo.save_match(job.id, self.version, answers.provider, answers.model_dump_json())
         self._apply(job.id, posting, answers, alert_ok=first)
+
+    async def _closed(self, job: Job, posting: JobPosting) -> bool:
+        """Ask the hiring site whether the posting is still open (Greenhouse, Lever, Ashby,
+        SmartRecruiters links only). A closed one is hidden before any provider call."""
+        if self.liveness is None or job.user_status_at is not None:
+            return False
+        if any(s.platform == "board" for s in self.repo.job_sightings(job.id)):
+            return False  # just read off the company's board: open
+        for url in dict.fromkeys(u for u in (posting.apply_url, job.canonical_url) if u):
+            state = await self.liveness.check(url)
+            if state == Liveness.UNKNOWN:
+                continue
+            if state == Liveness.OPEN:
+                return False
+            self.repo.set_job_status(job.id, JobStatus.HIDDEN, CLOSED_REASON)
+            log.info("job hidden", extra={"job_id": job.id[:10], "why": CLOSED_REASON})
+            self.queue.enqueue(NOTION_UPSERT, job.id)
+            return True
+        return False
 
     def _texts(self, job_id: str) -> tuple[str, str]:
         page = self.repo.get_page(job_id)

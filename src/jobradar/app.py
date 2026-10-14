@@ -14,10 +14,12 @@ from jobradar.pipeline.extract import Extractor
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
+from jobradar.pipeline.liveness import LivenessChecker
 from jobradar.pipeline.match import Matcher
 from jobradar.pipeline.task_types import (
     BOARD_CHECK,
     BOARDS_TICK,
+    CLOSING_CHECK,
     DIGEST,
     EXTRACT,
     FETCH,
@@ -38,6 +40,7 @@ from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
 from jobradar.sinks.notion_sync import StatusSync
+from jobradar.sinks.reminders import ClosingReminder
 from jobradar.sources.boards.watcher import BoardWatcher
 from jobradar.sources.telegram import TelegramSource
 
@@ -92,12 +95,26 @@ def make_digest(settings: Settings, repo: Repo, queue: TaskQueue) -> Digest | No
     return Digest(settings, repo, queue)
 
 
+def make_reminders(
+    settings: Settings, repo: Repo, queue: TaskQueue, liveness: LivenessChecker
+) -> ClosingReminder | None:
+    """Closing-soon reminders, or None when they are off or email isn't set up."""
+    notify = settings.config.notify
+    if not notify.closing_reminders:
+        return None
+    if not notify.dry_run and (missing := settings.missing("email")):
+        log.warning("closing reminders are off: add to .env " + ", ".join(missing))
+        return None
+    return ClosingReminder(settings, repo, queue, liveness)
+
+
 def make_matcher(
     settings: Settings,
     repo: Repo,
     queue: TaskQueue,
     llm: LLM | None,
     alerts: AlertSender | None = None,
+    liveness: LivenessChecker | None = None,
 ) -> Matcher | None:
     """The matcher, or None (with a warning) when matching is off or has no profile."""
     config = settings.config
@@ -127,6 +144,7 @@ def make_matcher(
         repo, queue, providers, profile, version, config.matching,
         config.filters, config.scoring, alerts,
         alert_max_age_days=config.notify.alert_max_age_days, tz=config.notify.tz,
+        liveness=liveness,
     )  # fmt: skip
 
 
@@ -144,7 +162,8 @@ class Pipeline:
         llm_config = settings.config.llm
         llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
         alerts = make_alerts(settings, repo, queue)
-        self.matcher = make_matcher(settings, repo, queue, llm, alerts)
+        self.liveness = LivenessChecker()
+        self.matcher = make_matcher(settings, repo, queue, llm, alerts, self.liveness)
         extractor = Extractor(
             repo,
             queue,
@@ -169,6 +188,9 @@ class Pipeline:
         self.digest = make_digest(settings, repo, queue)
         if self.digest is not None:
             handlers[DIGEST] = self.digest.send
+        self.reminders = make_reminders(settings, repo, queue, self.liveness)
+        if self.reminders is not None:
+            handlers[CLOSING_CHECK] = self.reminders.tick
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
@@ -176,6 +198,7 @@ class Pipeline:
             await self.boards.aclose()
         await self.expander.aclose()
         await self.fetcher.aclose()
+        await self.liveness.aclose()
 
 
 async def run(settings: Settings) -> None:
@@ -194,10 +217,16 @@ async def run(settings: Settings) -> None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
+    if "Source" in sink.added:  # a column JobRadar just added: fill it on existing pages
+        for job_id in (pages := repo.jobs_in_notion()):
+            queue.enqueue(NOTION_UPSERT, job_id)
+        log.info("filling the new Source column", extra={"pages": len(pages)})
     pipeline.status_sync.schedule()  # then every 2 minutes
     if pipeline.boards is not None:
         pipeline.boards.schedule()  # then every minute: read the boards that are due
         log.info("watching company boards", extra={"boards": len(pipeline.boards.boards)})
+    if pipeline.reminders is not None:
+        pipeline.reminders.schedule()  # then every hour
     if pipeline.digest is not None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})

@@ -118,6 +118,10 @@ def test_posted_ago() -> None:
     assert posted_ago("2026-10-08T08:59:50.000000Z", None, now) == "posted just now"
     assert posted_ago("2026-10-08T06:00:00.000000Z", "Jobs", now) == "posted 3 h ago in Jobs"
     assert posted_ago("2026-10-05T09:00:00.000000Z", None, now) == "posted 3 days ago"
+    assert (
+        posted_ago("2026-10-08T08:56:00.000000Z", "Greenhouse · Stripe", now, "board")
+        == "posted 4 min ago on Stripe's Greenhouse board"
+    )
 
 
 async def test_dry_run_saves_a_preview(

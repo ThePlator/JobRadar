@@ -88,6 +88,7 @@ class DigestData:
     budget_inr: float = 0.0
     pipeline: dict[str, int] = field(default_factory=dict)  # applied/interview/offer now
     moved: dict[str, int] = field(default_factory=dict)  # statuses you set in the window
+    boards: list[tuple[Job, str]] = field(default_factory=list)  # (job, "Greenhouse · Stripe")
 
     @property
     def empty(self) -> bool:
@@ -117,6 +118,10 @@ def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> 
     counts = repo.status_counts()
     data.pipeline = {s: counts.get(s, 0) for s in _PIPELINE}
     data.moved = repo.status_changes_since(to_iso(since))
+    for job in data.inbox:
+        board = next((s for s in repo.job_sightings(job.id) if s.platform == "board"), None)
+        if board is not None:
+            data.boards.append((job, board.chat_title or board.chat_id))
     return data
 
 
@@ -190,6 +195,31 @@ def build_digest(data: DigestData, sender: str, to: str, database_id: str | None
                 f"<tr><td style='font-size:13px;color:{MUTED};padding:0 0 4px'>{esc(more)}</td></tr>"
             )
             text.append(more)
+
+    if data.boards:
+        rows.append(heading("From company boards"))
+        text += ["", "FROM COMPANY BOARDS"]
+        items = "".join(
+            f"<tr><td width='52' style='padding:10px 0 10px 14px;font-size:13px;font-weight:700;color:{GOOD[1] if (job.score or 0) >= 75 else MUTED}'>{esc(str(job.score) if job.score is not None else chr(8211))}</td>"
+            f"<td style='padding:10px 14px 10px 8px;font-size:14px;color:{INK}'>{esc(_title(job))}"
+            f"<div style='font-size:12px;color:{MUTED};margin-top:2px'>{esc(board)}</div></td>"
+            f"<td align='right' style='padding:10px 14px 10px 0;font-size:13px;white-space:nowrap'>"
+            + (
+                f"<a href='{esc(job.canonical_url)}' style='color:{ACCENT};font-weight:600;text-decoration:none'>Apply</a>"
+                if job.canonical_url
+                else ""
+            )
+            + "</td></tr>"
+            for job, board in data.boards[:10]
+        )
+        rows.append(
+            f"<tr><td><table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            f"style='background:{CARD};border:1px solid {LINE};border-radius:12px'>{items}</table></td></tr>"
+        )
+        text += [
+            f"  {job.score if job.score is not None else '-':>3}  {_title(job)} ({board})"
+            for job, board in data.boards[:10]
+        ]
 
     if data.closing:
         rows.append(heading(f"Closing in the next {CLOSING_DAYS} days"))

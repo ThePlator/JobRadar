@@ -6,6 +6,13 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Still-open check, sources and reminders**
+- Before a job is matched, JobRadar asks its hiring site whether the posting is still open, for links to Greenhouse, Lever, Ashby and SmartRecruiters postings. A closed one is hidden ("posting closed on the hiring site") with no Gemini call. Only a definite answer hides a job: a 404/410, or the posting missing from an Ashby board that was read fine. Timeouts, rate limits, redirects and other sites change nothing. Requests go only to the platforms' fixed API hosts.
+- New Notion column **Source**: where each job was seen ("Telegram · Freshershunt", "Greenhouse · Stripe", "Added by you"). JobRadar adds the column to your database on start and fills it in on existing pages; group a view by Source to see jobs per channel or board.
+- Alerts say which board a job came from ("posted 4 min ago on Stripe's Greenhouse board"), and the digest lists new jobs from company boards in their own section.
+- Closing-soon reminder: one email when a job you shortlisted closes today or tomorrow, sent between 08:00 and 22:00, once per job. A posting that has already closed on its hiring site is skipped. Turn it off with `notify.closing_reminders: false`.
+- `jobradar boards add <link>` (or `<ats> <board>`) adds a board to config.yaml after checking that it exists and showing how many of its postings pass your filters; `jobradar boards remove <name>` takes one out. Your comments and layout in config.yaml are kept.
+
 **Company job boards (job feeds)**
 - JobRadar reads company job boards directly through their public APIs (Greenhouse, Lever, Ashby, SmartRecruiters), every 20 minutes per board, so new postings arrive minutes after they go up instead of when a channel reposts them. List them in `sources.boards` under their hiring system as `Name: board name`, e.g. `greenhouse: {Stripe: stripe}` (a board link works too).
 - The first read of a board only records what's there: no alerts for old postings. Later reads pass new postings in India (or remote with no other country named), with a tech title and not clearly senior, into the normal pipeline as posts from "Greenhouse · Stripe": dedupe, free extraction, matching, alerts and digest work as for Telegram.

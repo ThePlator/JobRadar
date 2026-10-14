@@ -14,7 +14,7 @@ from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Worker
 from jobradar.sinks import notion
-from jobradar.sinks.notion import SCHEMA
+from jobradar.sinks.notion import ADDED_LATER, SCHEMA
 from jobradar.sources.base import IncomingMessage
 
 API = notion.API_URL
@@ -39,7 +39,7 @@ async def test_two_groups_one_notion_page(repo: Repo, queue: TaskQueue) -> None:
     with respx.mock(base_url=API) as api:
         api.get("/databases/db").respond(json={"data_sources": [{"id": "ds"}]})
         api.get("/data_sources/ds").respond(
-            json={"properties": {k: {"type": v} for k, v in SCHEMA.items()}}
+            json={"properties": {k: {"type": v} for k, v in (SCHEMA | ADDED_LATER).items()}}
         )
         api.post("/data_sources/ds/query").respond(json={"results": []})
         create = api.post("/pages").respond(json={"id": "page-1"})
@@ -74,5 +74,9 @@ async def test_two_groups_one_notion_page(repo: Repo, queue: TaskQueue) -> None:
     assert created["Role"]["title"][0]["text"]["content"] == "SDE Intern @ Acme"
     assert created["Seen In"] == {"number": 1}
     assert create.call_count == 1
-    assert json.loads(update.calls[-1].request.content)["properties"]["Seen In"] == {"number": 2}
+    updated = json.loads(update.calls[-1].request.content)["properties"]
+    assert updated["Seen In"] == {"number": 2}
+    assert updated["Source"] == {
+        "multi_select": [{"name": "Telegram · Group -1001"}, {"name": "Telegram · Group -1002"}]
+    }
     assert repo.task_counts()[TaskStatus.FAILED] == 0

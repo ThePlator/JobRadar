@@ -251,8 +251,15 @@ def doctor() -> None:
     _not_implemented("v0.4")
 
 
-@app.command()
+boards_app = typer.Typer(
+    help="Company job boards you watch (sources.boards in config).", no_args_is_help=False
+)
+app.add_typer(boards_app, name="boards")
+
+
+@boards_app.callback(invoke_without_command=True)
 def boards(
+    ctx: typer.Context,
     check: Annotated[
         bool,
         typer.Option(
@@ -261,6 +268,8 @@ def boards(
     ] = False,
 ) -> None:
     """Company job boards you watch (sources.boards in config), and how each is doing."""
+    if ctx.invoked_subcommand is not None:
+        return
     import json
 
     from jobradar import app as application
@@ -321,6 +330,111 @@ def boards(
                     fg="green" if passed else None,
                     dim=not passed,
                 )
+
+
+@boards_app.command("add")
+def boards_add(
+    board: Annotated[
+        str,
+        typer.Argument(
+            help="A link to the board (https://job-boards.greenhouse.io/stripe), or the "
+            "hiring system followed by the board name: greenhouse stripe"
+        ),
+    ],
+    board_name: Annotated[
+        str | None, typer.Argument(help="The board name, when the first argument is the system.")
+    ] = None,
+    name: Annotated[
+        str | None, typer.Option("--name", help="How it shows in Notion and emails.")
+    ] = None,
+) -> None:
+    """Add a board to config.yaml, after checking it exists and what it lists for you."""
+    from jobradar.config import _ATS_NAMES, BoardRef, board_from_link, load_config
+    from jobradar.sources.boards.base import BoardGone, BoardUnavailable
+    from jobradar.sources.boards.config_edit import EditError, add_board
+    from jobradar.sources.boards.filters import why_skipped
+    from jobradar.sources.boards.readers import READERS
+    from jobradar.sources.boards.watcher import USER_AGENT
+
+    try:
+        if board_name is None:
+            ats, slug = board_from_link(board)
+        else:
+            ats, slug = board.casefold(), board_name
+        ref = BoardRef.model_validate({"ats": ats, "company": slug, "name": name})
+    except ValueError as e:
+        _fail(
+            f"{e}\nUse a board link, or one of {', '.join(_ATS_NAMES)} and the board name, "
+            "e.g. `jobradar boards add greenhouse stripe --name Stripe`."
+        )
+        raise
+    label = name or ref.company.replace("-", " ").title()
+    try:
+        before = CONFIG_PATH.read_text()
+        after = add_board(before, ref.ats, ref.company, label)
+    except (OSError, EditError) as e:
+        _fail(str(e))
+        raise
+
+    async def read() -> None:
+        import httpx
+
+        async with httpx.AsyncClient(
+            timeout=20, follow_redirects=False, headers={"User-Agent": USER_AGENT}
+        ) as client:
+            try:
+                postings = await READERS[ref.ats](client, ref.company)
+            except BoardGone:
+                _fail(f"No {_ATS_NAMES[ref.ats]} board called '{ref.company}' (it answered 404).")
+            except BoardUnavailable as e:
+                _fail(f"Couldn't read the board right now ({e}); try again in a minute.")
+        passing = [p for p in postings if why_skipped(p.title, p.location, p.level) is None]
+        typer.echo(
+            f"{_ATS_NAMES[ref.ats]} · {label}: {len(postings)} postings now, "
+            f"{len(passing)} pass your filters (India or remote, tech, not senior)."
+        )
+        for p in passing[:5]:
+            typer.echo(f"  {p.title[:70]} · {p.location[:40]}")
+
+    _run(read())
+    CONFIG_PATH.write_text(after)
+    try:
+        load_config(CONFIG_PATH)
+    except ConfigError as e:
+        CONFIG_PATH.write_text(before)
+        _fail(f"Left config.yaml unchanged: {e}")
+    typer.secho(f"Added to {CONFIG_PATH} under {ref.ats}.", fg="green")
+    typer.echo(
+        "Restart `jobradar run` to start watching it. Its first read records what's there "
+        "now: you're alerted only about postings that appear after that."
+    )
+
+
+@boards_app.command("remove")
+def boards_remove(
+    board: Annotated[str, typer.Argument(help="Its name, board name, or link.")],
+    ats: Annotated[
+        str | None, typer.Option("--ats", help="Hiring system, if the name is in several.")
+    ] = None,
+) -> None:
+    """Stop watching a board: removes its line from config.yaml."""
+    from jobradar.config import load_config
+    from jobradar.sources.boards.config_edit import EditError, remove_board
+
+    try:
+        before = CONFIG_PATH.read_text()
+        after, section, name = remove_board(before, board, ats)
+    except (OSError, EditError, ValueError) as e:
+        _fail(str(e))
+        raise
+    CONFIG_PATH.write_text(after)
+    try:
+        load_config(CONFIG_PATH)
+    except ConfigError as e:
+        CONFIG_PATH.write_text(before)
+        _fail(f"Left config.yaml unchanged: {e}")
+    typer.secho(f"Removed {name} ({section}) from {CONFIG_PATH}.", fg="green")
+    typer.echo("Restart `jobradar run` to stop reading it. Jobs it found stay in Notion.")
 
 
 @app.command()

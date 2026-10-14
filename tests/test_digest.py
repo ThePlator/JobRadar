@@ -91,6 +91,29 @@ async def test_digest_email(
     assert "9 Oct  Role e @ Acme" in text
     assert "Hidden: 1 not eligible, 1 weak match" in text
     assert "https://www.notion.so/db1234" in text
+    assert "FROM COMPANY BOARDS" not in text  # all from Telegram
+
+
+async def test_digest_lists_jobs_from_company_boards(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jobradar.db.models import Platform
+
+    sent: list[EmailMessage] = []
+    monkeypatch.setattr(digest_mod, "smtp_send", lambda s, m: sent.append(m))
+    add_job(repo, "a", JobStatus.NEW, 81)
+    add_job(repo, "b", JobStatus.NEW, 70)
+    src = repo.upsert_source(Platform.BOARD, "greenhouse:stripe", "Greenhouse · Stripe")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, "123", "2026-10-08T08:00:00.000000Z", "post")
+    repo.add_job_source("b", raw_id)
+    clock.advance(4 * 3600 + 30 * 60)
+
+    await make(repo, queue, clock, tmp_path).send_now()
+
+    text = sent[0].get_body(("plain",)).get_content()
+    assert "FROM COMPANY BOARDS\n   70  Role b @ Acme (Greenhouse · Stripe)" in text
+    assert "From company boards" in sent[0].get_body(("html",)).get_content()
 
 
 async def test_quiet_window_sends_nothing(

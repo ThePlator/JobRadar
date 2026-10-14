@@ -58,8 +58,18 @@ def subject(jobs: list[Job]) -> str:
     return f"[JobRadar] {len(jobs)} strong matches · best: {_title(best)} ({best.score})"
 
 
-def posted_ago(posted_at: str, chat: str | None, now: datetime) -> str:
-    """'posted 3 min ago in Freshershunt'."""
+def where_posted(chat: str | None, platform: str = "telegram") -> str:
+    """'in Freshershunt', or 'on Stripe's Greenhouse board' for a company board."""
+    if not chat:
+        return ""
+    if platform == "board" and " · " in chat:
+        ats, company = chat.split(" · ", 1)
+        return f"on {company}'s {ats} board"
+    return f"in {chat}"
+
+
+def posted_ago(posted_at: str, chat: str | None, now: datetime, platform: str = "telegram") -> str:
+    """'posted 3 min ago in Freshershunt' / '… on Stripe's Greenhouse board'."""
     minutes = max(int((now - from_iso(posted_at)).total_seconds() // 60), 0)
     if minutes < 1:
         age = "just now"
@@ -69,7 +79,8 @@ def posted_ago(posted_at: str, chat: str | None, now: datetime) -> str:
         age = f"{minutes // 60} h ago"
     else:
         age = f"{minutes // (24 * 60)} days ago"
-    return f"posted {age}" + (f" in {chat}" if chat else "")
+    where = where_posted(chat, platform)
+    return f"posted {age}" + (f" {where}" if where else "")
 
 
 def build_email(
@@ -182,7 +193,7 @@ class AlertSender:
         for job in jobs:
             if sightings := self.repo.job_sightings(job.id):
                 first = sightings[0]
-                seen[job.id] = posted_ago(first.posted_at, first.chat_title, now)
+                seen[job.id] = posted_ago(first.posted_at, first.chat_title, now, first.platform)
         return seen
 
     def _smtp(self, msg: EmailMessage) -> None:
