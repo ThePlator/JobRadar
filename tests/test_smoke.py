@@ -17,7 +17,7 @@ def test_version() -> None:
 
 
 def test_unimplemented_commands_fail_loudly() -> None:
-    result = runner.invoke(app, ["resume", "abc"])
+    result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1
 
 

@@ -98,6 +98,18 @@ uv run jobradar extract --compare --examples 5
 ```
 Re-reads jobs Gemini read earlier with the free layers and prints, per field, how many were found and how often they agree. `--examples 5` shows up to 5 disagreements per field. Add `--refetch` to download the pages again first (slow: one request per second per site, with no progress output).
 
+### `jobradar resume`
+
+```bash
+uv run jobradar resume
+```
+Builds your profile as written into `output/profile_preview.pdf` (and `.tex`), to check the layout. Needs a LaTeX engine: Tectonic, or `sudo apt install texlive-latex-extra`.
+
+```bash
+uv run jobradar resume a7321a04
+```
+Builds a tailored resume for that job (the first 8 characters of its Job ID in Notion) as a new version, e.g. `output/Salesforce_SoftwareEngineeringMTS_20261014_v1.pdf` with its `.tex`. Prints anything the checker undid ("kept your wording: …"). `--plain` skips tailoring; `--template path/to/your.tex.j2` uses another layout. JobRadar also builds one by itself when a job first scores 85+ (`scoring.auto_resume_above`, at most `resume.max_per_day`) and when you set a job to Shortlisted.
+
 ### `jobradar stats`
 
 ```bash
@@ -136,6 +148,7 @@ Everything JobRadar does is written to `data/run.log`.
 | Watch for alerts | `tail -f data/run.log \| grep --line-buffered -E "new job\|decision=alert\|alert skipped\|alert email sent\|could not send"` |
 | Jobs hidden because their posting had already closed | `grep "posting closed on the hiring site" data/run.log \| tail -20 \| cut -c1-160` |
 | Closing-soon reminders for jobs you shortlisted | `grep -E "closing reminder\|already closed; no reminder" data/run.log \| tail` |
+| Resumes built, and anything the checker undid | `grep -E "resume built|resume check|resume skipped" data/run.log \| tail -20 \| cut -c1-200` |
 | What was hidden today, and why | `grep "job hidden" data/run.log \| grep "$(date +%F)" \| cut -c1-160` |
 | Emails sent | `grep -E "alert email sent\|digest sent" data/run.log \| tail` |
 | Problems only | `grep -E "WARNING\|ERROR\|Traceback" data/run.log \| tail -20` |

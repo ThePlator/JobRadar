@@ -17,7 +17,7 @@ from typing import Any
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db.models import JobStatus
 from jobradar.db.repo import Repo, TaskRecord
-from jobradar.pipeline.task_types import NOTION_POLL
+from jobradar.pipeline.task_types import BUILD_RESUME, NOTION_POLL
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.notion import STATUS_OPTION, NotionClient
 
@@ -74,6 +74,7 @@ class StatusSync:
         client: NotionClient,
         data_source_id: str,
         clock: Clock = utcnow,
+        build_resumes: bool = False,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -81,6 +82,7 @@ class StatusSync:
         self.data_source_id = data_source_id
         self.clock = clock
         self._unknown: set[str] = set()
+        self.build_resumes = build_resumes  # Shortlisted without a resume: build one
 
     def schedule(self, delay: float = 0, key: str = "a") -> None:
         self.queue.enqueue(NOTION_POLL, key, delay=delay)
@@ -124,5 +126,11 @@ class StatusSync:
             return False
         if self.repo.set_user_status(job_id, status):
             log.info("your status", extra={"job_id": job_id[:10], "status": status.value})
+            if (
+                self.build_resumes
+                and status == JobStatus.SHORTLISTED
+                and self.repo.latest_artifact(job_id) is None
+            ):
+                self.queue.enqueue(BUILD_RESUME, job_id, {"why": "shortlisted"})
             return True
         return False

@@ -19,6 +19,7 @@ from jobradar.pipeline.match import Matcher
 from jobradar.pipeline.task_types import (
     BOARD_CHECK,
     BOARDS_TICK,
+    BUILD_RESUME,
     CLOSING_CHECK,
     DIGEST,
     EXTRACT,
@@ -36,6 +37,7 @@ from jobradar.providers.llm import LLMProvider
 from jobradar.providers.skills_rule import SkillsRule
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
+from jobradar.resume.build import ResumeBuilder
 from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
@@ -115,6 +117,7 @@ def make_matcher(
     llm: LLM | None,
     alerts: AlertSender | None = None,
     liveness: LivenessChecker | None = None,
+    build_resumes: bool = False,
 ) -> Matcher | None:
     """The matcher, or None (with a warning) when matching is off or has no profile."""
     config = settings.config
@@ -144,7 +147,7 @@ def make_matcher(
         repo, queue, providers, profile, version, config.matching,
         config.filters, config.scoring, alerts,
         alert_max_age_days=config.notify.alert_max_age_days, tz=config.notify.tz,
-        liveness=liveness,
+        liveness=liveness, build_resumes=build_resumes,
     )  # fmt: skip
 
 
@@ -163,7 +166,11 @@ class Pipeline:
         llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
         alerts = make_alerts(settings, repo, queue)
         self.liveness = LivenessChecker()
-        self.matcher = make_matcher(settings, repo, queue, llm, alerts, self.liveness)
+        self.resumes = (
+            ResumeBuilder(settings, repo, queue, llm) if settings.config.resume.enabled else None
+        )
+        build = self.resumes is not None
+        self.matcher = make_matcher(settings, repo, queue, llm, alerts, self.liveness, build)
         extractor = Extractor(
             repo,
             queue,
@@ -178,7 +185,11 @@ class Pipeline:
             handlers[MATCH] = self.matcher.match
         if alerts is not None:
             handlers[SEND_ALERTS] = alerts.send
-        self.status_sync = StatusSync(repo, queue, sink.client, sink.data_source_id)
+        self.status_sync = StatusSync(
+            repo, queue, sink.client, sink.data_source_id, build_resumes=build
+        )
+        if self.resumes is not None:
+            handlers[BUILD_RESUME] = self.resumes.build
         handlers[NOTION_POLL] = self.status_sync.poll
         boards = settings.config.sources.boards
         self.boards: BoardWatcher | None = None

@@ -186,7 +186,7 @@ class LLMConfig(_Strict):
     # fallback: only jobs whose page and post don't state role and company go to the LLM.
     # always: every job does (fills summary and skills too, at the cost of an LLM call each).
     extract_mode: Literal["fallback", "always"] = "fallback"
-    writer_model: str = "gemini/gemini-pro-latest"
+    writer_model: str = "gemini/gemini-flash-latest"
     daily_budget_inr: float = Field(default=15, gt=0)
     requests_per_minute: float = Field(default=10, gt=0, le=1000)  # free Gemini tier: ~10-15
     usd_to_inr: float = Field(default=88, gt=0)  # for the budget's cost estimate
@@ -269,8 +269,26 @@ class MatchingConfig(_Strict):
 
 
 class ResumeConfig(_Strict):
-    template: str = "classic"
+    enabled: bool = True
+    template: str = "classic"  # built in, or a path to your own .tex.j2
     max_pages: int = Field(default=1, ge=1, le=3)
+    tailor: bool = True  # false: every resume is your profile as written
+    max_per_day: int = Field(
+        default=10, ge=0, le=100
+    )  # automatic builds; Shortlisted always builds
+    # Phrases a tailored resume may never add (they may stay where your profile has them).
+    banned_phrases: list[str] = Field(
+        default_factory=lambda: [
+            "world-class",
+            "expert",
+            "guru",
+            "ninja",
+            "rockstar",
+            "cutting-edge",
+            "passionate",
+            "synergy",
+        ]
+    )
 
 
 class LinksConfig(_Strict):

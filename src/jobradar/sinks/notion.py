@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -348,7 +349,12 @@ def source_label(s: Sighting) -> str:
 
 
 def build_properties(
-    job: Job, sightings: list[Sighting], *, new_page: bool, source: bool = False
+    job: Job,
+    sightings: list[Sighting],
+    *,
+    new_page: bool,
+    source: bool = False,
+    resume: str | None = None,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Role": {"title": _text(page_title(job, sightings))},
@@ -387,6 +393,8 @@ def build_properties(
         apply = p.apply_url or apply
     if apply and len(apply) <= TEXT_LIMIT:
         props["Apply Link"] = {"url": apply}
+    if resume:
+        props["Resume"] = {"url": resume}
     # Status belongs to the user once the page exists; the one exception is the agent
     # hiding a job (a promo link, or the extractor finding it is not a job posting).
     if new_page or job.status in _AGENT_HIDES:
@@ -464,6 +472,14 @@ def _block(kind: str, rich_text: list[dict[str, Any]]) -> dict[str, Any]:
     return {"object": "block", "type": kind, kind: {"rich_text": rich_text}}
 
 
+def resume_link(repo: Repo, job_id: str) -> str | None:
+    """file:// link to the newest resume PDF (it opens on this computer only)."""
+    artifact = repo.latest_artifact(job_id)
+    if artifact is None or not artifact.local_path:
+        return None
+    return Path(artifact.local_path).resolve().as_uri()
+
+
 class NotionSink:
     name = "notion"
 
@@ -489,9 +505,12 @@ class NotionSink:
         if job.status in _AGENT_HIDES and not job.notion_page_id:
             return  # hidden before it ever reached Notion: keep it out
         sightings = repo.job_sightings(job_id)
+        resume = resume_link(repo, job_id)
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
         if page_id:
-            props = build_properties(job, sightings, new_page=False, source="Source" in self.extra)
+            props = build_properties(
+                job, sightings, new_page=False, source="Source" in self.extra, resume=resume
+            )
             try:
                 if "Status" in props and await self.client.page_status(page_id) not in _AGENT_OWNED:
                     # You moved it (Shortlisted, Applied…): your status wins over a hide.
@@ -507,7 +526,9 @@ class NotionSink:
         else:
             page_id = await self.client.create_page(
                 self.data_source_id,
-                build_properties(job, sightings, new_page=True, source="Source" in self.extra),
+                build_properties(
+                    job, sightings, new_page=True, source="Source" in self.extra, resume=resume
+                ),
                 build_body(sightings, posting_of(job), match_line(job)),
             )
             log.info("notion page created", extra={"job_id": job_id[:10]})

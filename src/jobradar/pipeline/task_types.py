@@ -14,6 +14,9 @@ BOARDS_TICK = "boards_tick"  # every minute: queue a board_check for each board 
 BOARD_CHECK = "board_check"  # read one company job board (key: "greenhouse:stripe")
 CLOSING_CHECK = "closing_check"  # hourly: remind you of shortlisted jobs that close soon
 DIGEST = "digest"  # summary email at each notify.digest_times slot (key: local slot time)
+BUILD_RESUME = (
+    "build_resume"  # job -> tailored one-page PDF (payload why: auto | shortlisted | manual)
+)
 NOTION_UPSERT = "notion_upsert"  # job -> page properties
 NOTION_BODY = "notion_body"  # job -> page body (agent toggle)
 

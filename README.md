@@ -76,7 +76,7 @@ Each job is one page in a Notion database you duplicate from the JobRadar templa
 | Deadline | Application deadline, if stated |
 | Skills, Experience, Salary | Extracted requirements |
 | Apply Link | Canonical application URL |
-| Resume | Google Drive link to the tailored PDF |
+| Resume | Link to the newest tailored PDF on your computer |
 | Seen In | How many of your groups posted it |
 | Source | Where it was seen: "Telegram · Freshershunt", "Greenhouse · Stripe" (added automatically) |
 | Scam Risk | Low / Medium / High |
@@ -197,7 +197,7 @@ You can also add jobs by forwarding any email, message text or link to your JobR
 
 ## Privacy and safety
 
-- **Runs on your machine.** Your profile, keys, Telegram session and PDFs stay local. Resumes are uploaded only to your own Google Drive, with link-sharing off.
+- **Runs on your machine.** Your profile, keys, Telegram session and PDFs stay local. Resumes are saved on your computer; only facts from profile.yaml (never your name or contact details) go to the LLM that tailors them.
 - **Email stays narrow.** JobRadar uses an app password, emails only you, reads only its own folder, and accepts forwards only from your address.
 - **Minimal data to providers.** Matching sends TypeSafe the job text and a compact profile (education, skills, experience, preferences), never your name, email or phone. Fallback extraction sends only job text to your LLM provider.
 - **Read-only on Telegram.** JobRadar reads with your account but never sends messages, joins groups or messages recruiters.

@@ -43,8 +43,38 @@ def _str(value: Any) -> str | None:
 
 def _bullets(item: dict[str, Any]) -> list[str]:
     return [
-        t for b in _list(item.get("bullets")) if isinstance(b, dict) and (t := _str(b.get("text")))
+        t.replace("**", "")  # **bold** marks are for the resume only
+        for b in _list(item.get("bullets"))
+        if isinstance(b, dict) and (t := _str(b.get("text")))
     ]
+
+
+def resume_problems(profile: dict[str, Any]) -> list[str]:
+    """What stops profile.yaml from being used for resumes: missing name, missing or repeated
+    ids on experience, projects and bullets."""
+    problems = []
+    basics = profile.get("basics")
+    if not isinstance(basics, dict) or not _str(basics.get("name")):
+        problems.append("basics.name is missing")
+    seen: set[str] = set()
+    for section in ("experience", "projects"):
+        for n, item in enumerate(_list(profile.get(section)), 1):
+            if not isinstance(item, dict):
+                problems.append(f"{section} #{n} is not a mapping")
+                continue
+            where = f"{section} #{n}"
+            ids = [(where, item.get("id"))] + [
+                (f"{where} bullet #{m}", b.get("id") if isinstance(b, dict) else None)
+                for m, b in enumerate(_list(item.get("bullets")), 1)
+            ]
+            for place, value in ids:
+                if not _str(value):
+                    problems.append(f"{place} needs an id")
+                elif str(value) in seen:
+                    problems.append(f"id {value!r} is used twice")
+                else:
+                    seen.add(str(value))
+    return problems
 
 
 def skill_names(profile: dict[str, Any]) -> list[str]:

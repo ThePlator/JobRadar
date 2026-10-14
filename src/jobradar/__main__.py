@@ -224,11 +224,72 @@ def extract(
 
 @app.command()
 def resume(
-    job_id: Annotated[str, typer.Argument(help="Job ID from Notion.")],
-    template: Annotated[str | None, typer.Option(help="Template name, e.g. modern.")] = None,
+    job_id: Annotated[
+        str | None,
+        typer.Argument(help="Job ID from Notion's Job ID column (the first 8 characters do)."),
+    ] = None,
+    plain: Annotated[
+        bool, typer.Option("--plain", help="Use profile.yaml as written: no tailoring.")
+    ] = False,
+    template: Annotated[
+        str | None, typer.Option(help="Template name or path to a .tex.j2 file.")
+    ] = None,
 ) -> None:
-    """Rebuild a resume now (new version)."""
-    _not_implemented("v0.3")
+    """Build a resume for a job now (a new version), or with no job, preview your profile."""
+    import json
+
+    from jobradar import app as application
+    from jobradar.llm import LLM
+    from jobradar.profile import load_profile, resume_problems
+    from jobradar.queue.tasks import PermanentError
+    from jobradar.resume.build import ResumeBuilder
+    from jobradar.resume.compile import CompileError, compile_pdf
+    from jobradar.resume.render import content_from_profile, render
+    from jobradar.resume.validate import page_count
+
+    settings = _settings()
+    out = settings.config.storage.local_dir
+    if job_id is None:
+        profile = load_profile(settings.config.matching.profile_path)
+        if problems := resume_problems(profile):
+            _fail("profile.yaml: " + "; ".join(problems))
+        tex = render(content_from_profile(profile), template or settings.config.resume.template)
+        pdf = out / "profile_preview.pdf"
+        pdf.parent.mkdir(parents=True, exist_ok=True)
+        pdf.with_suffix(".tex").write_text(tex, encoding="utf-8")
+
+        async def preview() -> None:
+            try:
+                await compile_pdf(tex, pdf)
+            except CompileError as e:
+                _fail(f"{e}\nThe .tex is at {pdf.with_suffix('.tex')}.")
+            typer.echo(f"{pdf} ({page_count(pdf)} page(s)); .tex next to it.")
+
+        _run(preview())
+        return
+
+    repo, queue = application.open_store()
+    matches = repo.jobs_with_prefix(job_id.strip().lower())
+    if len(matches) != 1:
+        _fail(f"No job with ID {job_id!r}." if not matches
+              else f"{len(matches)} jobs start with {job_id!r}; give more characters.")  # fmt: skip
+    llm = LLM(settings, repo) if not plain and application.llm_enabled(settings) else None
+    builder = ResumeBuilder(settings, repo, queue, llm)
+
+    async def build() -> None:
+        try:
+            artifact = await builder.build_job(matches[0], tailored=not plain, template=template)
+        except PermanentError as e:
+            _fail(str(e))
+            raise
+        record = json.loads(artifact.content_json or "{}")
+        typer.echo(f"{artifact.local_path} (v{artifact.version}, {record.get('pages')} page(s), "
+                   f"{'tailored' if record.get('tailored') else 'as written'})")  # fmt: skip
+        for fixed in record.get("fixed", []):
+            typer.secho(f"  kept your wording: {fixed}", dim=True)
+        typer.echo("Notion's Resume column updates when `jobradar run` is running.")
+
+    _run(build())
 
 
 @app.command()

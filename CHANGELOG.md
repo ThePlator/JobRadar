@@ -6,6 +6,14 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Tailored resumes (v0.3)**
+- JobRadar builds a one-page PDF resume per job from `profile.yaml`, in your own LaTeX layout (`resume.template: classic` reproduces it exactly; a path to your own `.tex.j2` works too). It's built when a job first scores at or above `scoring.auto_resume_above` (at most `resume.max_per_day`), when you set a job to Shortlisted, or with `jobradar resume <job>`.
+- The writer model (`llm.writer_model`, now Gemini Flash: Pro has no free tier) only selects, orders and rephrases your facts; it never sees your name or contact details. A checker undoes any bullet that adds a number, size word ("doubled", "10x"), technology or banned phrase the original doesn't have, drops unknown bullet ids, and keeps skills to those listed in that group. Every undo is logged and stored with the resume.
+- `**bold**` in profile.yaml prints in bold. A project with `primary: true` always shows first with 3+ bullets.
+- Longer than `resume.max_pages`: the lowest-ranked bullet goes and it compiles again (up to 3 times). Compiles with Tectonic (`--untrusted`) or pdflatex (`-no-shell-escape`), 60 s limit; the LaTeX log is kept on failure.
+- PDFs and their `.tex` are saved as `{Company}_{Role}_{yyyymmdd}_v{n}.pdf` in `storage.local_dir`; Notion's Resume column links to the newest version.
+- `jobradar resume` alone previews your profile as a PDF.
+
 **Still-open check, sources and reminders**
 - Before a job is matched, JobRadar asks its hiring site whether the posting is still open, for links to Greenhouse, Lever, Ashby and SmartRecruiters postings. A closed one is hidden ("posting closed on the hiring site") with no Gemini call. Only a definite answer hides a job: a 404/410, or the posting missing from an Ashby board that was read fine. Timeouts, rate limits, redirects and other sites change nothing. Requests go only to the platforms' fixed API hosts.
 - New Notion column **Source**: where each job was seen ("Telegram · Freshershunt", "Greenhouse · Stripe", "Added by you"). JobRadar adds the column to your database on start and fills it in on existing pages; group a view by Source to see jobs per channel or board.

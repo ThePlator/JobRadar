@@ -7,6 +7,7 @@ statements, so they stay atomic even if the process dies between calls.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -22,6 +23,7 @@ from sqlmodel import Session, SQLModel, col, create_engine, select
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # also registers every table on SQLModel.metadata
 from jobradar.db.models import (
+    Artifact,
     FeedBoard,
     FetchedPage,
     Job,
@@ -334,6 +336,51 @@ class Repo:
                 ),
                 {"id": job_id, "status": status.value, "reason": reason, "now": self._now()},
             )
+
+    def latest_artifact(self, job_id: str, kind: str = "resume") -> Artifact | None:
+        with Session(self.engine) as s:
+            query = (
+                select(Artifact)
+                .where(Artifact.job_id == job_id, Artifact.kind == kind)
+                .order_by(col(Artifact.version).desc())
+            )
+            return s.exec(query).first()
+
+    def next_version(self, job_id: str, kind: str = "resume") -> int:
+        latest = self.latest_artifact(job_id, kind)
+        return latest.version + 1 if latest else 1
+
+    def save_artifact(
+        self, job_id: str, kind: str, version: int, local_path: str, content_json: str
+    ) -> Artifact:
+        """One version of this job's resume (or kit)."""
+        artifact = Artifact(
+            job_id=job_id, kind=kind, version=version, local_path=local_path,
+            content_json=content_json, created_at=self._now(),
+        )  # fmt: skip
+        with Session(self.engine) as s:
+            s.add(artifact)
+            s.commit()
+            s.refresh(artifact)
+        return artifact
+
+    def artifacts_since(self, since: str, kind: str = "resume") -> int:
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT COUNT(*) FROM artifact WHERE kind = :k AND created_at >= :since"),
+                {"k": kind, "since": since},
+            ).first()
+        return int(row[0]) if row else 0
+
+    def jobs_with_prefix(self, prefix: str) -> list[str]:
+        """Ids of jobs starting with this (at most a few)."""
+        if not re.fullmatch(r"[0-9a-f]{4,40}", prefix):
+            return []
+        with self._tx() as c:
+            rows = c.execute(
+                text("SELECT id FROM job WHERE id LIKE :p LIMIT 5"), {"p": prefix + "%"}
+            ).all()
+        return [str(r[0]) for r in rows]
 
     def jobs_in_notion(self) -> list[str]:
         """Ids of jobs that have a Notion page."""
