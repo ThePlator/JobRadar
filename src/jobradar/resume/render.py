@@ -24,7 +24,7 @@ _ESCAPES = {
     "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_",
     "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
     "|": r"\textbar{}", "<": r"\textless{}", ">": r"\textgreater{}",
-    "\u2014": "---", "\u2013": "--", "\u2018": "`", "\u2019": "'", "\u201c": "``", "\u201d": "''",
+    "\u2013": "--", "\u2018": "`", "\u2019": "'", "\u201c": "``", "\u201d": "''",
     "\u2026": r"\ldots{}", "\u00a0": "~",
 }  # fmt: skip
 _ESCAPE_RE = re.compile("|".join(re.escape(c) for c in _ESCAPES))
@@ -36,8 +36,16 @@ class Tex(str):
     __slots__ = ()
 
 
+_EM_DASH = re.compile(r"\s*(?:\u2014|---)\s*")
+
+
+def no_em_dash(text: str) -> str:
+    """Em dashes never reach the resume: 'users \u2014 not just' -> 'users, not just'."""
+    return _EM_DASH.sub(", ", text)
+
+
 def latex_escape(text: str) -> str:
-    return _ESCAPE_RE.sub(lambda m: _ESCAPES[m.group(0)], text)
+    return _ESCAPE_RE.sub(lambda m: _ESCAPES[m.group(0)], no_em_dash(text))
 
 
 def strip_marks(text: str) -> str:
@@ -154,14 +162,14 @@ def content_from_profile(profile: dict[str, Any]) -> ResumeContent:
     ]
     experience = []
     for x in _items(profile, "experience"):
+        if x.get("on_resume") is False:  # kept for matching, left off the resume
+            continue
         texts, ids = _bullets(x)
         company = _str(x.get("company"))
         experience.append(
             Item(
                 id=_str(x.get("id")),
-                heading=f"{_str(x.get('title'))} \u2014 {company}"
-                if company
-                else _str(x.get("title")),
+                heading=f"{_str(x.get('title'))} | {company}" if company else _str(x.get("title")),
                 dates=dates(x.get("dates")),
                 subtitle=_str(x.get("location")),
                 url=_str(x.get("url")) or None,
@@ -171,6 +179,8 @@ def content_from_profile(profile: dict[str, Any]) -> ResumeContent:
         )
     projects = []
     for p in _items(profile, "projects"):
+        if p.get("on_resume") is False:
+            continue
         texts, ids = _bullets(p)
         projects.append(
             Item(
@@ -187,7 +197,7 @@ def content_from_profile(profile: dict[str, Any]) -> ResumeContent:
         )
     education = []
     for e in _items(profile, "education"):
-        degree = " \u2014 ".join(x for x in (_str(e.get("degree")), _str(e.get("branch"))) if x)
+        degree = ", ".join(x for x in (_str(e.get("degree")), _str(e.get("branch"))) if x)
         if cgpa := _str(e.get("cgpa")):
             degree += f" (CGPA: {cgpa}/10)"
         education.append({"school": _str(e.get("school")), "years": dates(e.get("years")),

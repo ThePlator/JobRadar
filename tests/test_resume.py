@@ -67,7 +67,7 @@ def test_latex_escape_every_special_character() -> None:
     raw = "\\ & % $ # _ { } ~ ^ | < > — – “q”"
     assert latex_escape(raw) == (
         r"\textbackslash{} \& \% \$ \# \_ \{ \} \textasciitilde{} \textasciicircum{} "
-        r"\textbar{} \textless{} \textgreater{} --- -- ``q''"
+        r"\textbar{} \textless{} \textgreater{}, -- ``q''"
     )
 
 
@@ -91,20 +91,20 @@ def test_plain_render_keeps_the_layout() -> None:
     tex = render(content_from_profile(PROFILE))
     assert tex.count(r"\resumeSubheading") == 4  # the macro + experience, project, education
     assert r"\textbf{{\Huge Asha Rao}}" in tex
-    assert r"{\small Software Engineer --- Backend}" in tex
+    assert r"{\small Software Engineer, Backend}" in tex
     assert (
         r"\href{mailto:asha@example.com}{asha@example.com} $|$ +91-90000 00000 $|$ Pune, India\\"
         in tex
     )
     assert r"\item \textbf{Infrastructure:} Docker \& Docker Compose, Git/GitHub, RabbitMQ" in tex
-    assert "{Backend Intern --- Acme}{Feb 2026 -- May 2026}" in tex
-    assert r"{Remote --- \href{https://acme.example}{acme.example}}{}" in tex
+    assert r"{Backend Intern \textbar{} Acme}{Feb 2026 -- May 2026}" in tex
+    assert r"{Remote $|$ \href{https://acme.example}{acme.example}}{}" in tex
     assert r"\item Cut query time by \textbf{25\%} with indexing." in tex
     assert (
-        r"{Radar --- Job Agent $|$ \normalfont \small \href{https://github.com/asha/radar}{github.com/asha/radar}}{Oct 2026 -- Present}"
+        r"{Radar, Job Agent $|$ \normalfont \small \href{https://github.com/asha/radar}{github.com/asha/radar}}{Oct 2026 -- Present}"
         in tex
     )
-    assert "{B.Tech --- Electrical Engineering (CGPA: 7.54/10)}{Bihar, India}" in tex
+    assert "{B.Tech, Electrical Engineering (CGPA: 7.54/10)}{Bihar, India}" in tex
     assert "\\BLOCK" not in tex and "\\VAR" not in tex
 
 
@@ -161,7 +161,7 @@ def test_clean_tailoring_is_kept() -> None:
     g = grounded(tailored())
     assert g.violations == []
     acme = g.content.experience[0]
-    assert acme.bullet_ids == ["a2", "a1"]
+    assert acme.bullet_ids == ["a2", "a1", "a3"]  # the model's picks, then the rest
     assert acme.bullets[0] == "Reduced query time by **25%** using indexing."
     assert g.content.skills[0] == ("Languages", ["SQL", "Python", "JavaScript (ES6+)"])
     assert g.content.skills[1][1][:3] == ["Node.js", "Express", "REST API design"]  # untouched
@@ -200,7 +200,7 @@ def test_unknown_ids_are_dropped_and_entries_topped_up() -> None:
     g = grounded(t)
     assert "acme: unknown bullet 'r1' dropped" in g.violations
     assert "projects: unknown project 'ghost' dropped" in g.violations
-    assert g.content.experience[0].bullet_ids == ["a1", "a2"]  # two of its own
+    assert g.content.experience[0].bullet_ids == ["a1", "a2", "a3"]  # its own, as written
     assert [p.id for p in g.content.projects] == ["radar"]
 
 
@@ -474,3 +474,25 @@ async def test_long_profiles_are_cut_to_one_page(tmp_path: Path, fake_compile: l
     )
     assert pages == 1 and dropped == ["x3", "x2", "x1", "x0", "a3"]
     assert content.projects[0].bullet_ids == ["r1", "r2", "r3"]  # primary untouched
+
+
+def test_no_em_dash_ever_reaches_the_resume() -> None:
+    profile = json.loads(json.dumps(PROFILE))
+    profile["summary"] = "Ships real systems \u2014 not coursework --- ever."
+    t = tailored(summary="Backend engineer \u2014 ships **Python** services.")
+    tex = render(ground(content_from_profile(profile), t, profile).content)
+    body = "\n".join(
+        line
+        for line in tex[tex.index(r"\begin{document}") :].splitlines()
+        if not line.startswith("%")  # LaTeX comments
+    )
+    assert "\u2014" not in body and "---" not in body
+    assert r"Backend engineer, ships \textbf{Python} services." in body
+
+
+def test_entries_marked_off_the_resume_are_left_out() -> None:
+    profile = json.loads(json.dumps(PROFILE))
+    profile["experience"][0]["on_resume"] = False
+    assert content_from_profile(profile).experience == []
+    assert candidate_facts(profile)["experience"] == []
+    assert resume_problems(profile) == []

@@ -71,7 +71,7 @@ def candidate_facts(profile: dict[str, Any]) -> dict[str, Any]:
                 "bullets": _bullets(x),
             }
             for x in profile.get("experience") or []
-            if isinstance(x, dict)
+            if isinstance(x, dict) and x.get("on_resume") is not False
         ],
         "projects": [
             {
@@ -83,7 +83,7 @@ def candidate_facts(profile: dict[str, Any]) -> dict[str, Any]:
                 "bullets": _bullets(p),
             }
             for p in profile.get("projects") or []
-            if isinstance(p, dict)
+            if isinstance(p, dict) and p.get("on_resume") is not False
         ],
         "education": [
             {"degree": e.get("degree"), "branch": e.get("branch"), "years": e.get("years")}

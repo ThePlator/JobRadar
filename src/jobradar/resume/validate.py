@@ -3,7 +3,9 @@
 Tailored text is untrusted. Each check falls back to the profile's own words rather than
 dropping content, and every fallback is recorded as a violation:
 
-- a bullet must name an existing bullet of that entry (`ref_id`), else it's dropped;
+- a bullet must name an existing bullet of that entry (`ref_id`), else it's dropped; the
+  entry's other bullets follow the model's picks, so the page is used in full and fitting it
+  drops the least relevant;
 - its numbers must all appear in that bullet (bold or not), and no size words ("doubled",
   "10x", "halved") unless the bullet has them;
 - no technology or skill name the bullet doesn't already contain;
@@ -133,10 +135,9 @@ def _ground_item(
             text = source
         texts.append(text)
         ids.append(bullet.ref_id)
-    # Too few: top up with the entry's own bullets, in their order.
+    # The rest of the entry's bullets follow, as written: the page is filled, and fitting it
+    # drops bullets from the end, so the model's picks are the last to go.
     for ref, source in by_id.items():
-        if len(ids) >= min(MIN_BULLETS, len(by_id)):
-            break
         if ref not in ids:
             texts.append(source)
             ids.append(ref)

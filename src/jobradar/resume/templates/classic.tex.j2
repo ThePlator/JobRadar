@@ -71,7 +71,7 @@
 \BLOCK{ for x in r.experience }
 \resumeSubheading
     {\VAR{x.heading}}{\VAR{x.dates}}
-    {\VAR{x.subtitle}\BLOCK{ if x.url } --- \VAR{href(x.url)}\BLOCK{ endif }}{\VAR{x.side}}
+    {\VAR{x.subtitle}\BLOCK{ if x.url } $|$ \VAR{href(x.url)}\BLOCK{ endif }}{\VAR{x.side}}
     \begin{itemize}[leftmargin=1.4em, itemsep=1pt, parsep=0pt, topsep=1pt]
 \BLOCK{ for b in x.bullets }
     \item \VAR{bold(b)}
