@@ -33,16 +33,16 @@ from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import NOTION_UPSERT
 from jobradar.profile import load_profile, resume_problems
 from jobradar.providers.base import JobView
-from jobradar.queue.tasks import PermanentError, TaskQueue
+from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
 from jobradar.resume.compile import CompileError, compile_pdf
 from jobradar.resume.render import ResumeContent, content_from_profile, render
-from jobradar.resume.tailor import tailor
-from jobradar.resume.validate import ground, page_count, trim_one
+from jobradar.resume.tailor import TailoredResume, tailor
+from jobradar.resume.validate import ground, page_count, primary_ids, trim_one
 from jobradar.storage.local import resume_path
 
 log = logging.getLogger(__name__)
 
-MAX_TRIMS = 3
+MAX_TRIMS = 20  # far more than any resume needs: entries keep 2 bullets (primary 3)
 
 
 def _copy(content: ResumeContent) -> ResumeContent:
@@ -54,6 +54,28 @@ def _copy(content: ResumeContent) -> ResumeContent:
         projects=[replace(i, bullets=list(i.bullets), bullet_ids=list(i.bullet_ids))
                   for i in content.projects],
     )  # fmt: skip
+
+
+async def fit_to_pages(
+    content: ResumeContent, template: str, pdf: Path, max_pages: int, primary: set[str]
+) -> tuple[int, ResumeContent, list[str]]:
+    """Compile, dropping the lowest-ranked bullets until it fits `max_pages`. Returns
+    (pages, what was printed, ids of the bullets dropped). Raises CompileError."""
+    content, dropped = _copy(content), list[str]()
+    pages = 0
+    for _ in range(MAX_TRIMS):
+        tex = render(content, template)
+        await compile_pdf(tex, pdf)
+        pdf.with_suffix(".tex").write_text(tex, encoding="utf-8")
+        pages = page_count(pdf)
+        if pages <= max_pages:
+            return pages, content, dropped
+        if (gone := trim_one(content, primary)) is None:
+            break
+        dropped.append(gone)
+    log.warning("resume is still longer than resume.max_pages with the fewest bullets allowed",
+                extra={"pages": pages, "path": str(pdf)})  # fmt: skip
+    return pages, content, dropped
 
 
 class ResumeBuilder:
@@ -104,9 +126,7 @@ class ResumeBuilder:
         content, violations, used_llm = plain, [], False
         if (self.config.tailor if tailored is None else tailored) and self.llm is not None:
             try:
-                result = await tailor(
-                    self.llm, self.settings.config.llm.writer_model, profile, self._view(job_id)
-                )
+                result = await self._tailor(profile, job_id)
                 grounded = ground(plain, result, profile, self.config.banned_phrases)
                 content, violations, used_llm = grounded.content, grounded.violations, True
             except SchemaError as e:
@@ -119,8 +139,10 @@ class ResumeBuilder:
             self.settings.config.storage.local_dir, job.company, job.role,
             self.clock().astimezone(self.settings.config.notify.tz).date(), version,
         )  # fmt: skip
-        pages, content = await self._compile(content, plain, pdf, template, used_llm)
-        record = self._record(content, violations, used_llm, pages)
+        pages, content, dropped = await self._compile(
+            content, plain, pdf, template, used_llm, primary_ids(profile)
+        )
+        record = self._record(content, violations, used_llm, pages) | {"dropped_to_fit": dropped}
         artifact = self.repo.save_artifact(job_id, "resume", version, str(pdf), json.dumps(record))
         self.queue.enqueue(NOTION_UPSERT, job_id)
         log.info(
@@ -132,33 +154,37 @@ class ResumeBuilder:
 
     async def _compile(
         self, content: ResumeContent, plain: ResumeContent, pdf: Path, template: str | None,
-        tailored: bool,
-    ) -> tuple[int, ResumeContent]:  # fmt: skip
+        tailored: bool, primary: set[str],
+    ) -> tuple[int, ResumeContent, list[str]]:  # fmt: skip
         template = template or self.config.template
-        content = _copy(content)
         try:
             render(content, template)
         except ValueError as e:
             raise PermanentError(str(e)) from e
-        for attempt in range(MAX_TRIMS + 1):
-            tex = render(content, template)
-            try:
-                await compile_pdf(tex, pdf)
-            except CompileError as e:
-                if tailored and attempt == 0:
-                    log.warning("tailored resume didn't compile; trying your profile as written")
-                    content, tailored = _copy(plain), False
-                    continue
+        try:
+            return await fit_to_pages(content, template, pdf, self.config.max_pages, primary)
+        except CompileError as e:
+            if not tailored:
                 raise PermanentError(str(e)) from e
-            pdf.with_suffix(".tex").write_text(tex, encoding="utf-8")
-            pages = page_count(pdf)
-            if pages <= self.config.max_pages:
-                return pages, content
-            if attempt == MAX_TRIMS or not trim_one(content):
-                log.warning("resume is longer than resume.max_pages",
-                            extra={"pages": pages, "path": str(pdf)})  # fmt: skip
-                return pages, content
-        return page_count(pdf), content
+            log.warning("tailored resume didn't compile; trying your profile as written")
+        try:
+            return await fit_to_pages(plain, template, pdf, self.config.max_pages, primary)
+        except CompileError as e:
+            raise PermanentError(str(e)) from e
+
+    async def _tailor(self, profile: dict[str, Any], job_id: str) -> TailoredResume:
+        """With `writer_model`; if it's overloaded or rate-limited, with `extract_model`."""
+        if self.llm is None:
+            raise PermanentError("no LLM configured")
+        llm_config = self.settings.config.llm
+        try:
+            return await tailor(self.llm, llm_config.writer_model, profile, self._view(job_id))
+        except RetryableError as e:
+            if llm_config.extract_model == llm_config.writer_model:
+                raise
+            log.info("writer model busy; tailoring with the extraction model",
+                     extra={"job_id": job_id[:10], "why": str(e)[:120]})  # fmt: skip
+            return await tailor(self.llm, llm_config.extract_model, profile, self._view(job_id))
 
     def _view(self, job_id: str) -> JobView:
         job = self.repo.get_job(job_id)

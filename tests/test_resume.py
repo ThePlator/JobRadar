@@ -228,9 +228,12 @@ def test_bold_and_markup_do_not_hide_numbers() -> None:
 
 def test_trim_drops_the_lowest_ranked_bullet_of_the_longest_entry() -> None:
     c = content_from_profile(PROFILE)
-    assert trim_one(c) and c.experience[0].bullet_ids == ["a1", "a2"]  # tie: the first longest
-    assert trim_one(c) and c.projects[0].bullet_ids == ["r1", "r2"]
-    assert not trim_one(c)  # two each is the floor
+    assert trim_one(c) == "r3"  # a tie: the entry further down goes first
+    assert trim_one(c) == "a3"
+    assert trim_one(c) is None  # two each is the floor
+    c = content_from_profile(PROFILE)
+    assert trim_one(c, primary={"radar"}) == "a3"  # others give up bullets first
+    assert trim_one(c, primary={"radar"}) is None  # a primary project keeps 3
 
 
 def test_file_names() -> None:
@@ -323,7 +326,8 @@ async def test_build_tailors_trims_and_links(
     assert pdf.with_suffix(".tex").is_file()
     record = json.loads(artifact.content_json or "{}")
     assert record["tailored"] and record["pages"] == 1 and record["fixed"] == []
-    assert record["bullets"] == {"acme": ["a1", "a2"], "radar": ["r1", "r2", "r3"]}  # trimmed once
+    assert record["bullets"] == {"acme": ["a1", "a2", "a3"], "radar": ["r1", "r2"]}  # trimmed once
+    assert record["dropped_to_fit"] == ["r3"]
     assert len(fake_compile) == 2
     assert "asha@example.com" not in llm.prompts[0] and "Asha" not in llm.prompts[0]
     task = queue.claim([NOTION_UPSERT])
@@ -434,3 +438,39 @@ def test_primary_project_always_shows_first_with_three_bullets() -> None:
     g = ground(content_from_profile(profile), t, profile)
     assert [p.id for p in g.content.projects] == ["radar", "side"]
     assert g.content.projects[0].bullet_ids == ["r1", "r2", "r3"]
+
+
+async def test_busy_writer_model_falls_back_to_the_extraction_model(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, tmp_path: Path, fake_compile: list[str]
+) -> None:
+    from jobradar.queue.tasks import RetryableError
+
+    class Busy(FakeLLM):
+        def __init__(self, result: TailoredResume) -> None:
+            super().__init__(result)
+            self.models: list[str] = []
+
+        async def structured(self, model: str, prompt: Any, schema: Any, **values: str) -> Any:
+            self.models.append(model)
+            if model == "gemini/gemini-flash-latest":
+                raise RetryableError("503 overloaded")
+            return self.result
+
+    seed(repo)
+    llm = Busy(tailored())
+    builder = build_mod.ResumeBuilder(settings(tmp_path), repo, queue, llm, clock=clock)  # type: ignore[arg-type]
+    artifact = await builder.build_job("job1")
+    assert llm.models == ["gemini/gemini-flash-latest", "gemini/gemini-flash-lite-latest"]
+    assert json.loads(artifact.content_json or "{}")["tailored"] is True
+
+
+async def test_long_profiles_are_cut_to_one_page(tmp_path: Path, fake_compile: list[str]) -> None:
+    profile = json.loads(json.dumps(PROFILE))
+    profile["experience"][0]["bullets"] += [
+        {"id": f"x{n}", "text": f"Extra {n}."} for n in range(4)
+    ]
+    pages, content, dropped = await build_mod.fit_to_pages(
+        content_from_profile(profile), "classic", tmp_path / "p.pdf", 1, {"radar"}
+    )
+    assert pages == 1 and dropped == ["x3", "x2", "x1", "x0", "a3"]
+    assert content.projects[0].bullet_ids == ["r1", "r2", "r3"]  # primary untouched

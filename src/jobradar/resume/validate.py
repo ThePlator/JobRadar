@@ -197,7 +197,7 @@ def ground(
         elif all(p.id != t.id for p in projects):
             projects.append(_ground_item(original, t, vocab, banned, violations))
     for p in reversed(plain.projects):  # primary projects first, with enough bullets
-        if not _primary(profile, p.id):
+        if p.id not in primary_ids(profile):
             continue
         shown = next((x for x in projects if x.id == p.id), None) or replace(
             p, bullets=[], bullet_ids=[]
@@ -218,23 +218,28 @@ def ground(
     return Grounded(content, violations)
 
 
-def _primary(profile: dict[str, Any], project_id: str) -> bool:
-    return any(
-        isinstance(p, dict) and p.get("id") == project_id and p.get("primary") is True
-        for p in profile.get("projects") or []
-    )
-
-
-def trim_one(content: ResumeContent) -> bool:
-    """Drop the lowest-ranked bullet of the longest entry (keeping 2 per entry). False when
-    nothing can go."""
-    items = [i for i in content.experience + content.projects if len(i.bullets) > MIN_BULLETS]
+def trim_one(content: ResumeContent, primary: set[str] | None = None) -> str | None:
+    """Drop the lowest-ranked bullet of the longest entry, to fit the page. Entries keep 2
+    bullets (a primary project 3), and other entries give up bullets before a primary one.
+    Returns the dropped bullet's id, or None when nothing can go."""
+    primary = primary or set()
+    entries = content.experience + content.projects
+    floor = {i.id: PRIMARY_BULLETS if i.id in primary else MIN_BULLETS for i in entries}
+    items = [(n, i) for n, i in enumerate(entries) if len(i.bullets) > floor[i.id]]
     if not items:
-        return False
-    longest = max(items, key=lambda i: len(i.bullets))
+        return None
+    # Others first; then the most bullets; on a tie the entry further down (older).
+    _, longest = max(items, key=lambda x: (x[1].id not in primary, len(x[1].bullets), x[0]))
     longest.bullets.pop()
-    longest.bullet_ids.pop()
-    return True
+    return longest.bullet_ids.pop()
+
+
+def primary_ids(profile: dict[str, Any]) -> set[str]:
+    return {
+        str(p["id"])
+        for p in profile.get("projects") or []
+        if isinstance(p, dict) and p.get("id") and p.get("primary") is True
+    }
 
 
 def page_count(pdf: Path) -> int:
