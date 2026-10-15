@@ -241,11 +241,11 @@ def resume(
     from jobradar import app as application
     from jobradar.llm import LLM
     from jobradar.profile import load_profile, resume_problems
-    from jobradar.queue.tasks import PermanentError
-    from jobradar.resume.build import ResumeBuilder
-    from jobradar.resume.compile import CompileError, compile_pdf
+    from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.resume.build import ResumeBuilder, fit_to_pages
+    from jobradar.resume.compile import CompileError
     from jobradar.resume.render import content_from_profile, render
-    from jobradar.resume.validate import page_count
+    from jobradar.resume.validate import primary_ids
 
     settings = _settings()
     out = settings.config.storage.local_dir
@@ -253,17 +253,30 @@ def resume(
         profile = load_profile(settings.config.matching.profile_path)
         if problems := resume_problems(profile):
             _fail("profile.yaml: " + "; ".join(problems))
-        tex = render(content_from_profile(profile), template or settings.config.resume.template)
         pdf = out / "profile_preview.pdf"
         pdf.parent.mkdir(parents=True, exist_ok=True)
-        pdf.with_suffix(".tex").write_text(tex, encoding="utf-8")
+        content = content_from_profile(profile)
+        name = template or settings.config.resume.template
+        try:
+            render(content, name)
+        except ValueError as e:
+            _fail(str(e))
+        limit = settings.config.resume.max_pages
 
         async def preview() -> None:
             try:
-                await compile_pdf(tex, pdf)
+                pages, _, dropped = await fit_to_pages(
+                    content, name, pdf, limit, primary_ids(profile)
+                )
             except CompileError as e:
                 _fail(f"{e}\nThe .tex is at {pdf.with_suffix('.tex')}.")
-            typer.echo(f"{pdf} ({page_count(pdf)} page(s)); .tex next to it.")
+                raise
+            typer.echo(f"{pdf} ({pages} page(s)); .tex next to it.")
+            if dropped:
+                typer.echo(
+                    f"Left out to fit {limit} page(s), least relevant first: "
+                    f"{', '.join(dropped)} (tailored resumes choose per job)."
+                )
 
         _run(preview())
         return
@@ -281,6 +294,10 @@ def resume(
             artifact = await builder.build_job(matches[0], tailored=not plain, template=template)
         except PermanentError as e:
             _fail(str(e))
+            raise
+        except RetryableError as e:
+            _fail(f"Gemini is busy right now ({str(e).splitlines()[0][:120]}). Try again in a "
+                  "minute, or use --plain.")  # fmt: skip
             raise
         record = json.loads(artifact.content_json or "{}")
         typer.echo(f"{artifact.local_path} (v{artifact.version}, {record.get('pages')} page(s), "
