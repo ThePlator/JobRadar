@@ -1,5 +1,6 @@
 # Copy to config/profile.yaml. The ONLY source of resume facts:
 # JobRadar may rephrase these, never add to them. Every item and bullet needs a unique id.
+# **Bold** marks words printed in bold on your resume. Keep numbers exactly as they are true.
 
 basics:
   name: Your Name
@@ -38,6 +39,10 @@ experience:
 projects:
   - id: jobradar
     name: JobRadar
+    url: https://github.com/ThePlator/JobRadar
+    dates: Oct 2026 - Present
+    stack: Python, asyncio, SQLite      # printed under the name
+    primary: true                       # always shown first, with 3+ bullets
     bullets:
       - id: p1
         text: Self-hosted agent that ranks Telegram job posts and builds tailored LaTeX resumes

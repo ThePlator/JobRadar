@@ -25,7 +25,7 @@ from jobradar.pipeline.decide import Decision, contradicts, decide
 from jobradar.pipeline.extract import PAGE_TEXT_LIMIT, own_post
 from jobradar.pipeline.liveness import Liveness, LivenessChecker
 from jobradar.pipeline.schemas import JobPosting
-from jobradar.pipeline.task_types import MATCH, NOTION_BODY, NOTION_UPSERT
+from jobradar.pipeline.task_types import BUILD_RESUME, MATCH, NOTION_BODY, NOTION_UPSERT
 from jobradar.providers.base import JobView, MatchAnswers, MatchProvider, ProviderUnavailable
 from jobradar.providers.skills_rule import compare_skills
 from jobradar.queue.tasks import TaskQueue
@@ -129,6 +129,7 @@ class Matcher:
         tz: tzinfo | None = None,
         clock: Clock = utcnow,
         liveness: LivenessChecker | None = None,
+        build_resumes: bool = False,
     ) -> None:
         self.repo = repo
         self.queue = queue
@@ -143,6 +144,7 @@ class Matcher:
         self.tz = tz
         self.clock = clock
         self.liveness = liveness  # None: don't ask hiring sites whether postings are open
+        self.build_resumes = build_resumes  # queue a resume for strong first matches
 
     async def match(self, task: TaskRecord) -> None:
         job = self.repo.get_job(task.key)
@@ -233,6 +235,12 @@ class Matcher:
             )  # fmt: skip
             self.queue.enqueue(NOTION_UPSERT, job_id)
             self.queue.enqueue(NOTION_BODY, job_id)
+        above = self.scoring.auto_resume_above
+        if (
+            self.build_resumes and alert_ok and above is not None and value is not None
+            and value >= above and risk != "high" and decision.rule in ("alert", "inbox")
+        ):  # fmt: skip
+            self.queue.enqueue(BUILD_RESUME, job_id, {"why": "auto"})
         if decision.alert and alert_ok and self.alerts is not None:
             if why_not := self._stale(job, posting):
                 log.info("alert skipped", extra={"job_id": job_id[:10], "why": why_not})

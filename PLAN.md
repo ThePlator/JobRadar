@@ -243,26 +243,29 @@ Not possible: LinkedIn, Naukri and Indeed have no public job API and forbid scra
 
 Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 
-- [ ] Finalise the `profile.yaml` schema with ids on every experience, project and bullet; validate it at start-up
-- [ ] `prompts/tailor.md`; `resume/tailor.py` → `TailoredResume` from `writer_model`
-- [ ] Grounding validator: `ref_id`s exist; skills are a subset of profile skills (case-insensitive + alias map); numbers in rephrased bullets appear in the source bullet; violations dropped and logged
-- [ ] `resume/render.py`: Jinja2 with `\VAR{}` / `\BLOCK{}` delimiters, `latex_escape()` on every string
-- [ ] `templates/classic.tex.j2` and `modern.tex.j2`
-- [ ] `resume/compile.py`: `tectonic --untrusted`, 60 s timeout; save `.log` on error; one retry with the plain template
-- [ ] `resume/validate.py`: pypdf page count; trim the lowest-ranked bullet and recompile up to 3 times
-- [ ] File naming `{company}_{role}_{yyyymmdd}_v{n}.pdf`
-- [ ] `storage/local.py`; `storage/gdrive.py`: OAuth installed-app flow, monthly folders, link-sharing off, `webViewLink` → `artifact.drive_url`; refresh failure → keep local + email the owner
-- [ ] **Triggers:** in `pipeline/decide.py`, `score ≥ auto_resume_above` and `scam_risk != high` → `build_resume` + `build_kit`; the v0.2.5 status sync sees Shortlisted with no resume → `build_resume`
-- [ ] Notion: Resume = Drive link; the Status of auto-built jobs stays New
-- [ ] CLI: `resume <job-id> [--template]` (new version), `init` adds Google OAuth
+- [x] Finalise the `profile.yaml` schema with ids on every experience, project and bullet; validate it at start-up
+- [x] `prompts/tailor.md`; `resume/tailor.py` → `TailoredResume` from `writer_model`
+- [x] Grounding validator: `ref_id`s exist; skills are a subset of profile skills (case-insensitive + alias map); numbers in rephrased bullets appear in the source bullet; violations dropped and logged
+- [x] `resume/render.py`: Jinja2 with `\VAR{}` / `\BLOCK{}` delimiters, `latex_escape()` on every string
+- [x] `classic.tex.j2`: the owner's own LaTeX layout, reproduced exactly (`resume.template` may also be a path to your own `.tex.j2`)
+- [ ] `modern.tex.j2`
+- [x] `resume/compile.py`: `tectonic --untrusted`, 60 s timeout; save `.log` on error; one retry with the plain template
+- [x] `resume/validate.py`: pypdf page count; trim the lowest-ranked bullet and recompile up to 3 times
+- [x] File naming `{company}_{role}_{yyyymmdd}_v{n}.pdf`
+- [x] `storage/local.py` (PDF and .tex in `storage.local_dir`)
+- [ ] Later, optional: `storage/gdrive.py`: OAuth installed-app flow, monthly folders, link-sharing off, `webViewLink` → `artifact.drive_url`; refresh failure → keep local + email the owner
+- [x] **Triggers:** in `pipeline/decide.py`, `score ≥ auto_resume_above` and `scam_risk != high` → `build_resume` + `build_kit`; the v0.2.5 status sync sees Shortlisted with no resume → `build_resume`
+- [x] Notion: Resume = link to the newest local PDF (file://; Drive link once Drive lands); the Status of auto-built jobs stays New
+- [x] CLI: `resume <job-id> [--plain] [--template]` (new version), `resume` alone previews your profile
+- [ ] `init` adds Google OAuth (with Drive)
 
 **Tests**
 
-- [ ] Grounding validator with adversarial cases (invented skill, changed number, unknown `ref_id`)
-- [ ] More grounding cases, borrowed from career-ops `verify-cv-facts.mjs`: a number inside bold or other markup; size words with no digits ("doubled", "10x", "halved"); a tool name buried in a sentence; a phrase from a configurable banned list; a missing or unreadable `profile.yaml` fails loudly instead of passing
-- [ ] LaTeX escaping of every special character
-- [ ] Each template compiles with `profile.example.yaml` across 10 sample jobs, at one page (added to CI)
-- [ ] Trigger routing: auto threshold, Shortlisted, already-built job not rebuilt
+- [x] Grounding validator with adversarial cases (invented skill, changed number, unknown `ref_id`)
+- [x] More grounding cases, borrowed from career-ops `verify-cv-facts.mjs`: a number inside bold or other markup; size words with no digits ("doubled", "10x", "halved"); a tool name buried in a sentence; a phrase from a configurable banned list; a missing or unreadable `profile.yaml` fails loudly instead of passing
+- [x] LaTeX escaping of every special character
+- [x] Each template compiles with `profile.example.yaml` across 10 sample jobs, at one page (added to CI)
+- [x] Trigger routing: auto threshold, Shortlisted, already-built job not rebuilt
 
 **Exit gate:** one-page PDF and zero unknown skills across 50 jobs.
 

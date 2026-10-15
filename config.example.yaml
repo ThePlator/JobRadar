@@ -29,7 +29,7 @@ llm:
   extract_model: "gemini/gemini-flash-lite-latest"  # extraction + scoring (cheap, fast)
   extract_mode: fallback    # fallback: LLM only when the page and post don't state role and
                             #   company (most posts do); always: every job (adds summaries)
-  writer_model: "gemini/gemini-pro-latest"        # resumes + form answers
+  writer_model: "gemini/gemini-flash-latest"      # resumes + form answers (Pro has no free tier)
   # Groq alternative:
   # extract_model: "groq/llama-3.1-8b-instant"
   # writer_model:  "groq/llama-3.3-70b-versatile"
@@ -62,8 +62,10 @@ scoring:
   auto_resume_above: 85   # at or above → resume + kit built automatically; null = only on Shortlisted
 
 resume:
-  template: classic
+  template: classic       # your LaTeX layout (src/jobradar/resume/templates/), or a path to a .tex.j2
   max_pages: 1
+  tailor: true            # false: every resume is profile.yaml as written
+  max_per_day: 10         # automatic builds (score >= auto_resume_above); Shortlisted always builds
 
 links:
   extra_shorteners: []    # your channels' own redirect domains, e.g. ["go.somejobs.in"]
@@ -71,8 +73,7 @@ links:
                           # ["acciojob.com/full-stack-development-courses"]
 
 storage:
-  local_dir: ./output
-  # Resumes are always uploaded to Google Drive (GDRIVE_FOLDER_ID) and linked in Notion.
+  local_dir: ./output     # resumes: {Company}_{Role}_{yyyymmdd}_v{n}.pdf, with the .tex next to it
 
 email:
   smtp_host: smtp.gmail.com

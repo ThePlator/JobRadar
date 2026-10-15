@@ -45,7 +45,7 @@ def profile_skill_keys(profile: dict[str, Any]) -> set[str]:
         names += [str(t) for t in project.get("tags", [])]
     keys: set[str] = set()
     for name in names:  # "HTML/CSS" is HTML and CSS too; "JavaScript (ES6+)" is ES6 too
-        parts = [name, *name.split("/"), *re.findall(r"\(([^)]*)\)", name)]
+        parts = [name, *re.split(r"/|\s&\s", name), *re.findall(r"\(([^)]*)\)", name)]
         keys |= {skill_key(part) for part in parts}
         keys |= {key.rstrip("+") for key in keys if key[:-1].isalnum()}
     return keys - {""}
