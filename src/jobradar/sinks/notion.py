@@ -340,6 +340,8 @@ def source_label(s: Sighting) -> str:
     match s.platform:
         case "board":
             return s.chat_title or s.chat_id
+        case "page":
+            return f"Page · {s.chat_title or s.chat_id.removeprefix('page:')}"
         case "manual":
             return "Added by you"
         case "email":

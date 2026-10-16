@@ -18,9 +18,12 @@ _MAX_DELAY_S = 3600
 class RetryableError(Exception):
     """Temporary failure (timeout, 5xx, 429): retry with backoff."""
 
-    def __init__(self, message: str = "", retry_after: float | None = None) -> None:
+    def __init__(
+        self, message: str = "", retry_after: float | None = None, status: int | None = None
+    ) -> None:
         super().__init__(message)
         self.retry_after = retry_after  # seconds, e.g. from a Retry-After header
+        self.status = status  # the HTTP status that caused it, when there was one
 
 
 class PermanentError(Exception):
