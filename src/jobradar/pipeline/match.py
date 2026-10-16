@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 _OPEN = (JobStatus.EXTRACTED.value, JobStatus.NEW.value)
 CLOSED_REASON = "posting closed on the hiring site"
+THIN_POST = 300  # characters: a post this short is a title and a link, not a job description
 _FIT_WORDS = ["Not a fit", "Weak fit", "Partial fit", "Good fit", "Strong fit"]
 
 
@@ -183,6 +184,18 @@ class Matcher:
             return True
         return False
 
+    def _unread(self, job_id: str, posting: JobPosting) -> bool:
+        """Nothing beyond a title is known: no page text, a post of a few lines, and no stated
+        experience, batch, degree, skills or summary. The provider then answers "eligible"
+        because nothing says otherwise, which is no reason to email you."""
+        post_text, page_text = self._texts(job_id)
+        stated = (
+            posting.experience_min is not None or posting.experience_max is not None
+            or posting.batch_years or posting.degrees or posting.skills_required
+            or posting.summary.strip()
+        )  # fmt: skip
+        return not page_text.strip() and len(post_text) < THIN_POST and not stated
+
     def _texts(self, job_id: str) -> tuple[str, str]:
         page = self.repo.get_page(job_id)
         page_text = ((page.text or "") if page else "")[:PAGE_TEXT_LIMIT]
@@ -217,6 +230,9 @@ class Matcher:
         decision = decide(
             answers, value, job.company, risk, self.matching, self.scoring, self.filters
         )
+        if decision.alert and self._unread(job_id, posting):
+            log.info("no alert: the job's details couldn't be read", extra={"job_id": job_id[:10]})
+            decision = Decision("unsure")
         if not posting.is_job:  # an ad, course or event that got through extraction
             decision = Decision("not_a_job", hide_because="not a job posting (ad or event)")
         if job.user_status_at is not None:
