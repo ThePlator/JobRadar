@@ -65,6 +65,8 @@ def where_posted(chat: str | None, platform: str = "telegram") -> str:
     if platform == "board" and " · " in chat:
         ats, company = chat.split(" · ", 1)
         return f"on {company}'s {ats} board"
+    if platform == "page":
+        return f"on the {chat} page"
     return f"in {chat}"
 
 

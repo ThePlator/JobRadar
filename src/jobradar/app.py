@@ -28,6 +28,8 @@ from jobradar.pipeline.task_types import (
     NOTION_BODY,
     NOTION_POLL,
     NOTION_UPSERT,
+    PAGE_CHECK,
+    PAGES_TICK,
     PROCESS_MESSAGE,
     SEND_ALERTS,
 )
@@ -44,6 +46,7 @@ from jobradar.sinks.email_notify import AlertSender
 from jobradar.sinks.notion_sync import StatusSync
 from jobradar.sinks.reminders import ClosingReminder
 from jobradar.sources.boards.watcher import BoardWatcher
+from jobradar.sources.pages.watcher import PageWatcher
 from jobradar.sources.telegram import TelegramSource
 
 log = logging.getLogger(__name__)
@@ -196,6 +199,12 @@ class Pipeline:
         if boards.enabled and boards.companies:
             self.boards = BoardWatcher(boards, repo, queue, make_emit(repo, queue))
             handlers[BOARDS_TICK], handlers[BOARD_CHECK] = self.boards.tick, self.boards.check
+        pages = settings.config.sources.pages
+        self.pages: PageWatcher | None = None
+        if pages.enabled and pages.watch:
+            # The shared fetcher: one robots.txt cache and one per-site pace for everything.
+            self.pages = PageWatcher(pages, repo, queue, make_emit(repo, queue), self.fetcher)
+            handlers[PAGES_TICK], handlers[PAGE_CHECK] = self.pages.tick, self.pages.check
         self.digest = make_digest(settings, repo, queue)
         if self.digest is not None:
             handlers[DIGEST] = self.digest.send
@@ -236,6 +245,9 @@ async def run(settings: Settings) -> None:
     if pipeline.boards is not None:
         pipeline.boards.schedule()  # then every minute: read the boards that are due
         log.info("watching company boards", extra={"boards": len(pipeline.boards.boards)})
+    if pipeline.pages is not None:
+        pipeline.pages.schedule()  # then every 5 minutes: read the pages that are due
+        log.info("watching pages", extra={"pages": len(pipeline.pages.pages)})
     if pipeline.reminders is not None:
         pipeline.reminders.schedule()  # then every hour
     if pipeline.digest is not None:

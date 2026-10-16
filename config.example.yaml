@@ -19,6 +19,12 @@ sources:
       Sarvam AI: sarvam
     smartrecruiters:        # India postings only
       Bosch:     BoschGroup
+  pages:                    # pages that announce hiring drives instead of listing jobs
+    enabled: true
+    every_hours: 2          # 1 to 6; robots.txt is obeyed and no page is ever logged into
+    # "Name: address". Empty on purpose: you pick each page, and you're responsible for
+    # following its site's terms. `jobradar pages add <name> <url>` adds one.
+    watch: {}
   email_forward:
     enabled: true
     folder: JobRadar      # forward jobs here (Gmail: a label + filter)

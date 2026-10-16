@@ -105,8 +105,9 @@ class Fetcher:
         parser = self._robots[origin]
         return parser is None or parser.can_fetch(USER_AGENT, url)
 
-    async def fetch(self, url: str) -> Page:
-        """Fetch and extract. Raises RetryableError for temporary failures only."""
+    async def fetch(self, url: str, links: bool = False) -> Page:
+        """Fetch and extract. Raises RetryableError for temporary failures only. With
+        `links`, the text is Markdown that keeps each link as [label](absolute URL)."""
         current = url
         for _ in range(MAX_HOPS + 1):
             host = urlsplit(current).hostname or ""
@@ -125,15 +126,16 @@ class Fetcher:
             if resp.is_redirect and location:
                 current = urljoin(current, location)
                 continue
-            return await self._read(current, resp)
+            return await self._read(current, resp, links)
         return Page(current, None, None, "too many redirects")
 
-    async def _read(self, url: str, resp: httpx.Response) -> Page:
+    async def _read(self, url: str, resp: httpx.Response, links: bool = False) -> Page:
         if resp.status_code == 429 or resp.status_code >= 500:
             retry_after = resp.headers.get("Retry-After", "")
             raise RetryableError(
                 f"{urlsplit(url).hostname} answered {resp.status_code}",
                 retry_after=float(retry_after) if retry_after.isdigit() else None,
+                status=resp.status_code,
             )
         if resp.status_code >= 400:
             return Page(url, None, None, f"HTTP {resp.status_code}")
@@ -146,11 +148,11 @@ class Fetcher:
             return Page(url, None, None, "login required")
         title_match = _TITLE.search(html)
         title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:200] if title_match else None
-        text = self._main_text(html, url)
+        text = self._main_text(html, url, links)
         structured = find_job_posting(html)
         if (text is None or len(text) < MIN_TEXT) and self._render_js:
             rendered_html = await self._render(url)
-            rendered = self._main_text(rendered_html, url) if rendered_html else None
+            rendered = self._main_text(rendered_html, url, links) if rendered_html else None
             if rendered and len(rendered) > len(text or ""):
                 text = rendered
             if rendered_html and structured is None:
@@ -158,9 +160,15 @@ class Fetcher:
         return Page(url, title, text or None, None if text else "no readable text", structured)
 
     @staticmethod
-    def _main_text(html: str, url: str) -> str | None:
+    def _main_text(html: str, url: str, links: bool = False) -> str | None:
         text: str | None = trafilatura.extract(
-            html, url=url, include_comments=False, include_tables=True, favor_recall=True
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=True,
+            favor_recall=True,
+            include_links=links,
+            output_format="markdown" if links else "txt",
         )
         return text.strip() if text else None
 

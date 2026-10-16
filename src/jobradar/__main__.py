@@ -515,6 +515,159 @@ def boards_remove(
     typer.echo("Restart `jobradar run` to stop reading it. Jobs it found stay in Notion.")
 
 
+pages_app = typer.Typer(
+    help="Web pages you watch for announcements, such as hiring-drive pages (sources.pages).",
+    no_args_is_help=False,
+)
+app.add_typer(pages_app, name="pages")
+
+
+def _page_watcher(settings: Settings) -> Any:
+    from jobradar import app as application
+    from jobradar.pipeline.fetch import Fetcher
+    from jobradar.pipeline.ingest import make_emit
+    from jobradar.sources.pages.watcher import PageWatcher
+
+    repo, queue = application.open_store()
+    return PageWatcher(
+        settings.config.sources.pages, repo, queue, make_emit(repo, queue), Fetcher()
+    )
+
+
+@pages_app.callback(invoke_without_command=True)
+def pages(
+    ctx: typer.Context,
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check", help="Read every page once now (the first time records a baseline)."
+        ),
+    ] = False,
+) -> None:
+    """Pages you watch (sources.pages in config), and how each is doing."""
+    if ctx.invoked_subcommand is not None:
+        return
+    settings = _settings()
+    watch = settings.config.sources.pages.watch
+    if not watch:
+        _fail("No pages yet: `jobradar pages add <name> <url>` adds one.")
+    watcher = _page_watcher(settings)
+    if check:
+
+        async def read_all() -> None:
+            try:
+                for name, url in watch.items():
+                    await watcher.check_page(name, url)
+            finally:
+                await watcher.fetcher.aclose()
+
+        _run(read_all())
+        typer.echo("Read every page. New announcements (if any) are queued for `jobradar run`.\n")
+    width = max(len(name) for name in watch) + 2
+    typer.echo(f"  {'':<{width}}{'posts':>5}  {'last read (UTC)':<16}  {'last change':<16}  state")
+    for name, url in watch.items():
+        p = watcher.repo.get_watched_page(url, name)
+        state = p.state.replace("_", " ")
+        if p.state == "backing_off" and p.wait_until:
+            state += f" until {p.wait_until[11:16]}"
+        if p.state == "new":
+            state = "not read yet"
+        last = (p.last_ok or "")[:16].replace("T", " ")
+        changed = (p.last_changed or "")[:16].replace("T", " ")
+        typer.echo(f"  {name:<{width}}{p.posts_total:>5}  {last:<16}  {changed:<16}  {state}")
+        if p.last_error:
+            typer.secho(f"    {p.last_error[:90]}", dim=True)
+        typer.secho(f"    {url}", dim=True)
+
+
+@pages_app.command("add")
+def pages_add(
+    name: Annotated[str, typer.Argument(help="How it shows in Notion and emails.")],
+    url: Annotated[str, typer.Argument(help="The page's address (https://…).")],
+) -> None:
+    """Watch a page: checks robots.txt, reads it once, then adds it to config.yaml."""
+    from jobradar.config import load_config
+    from jobradar.pipeline.fetch import Fetcher
+    from jobradar.sources.boards.config_edit import EditError
+    from jobradar.sources.pages.config_edit import add_page
+
+    url = url.strip().split("#")[0]
+    if not url.startswith(("https://", "http://")):
+        _fail("Give the full address, starting with https://")
+    try:
+        before = CONFIG_PATH.read_text()
+        after = add_page(before, name, url)
+    except (OSError, EditError) as e:
+        _fail(str(e))
+        raise
+
+    async def read() -> None:
+        fetcher = Fetcher()
+        try:
+            page = await fetcher.fetch(url, links=True)
+        finally:
+            await fetcher.aclose()
+        if page.text is None:
+            _fail(f"Can't watch it: {page.note or 'no readable text'}.")
+        lines = [line for line in (page.text or "").splitlines() if line.strip()]
+        typer.echo(f"{name}: {len(lines)} lines of text now. A sample:")
+        for line in lines[:5]:
+            typer.echo(f"  {line[:90]}")
+
+    _run(read())
+    CONFIG_PATH.write_text(after)
+    try:
+        load_config(CONFIG_PATH)
+    except ConfigError as e:
+        CONFIG_PATH.write_text(before)
+        _fail(f"Left config.yaml unchanged: {e}")
+    typer.secho(f"Added to {CONFIG_PATH} under sources.pages.watch.", fg="green")
+    typer.echo(
+        "Restart `jobradar run` to start watching it. Its first read records what's there "
+        "now: you're alerted only about what's added after that."
+    )
+
+
+@pages_app.command("remove")
+def pages_remove(name: Annotated[str, typer.Argument(help="Its name or address.")]) -> None:
+    """Stop watching a page: removes its line from config.yaml."""
+    from jobradar.config import load_config
+    from jobradar.sources.boards.config_edit import EditError
+    from jobradar.sources.pages.config_edit import remove_page
+
+    try:
+        before = CONFIG_PATH.read_text()
+        after, removed = remove_page(before, name)
+    except (OSError, EditError) as e:
+        _fail(str(e))
+        raise
+    CONFIG_PATH.write_text(after)
+    try:
+        load_config(CONFIG_PATH)
+    except ConfigError as e:
+        CONFIG_PATH.write_text(before)
+        _fail(f"Left config.yaml unchanged: {e}")
+    typer.secho(f"Removed {removed} from {CONFIG_PATH}.", fg="green")
+    typer.echo("Restart `jobradar run` to stop reading it. Jobs it found stay in Notion.")
+
+
+@pages_app.command("resume")
+def pages_resume(name: Annotated[str, typer.Argument(help="Its name or address.")]) -> None:
+    """Watch a paused or blocked page again from its next turn."""
+    settings = _settings()
+    watch = settings.config.sources.pages.watch
+    url = watch.get(name) or next(
+        (u for n, u in watch.items() if name.casefold() in (n.casefold(), u)), None
+    )
+    if url is None:
+        _fail(f"No page '{name}' in config.yaml; `jobradar pages` lists them.")
+        raise typer.Exit(2)
+    if _page_watcher(settings).resume(url):
+        typer.secho(f"{name} will be read again on its next turn.", fg="green")
+    else:
+        typer.echo(f"{name} isn't paused or blocked; nothing to do.")
+
+
 @app.command()
 def alerts(
     test: Annotated[

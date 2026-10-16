@@ -81,14 +81,14 @@ def test_source_platform_list_is_upgraded_in_place(tmp_path: Path) -> None:
     path = tmp_path / "old.db"
     eng = make_engine(path)
     init_db(eng)
-    with eng.begin() as c:  # make `source` look like it did before boards existed
+    with eng.begin() as c:  # make `source` look like it did before boards and pages existed
         c.execute(text("PRAGMA foreign_keys = OFF"))
         sql = c.execute(text("SELECT sql FROM sqlite_master WHERE name = 'source'")).scalar()
         assert sql is not None
         c.execute(text("PRAGMA writable_schema = ON"))
         c.execute(
             text("UPDATE sqlite_master SET sql = :sql WHERE name = 'source'"),
-            {"sql": sql.replace(", 'board'", "")},
+            {"sql": sql.replace(", 'board'", "").replace(", 'page'", "")},
         )
         c.execute(text("PRAGMA writable_schema = OFF"))
     eng.dispose()
@@ -108,7 +108,8 @@ def test_source_platform_list_is_upgraded_in_place(tmp_path: Path) -> None:
     board = repo.upsert_source(Platform.BOARD, "greenhouse:stripe", "Greenhouse · Stripe")
     assert board.id is not None
     assert repo.get_raw_message(raw_id) is not None
-    assert (tmp_path / "old.db.before-board-sources.bak").exists()
+    assert repo.upsert_source(Platform.PAGE, "page:https://x.com/d", "Drives").id is not None
+    assert (tmp_path / "old.db.before-board-page-sources.bak").exists()
     with eng.connect() as c:
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
     eng.dispose()

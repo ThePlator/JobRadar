@@ -32,6 +32,7 @@ from jobradar.db.models import (
     RawMessage,
     Source,
     TaskStatus,
+    WatchedPage,
 )
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
@@ -67,7 +68,10 @@ def _refresh_source_platforms(engine: Engine) -> None:
         sql = c.execute(
             text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'source'")
         ).scalar()
-    if sql is None or all(f"'{p.value}'" in sql for p in Platform):
+    if sql is None:
+        return
+    new = [p.value for p in Platform if f"'{p.value}'" not in sql]
+    if not new:
         return
     raw = engine.raw_connection()
     try:
@@ -75,7 +79,8 @@ def _refresh_source_platforms(engine: Engine) -> None:
         if dbapi is None:
             raise RuntimeError("no database connection to rebuild `source` with")
         if path := engine.url.database:
-            backup = sqlite3.connect(f"{path}.before-board-sources.bak")
+            # Named after what's new, so an earlier backup is never overwritten.
+            backup = sqlite3.connect(f"{path}.before-{'-'.join(new)}-sources.bak")
             dbapi.backup(backup)
             backup.close()
         columns = ", ".join(c.name for c in models.Source.__table__.columns)  # type: ignore[attr-defined]
@@ -761,6 +766,17 @@ class Repo:
     def save_board(self, board: FeedBoard) -> None:
         with Session(self.engine) as s:
             s.merge(board)
+            s.commit()
+
+    # ---- watched pages ------------------------------------------------------------------------
+
+    def get_watched_page(self, url: str, name: str) -> WatchedPage:
+        with Session(self.engine) as s:
+            return s.get(WatchedPage, url) or WatchedPage(url=url, name=name)
+
+    def save_watched_page(self, page: WatchedPage) -> None:
+        with Session(self.engine) as s:
+            s.merge(page)
             s.commit()
 
     # ---- alerts -------------------------------------------------------------------------------

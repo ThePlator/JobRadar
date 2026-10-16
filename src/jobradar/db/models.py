@@ -15,6 +15,7 @@ class Platform(StrEnum):
     WHATSAPP = "whatsapp"
     MANUAL = "manual"  # `jobradar add <url>`
     BOARD = "board"  # a company's job board (Greenhouse, Lever, Ashby, SmartRecruiters)
+    PAGE = "page"  # a watched web page, e.g. a hiring-drive page (sources.pages)
 
 
 class JobStatus(StrEnum):
@@ -198,6 +199,32 @@ class FeedBoard(SQLModel, table=True):
     misses: int = 0  # real 404s in a row; other errors never count
     skip_until: str | None = None  # a board that 404s 3 times is retried after 30 days
     latest_json: str | None = None  # newest posting seen: title, location, verdict, when
+
+
+class PageState(StrEnum):
+    NEW = "new"  # never read
+    WATCHING = "watching"
+    BACKING_OFF = "backing_off"  # the site refused (403/429); next read after wait_until
+    PAUSED = "paused"  # refused 3 times in a row, or needs a login: `jobradar pages resume`
+    BLOCKED = "blocked"  # robots.txt disallows it: not read until `jobradar pages resume`
+
+
+class WatchedPage(SQLModel, table=True):
+    """A web page JobRadar watches for new announcements, and its text at the last read."""
+
+    __tablename__ = "watch_page"
+
+    url: str = Field(primary_key=True)
+    name: str
+    state: str = PageState.NEW.value
+    text: str | None = None  # cleaned main text at the last good read; None: no baseline yet
+    last_checked: str | None = None
+    last_ok: str | None = None
+    last_changed: str | None = None  # last read that posted something
+    last_error: str | None = None
+    refusals: int = 0  # 403/429 in a row; other errors never count
+    wait_until: str | None = None
+    posts_total: int = 0
 
 
 class Setting(SQLModel, table=True):

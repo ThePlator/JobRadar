@@ -174,9 +174,33 @@ class BoardsConfig(_Strict):
         return v
 
 
+class PagesConfig(_Strict):
+    """Web pages watched for new announcements, such as hiring-drive pages (TCS NextStep,
+    Infosys, Wipro, Cognizant) that announce drives instead of listing jobs. Empty by default:
+    you choose each page, and you're responsible for following its site's terms."""
+
+    enabled: bool = True
+    every_hours: int = Field(default=2, ge=1, le=6)
+    watch: dict[str, str] = Field(default_factory=dict)  # Name: https://page
+
+    @field_validator("watch")
+    @classmethod
+    def _urls(cls, v: dict[str, str]) -> dict[str, str]:
+        seen: dict[str, str] = {}
+        for name, url in v.items():
+            url = str(url).strip()
+            if not re.match(r"^https?://[^\s/]+\.[^\s/]+", url):
+                raise ValueError(f"{name}: '{url}' isn't a web page address (https://…)")
+            if url in seen.values():
+                raise ValueError(f"{name}: that page is already watched")
+            seen[str(name)] = url
+        return seen
+
+
 class SourcesConfig(_Strict):
     telegram: TelegramSourceConfig = Field(default_factory=TelegramSourceConfig)
     boards: BoardsConfig = Field(default_factory=BoardsConfig)
+    pages: PagesConfig = Field(default_factory=PagesConfig)
     email_forward: EmailForwardSourceConfig = Field(default_factory=EmailForwardSourceConfig)
     whatsapp: WhatsAppSourceConfig = Field(default_factory=WhatsAppSourceConfig)
 
