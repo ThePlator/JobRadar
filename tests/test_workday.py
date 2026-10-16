@@ -151,6 +151,30 @@ def test_india_filter_falls_back_to_sites() -> None:
     assert readers._india_filter([{"facetParameter": "x", "values": []}]) is None
 
 
+@pytest.mark.parametrize(
+    ("label", "india"),
+    [
+        ("Gurgaon, India", True), ("Bangalore, Karnataka, India", True),
+        ("Navi Mumbai, India (Finicity)", True), ("Hyderabad - Skyview, India", True),
+        ("India - Hyderabad", True), ("India, Pune", True),
+        ("Remote - Indiana", False), ("Indianapolis, IN", False), ("Pune", False),
+    ],
+)  # fmt: skip
+def test_site_values_in_india(label: str, india: bool) -> None:
+    assert readers._in_india(label.casefold()) is india
+
+
+def test_city_style_sites_only() -> None:
+    # Mastercard's shape (2026-10-16): no country list, cities written "City, India".
+    facets = [{"facetParameter": "locationMainGroup", "values": [
+        {"facetParameter": "locations", "descriptor": "Locations", "values": [
+            {"descriptor": "Gurgaon, India", "id": "g"}, {"descriptor": "Pune, India", "id": "p"},
+            {"descriptor": "Remote - Indiana", "id": "x"}, {"descriptor": "Dublin, Ireland", "id": "d"},
+        ]},
+    ]}]  # fmt: skip
+    assert readers._india_filter(facets) == ("locations", ["g", "p"])
+
+
 @respx.mock
 async def test_errors_are_unknown_never_empty() -> None:
     async with httpx.AsyncClient() as client:

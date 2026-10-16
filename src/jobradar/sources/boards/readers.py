@@ -144,9 +144,17 @@ _WD_INDIA: dict[str, tuple[str, list[str]]] = {}
 _POSTED_AGO = re.compile(r"(\d+)\+?\s+days?\s+ago", re.IGNORECASE)
 
 
+def _in_india(label: str) -> bool:
+    """A site value in India, however the company writes it: "India, Pune", "India - Pune",
+    "Gurgaon, India", "Bangalore, Karnataka, India", "Navi Mumbai, India (Finicity)". Not
+    "Remote - Indiana"."""
+    parts = [p.strip() for p in re.split(r"[,(]", label)]
+    return any(p == "india" or p.startswith("india -") for p in parts)
+
+
 def _india_filter(facets: Any) -> tuple[str, list[str]] | None:
     """(filter name, [ids]) for India: a country value named "India" anywhere in the (nested)
-    filters, else every site value starting "India," (e.g. "India, Bengaluru")."""
+    filters, else every site value in India (see `_in_india`)."""
     countries: list[tuple[str, str]] = []
     sites: list[tuple[str, str]] = []
 
@@ -163,7 +171,7 @@ def _india_filter(facets: Any) -> tuple[str, list[str]] | None:
             if name and item.get("id"):
                 if label == "india":
                     countries.append((name, str(item["id"])))
-                elif label.startswith("india,") or label.startswith("india -"):
+                elif _in_india(label):
                     sites.append((name, str(item["id"])))
 
     walk(facets, None)
