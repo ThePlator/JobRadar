@@ -32,7 +32,11 @@ gantt
     Greenhouse, Lever, Ashby feeds   :f2, after f1, 4d
     Still-open check                 :f4, after f2, 1d
     Suggestions, boards CLI, Source  :f3, after f4, 3d
-    Gate · board alert in 30 min      :milestone, gf, after f3, 0d
+    Drive-page watcher               :f5, after f3, 2d
+    Workday reader + still-open rung :f6, after f5, 2d
+    Job age + outcomes by source     :f7, after f6, 2d
+    SuccessFactors, site by site     :f8, after f7, 3d
+    Gate · board alert in 30 min      :milestone, gf, after f8, 0d
 
     section v0.3 Resume
     Tailor + grounding validator     :c1, after f3, 5d
@@ -222,8 +226,28 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] SmartRecruiters (pulled forward for Bosch)
 - [ ] Recruitee, Workable
 - [ ] `sources/search/adzuna.py` (India, free key), optional Jooble: keyword searches in `sources.search`
-- [ ] Workday (unofficial `cxs` endpoint; may break)
+- Workday moved to "India employer portals" below
 - [ ] Remotive and RemoteOK (remote only): respect their limits (Remotive 4 checks a day) and show the required credit and link back
+
+**India employer portals** (where big Indian employers post; plan with diagrams: [India Employer Portals](https://claude.ai/artifact/9Yi3U6ebqMFmeA6EykeoSy)). Check Workday and SuccessFactors field names against one live site before coding each reader.
+
+- [ ] Drive-page watcher, first (`sources/pages/`, `watch_page` table): TCS NextStep, Infosys, Wipro Elite NTH and Cognizant GenC publish hiring drives as page announcements, not job lists. Each check: robots.txt gate → fetch through `pipeline/fetch.py` → clean text (drop dates, times and "Posted 3 days ago" counters) → line diff against the saved text → 80+ added characters become an `IncomingMessage` (`platform="page"`, `message_id` from the added text so a restart never reposts). First fetch is a silent baseline.
+- [ ] What becomes the job: the post carries links found in the added text (made absolute); with no link, it uses the page URL and re-queues extraction for that page's existing job, so a second announcement updates Notion instead of vanishing as a duplicate sighting
+- [ ] Page states: never checked → watching; 403/429 → back off 2 h → 4 h → 8 h; 3 in a row → paused and you're told; robots.txt disallow → blocked, never fetched
+- [ ] Config `sources.pages` (`enabled`, `every_hours` 1–6, `list` of name → URL), shipped empty; CLI `pages`, `pages add` (checks robots.txt, takes the baseline), `pages remove`, `pages resume`
+- [ ] Workday reader (unofficial search API on the career site; may break): board key `host/Site` from the careers link; find the India filter id once per board (kept in memory); page 20 at a time, 1.5 s apart, up to 15 pages; id from the requisition id, else the job path; posted date from the detail call for new postings only. 404 → `BoardGone`; 400/403/422/429/5xx, no India filter or a changed response shape → `BoardUnavailable`. Read every 30–60 min whatever `every_minutes` says.
+- [ ] Workday rung in the still-open check (per-job endpoint), and `myworkdayjobs.com` in platform detection
+- [ ] `boards add workday <careers link>` checks the India filter exists before saving
+- [ ] `boards suggest` also counts Workday and SuccessFactors links seen in Telegram posts
+- [ ] SuccessFactors reader, site by site: sitemap first, then RSS, then the India search page; remember which worked per board; new ids get one page fetch for location before the filters. A site with none of these goes to the page watcher. Read career-ops' `providers/successfactors.mjs` (MIT) first.
+- [ ] Rules: robots.txt for every page; pages no more often than hourly; honest `JobRadar/…` user agent; never log in or solve a CAPTCHA; cleaned page text capped at 50,000 characters; nothing watched by default, and the docs say you're responsible for each site's terms
+- [ ] Tests: page baseline posts nothing; a date-only change posts nothing; an added paragraph with a link posts once and not again after a restart; 403 three times pauses; robots disallow never fetches. Workday recorded responses: normal pages, short last page, no India filter, 404, 422, 429, changed field name, a posting that disappears.
+
+**Job age** (catch old and ghost postings)
+
+- [ ] Keep the company's own publish date when a board reader or the still-open check already calls the platform (Greenhouse, Lever, Ashby, SmartRecruiters, Workday detail); no extra requests
+- [ ] Alert says "on the company's board since 2 Sep"; Notion gets a **Posted On** date
+- [ ] Posted more than 30 days ago: no instant alert; goes to the digest marked "old posting"
 
 **Tests**
 
@@ -235,7 +259,14 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 
 Not possible: LinkedIn, Naukri and Indeed have no public job API and forbid scraping; their jobs keep arriving through Telegram.
 
-**Exit gate:** a job posted on a watched board reaches your inbox in under 30 minutes, with no alerts from the first check and no false "Closed".
+**Outcomes: is JobRadar working?** (builds on the `jobradar stats` funnel)
+
+- [ ] `jobradar stats` funnel per source (each Telegram channel, each board, each drive page): jobs, alerts, applied, interviews, offers
+- [ ] Alerted vs not: interviews from jobs that sent an alert vs jobs you found in the Inbox or digest
+- [ ] Time from post to applied, and from applied to the first reply
+- [ ] Digest line once a week: the sources that led to interviews, and the ones with none in 30 days (candidates to mute)
+
+**Exit gate:** a job posted on a watched board reaches your inbox in under 30 minutes, with no alerts from the first check and no false "Closed". A change on a watched drive page reaches your inbox within one check interval, and the logs show no fetch of a robots-disallowed page.
 
 ---
 
@@ -324,6 +355,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 | Tectonic cold start in Docker | Slow first compile, network errors | Pre-warm the package cache in the image |
 | Notion rate limits | 429s during backfill | Rely on the limiter; batch body appends |
 | A hiring platform changes its public API | Board errors or "unknown" still-open results jump in `boards list` | Treat as unknown (never closed); fix that provider; recorded-response tests catch the shape change |
+| A drive page is redesigned | One page posts a burst of "changes" that aren't jobs | Cap posts per page per check; when most of the text changed at once, take a new silent baseline instead of posting |
 
 ## Metrics to verify before v1.0
 
