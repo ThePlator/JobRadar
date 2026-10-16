@@ -219,33 +219,64 @@ class Inbox:
 
 
 @respx.mock
-async def test_partial_reads_close_nothing_and_old_postings_never_return_as_new(
+async def test_too_big_boards_pass_nothing_on_and_close_nothing(
     repo: Repo, queue: TaskQueue, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Accenture's case (2026-10-16): more India postings than one read takes, in an order
+    # that changes between reads, so 257 "new" postings were passed on in one afternoon.
     monkeypatch.setattr(readers, "WD_MAX_PAGES", 1)
     inbox = Inbox()
     config = BoardsConfig(companies=[NVIDIA], every_minutes=20)
     w = BoardWatcher(config, repo, queue, inbox, httpx.AsyncClient(), clock=clock)
-    old = [wd_job(n, posted="30+ Days Ago") for n in range(100, 125)]  # 25: over one page
+    old = [wd_job(n) for n in range(100, 125)]  # 25: more than one page, all posted today
     route = respx.post(API)
     route.mock(side_effect=answer(old))
-    await w.check_board(NVIDIA)  # baseline: the newest 20 of 25
+    await w.check_board(NVIDIA)
 
-    # A job JobRadar knows from the left-out part must not be closed by a capped read.
-    known = old[22]
+    known = old[22]  # beyond the cap: must not be closed
     url = f"https://{HOST}/{SITE}{known['externalPath']}"
     repo.get_or_create_job(job_id_for_url(url), url)
-    fresh = wd_job(1, "Software Engineer, New Grad")
-    route.mock(side_effect=answer([fresh, *old]))
+    route.mock(side_effect=answer([wd_job(1, "Software Engineer, New Grad"), *old[::-1]]))
     await w.check_board(NVIDIA)
-    assert [m.urls for m in inbox.got] == [[f"https://{HOST}/{SITE}{fresh['externalPath']}"]]
+    assert inbox.got == []
     job = repo.get_job(job_id_for_url(url))
     assert job is not None and job.status != JobStatus.HIDDEN
+    board = repo.get_board(NVIDIA.key)
+    assert board.last_error is not None and "nothing passed on" in board.last_error
 
-    # Postings that had been beyond the cap come into view: they're not new.
-    route.mock(side_effect=answer(old[5:]))
+
+@respx.mock
+async def test_unseen_old_workday_postings_are_not_new(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    inbox = Inbox()
+    config = BoardsConfig(companies=[NVIDIA], every_minutes=20)
+    w = BoardWatcher(config, repo, queue, inbox, httpx.AsyncClient(), clock=clock)
+    route = respx.post(API)
+    route.mock(side_effect=answer([wd_job(1)]))
     await w.check_board(NVIDIA)
-    assert len(inbox.got) == 1
+    relisted = wd_job(2, posted="30+ Days Ago")
+    fresh = wd_job(3, "Software Engineer, New Grad")
+    route.mock(side_effect=answer([wd_job(1), relisted, fresh]))
+    await w.check_board(NVIDIA)
+    assert [m.message_id for m in inbox.got] == ["JR0000003"]
+
+
+@respx.mock
+async def test_at_most_ten_new_postings_per_read(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    inbox = Inbox()
+    config = BoardsConfig(companies=[NVIDIA], every_minutes=20)
+    w = BoardWatcher(config, repo, queue, inbox, httpx.AsyncClient(), clock=clock)
+    route = respx.post(API)
+    route.mock(side_effect=answer([wd_job(1)]))
+    await w.check_board(NVIDIA)
+    route.mock(side_effect=answer([wd_job(n) for n in range(1, 16)]))
+    await w.check_board(NVIDIA)
+    assert len(inbox.got) == 10
+    await w.check_board(NVIDIA)  # the other four are remembered, not passed on later
+    assert len(inbox.got) == 10
 
 
 def test_workday_is_read_at_most_every_30_minutes(

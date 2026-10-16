@@ -114,3 +114,17 @@ def test_source_platform_list_is_upgraded_in_place(tmp_path: Path) -> None:
         assert c.execute(text("PRAGMA foreign_key_check")).all() == []
     eng.dispose()
     sqlite3.connect(path).close()
+
+
+def test_jobs_from_source(repo: Repo) -> None:
+    from jobradar.db.models import JobStatus, Platform
+
+    src = repo.upsert_source(Platform.BOARD, "workday:x", "Workday · Accenture")
+    other = repo.upsert_source(Platform.TELEGRAM, "-1001", "Jobs")
+    assert src.id is not None and other.id is not None
+    for n, source_id in enumerate([src.id, src.id, other.id]):
+        raw, _ = repo.save_raw_message(source_id, str(n), "2026-10-16T08:00:00.000000Z", "post")
+        repo.get_or_create_job(f"j{n}", f"https://x.com/{n}")
+        repo.add_job_source(f"j{n}", raw)
+    repo.set_user_status("j1", JobStatus.APPLIED)  # you moved it in Notion: left alone
+    assert repo.jobs_from_source("workday · accenture") == ["j0"]

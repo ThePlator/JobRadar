@@ -190,6 +190,14 @@ def extract(
     examples: Annotated[
         int, typer.Option(help="With --compare: show this many differences per field.")
     ] = 0,
+    again: Annotated[
+        str | None,
+        typer.Option(
+            "--again",
+            help="Read again every job from this source, as shown in Notion's Source column "
+            '(e.g. "Workday · Accenture"); jobs you moved in Notion are left alone.',
+        ),
+    ] = None,
 ) -> None:
     """Read jobs listed before extraction existed, or check extraction accuracy."""
     from jobradar import app as application
@@ -204,11 +212,13 @@ def extract(
             typer.echo(f"Downloaded {count} page(s) again.\n")
         typer.echo(render(run_check(repo), examples))
         return
-    if not missing:
-        _fail("Nothing to do: pass --missing to read the jobs that were only listed.")
+    if not missing and again is None:
+        _fail("Nothing to do: pass --missing, or --again with a source name.")
     settings = _settings()
     repo, queue = application.open_store()
-    jobs = repo.jobs_missing_extraction()
+    jobs = repo.jobs_from_source(again) if again else repo.jobs_missing_extraction()
+    if again and not jobs:
+        _fail(f"No jobs from '{again}' to read again (check the name in Notion's Source column).")
     for job_id in jobs:
         queue.enqueue(FETCH, job_id)
     note = "`jobradar run` reads them from page data and post labels"

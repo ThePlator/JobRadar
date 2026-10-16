@@ -23,7 +23,7 @@ import httpx
 import trafilatura
 
 from jobradar.net import is_public_host
-from jobradar.pipeline.structured import find_job_posting
+from jobradar.pipeline.structured import description_text, find_job_posting
 from jobradar.queue.tasks import RetryableError
 
 log = logging.getLogger(__name__)
@@ -157,6 +157,11 @@ class Fetcher:
                 text = rendered
             if rendered_html and structured is None:
                 structured = find_job_posting(rendered_html)
+        about = description_text(structured) if structured and not links else None
+        if about and len(about) > len(text or ""):
+            # JavaScript-only job pages (Workday, …) still carry the full description in their
+            # JobPosting data: read that rather than nothing.
+            text = about
         return Page(url, title, text or None, None if text else "no readable text", structured)
 
     @staticmethod

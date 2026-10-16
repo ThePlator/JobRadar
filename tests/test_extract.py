@@ -299,3 +299,13 @@ async def test_matching_is_queued_after_extraction(
     ex.match = True
     queue.enqueue(FETCH, "job1")
     assert await run(queue, ex) == [FETCH, EXTRACT, NOTION_UPSERT, NOTION_BODY, MATCH]
+
+
+def test_board_posts_keep_the_boards_company() -> None:
+    from jobradar.pipeline.extract import free_fields
+
+    page = {"@type": "JobPosting", "title": "Application Developer",
+            "hiringOrganization": {"name": "8113 ASOL- Bangalore 7 SEZ Company"}}  # fmt: skip
+    post = "Company: Accenture\nRole: Application Developer\nLocation: India"
+    assert free_fields(page, post, None, from_board=True)[0]["company"] == "Accenture"
+    assert free_fields(page, post, None)[0]["company"] != "Accenture"  # other posts: page first

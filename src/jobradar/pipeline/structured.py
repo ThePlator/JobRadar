@@ -12,6 +12,7 @@ from typing import Any
 from jobradar.pipeline.values import (
     clean_company,
     clean_role,
+    experience_in_text,
     parse_deadline,
     parse_degrees,
     parse_employment,
@@ -72,6 +73,20 @@ def _text(value: Any) -> str | None:
         text = " ".join(html_lib.unescape(str(value)).split())
         return text or None
     return None
+
+
+_TAG = re.compile(r"<[^>]+>")
+_BLOCK = re.compile(r"</?(?:p|br|li|ul|ol|div|h[1-6]|tr)\b[^>]*>", re.IGNORECASE)
+
+
+def description_text(posting: dict[str, Any]) -> str | None:
+    """The JobPosting description as plain text (HTML removed), or None."""
+    raw = posting.get("description")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = _TAG.sub(" ", _BLOCK.sub("\n", html_lib.unescape(raw)))
+    lines = (" ".join(line.split()) for line in html_lib.unescape(text).splitlines())
+    return "\n".join(line for line in lines if line) or None
 
 
 def _locations(posting: dict[str, Any]) -> list[str]:
@@ -159,6 +174,10 @@ def from_job_posting(posting: dict[str, Any]) -> dict[str, Any]:
     if (valid := _text(posting.get("validThrough"))) and (deadline := parse_deadline(valid)):
         fields["deadline"] = deadline
     lo, hi = _experience(posting.get("experienceRequirements"))
+    if lo is None and hi is None and (about := description_text(posting)):
+        # Many sites (Workday among them) state it only in the description:
+        # "Minimum 5 year(s) of experience is required".
+        lo, hi = experience_in_text(about)
     if lo is not None:
         fields["experience_min"] = lo
     if hi is not None:
