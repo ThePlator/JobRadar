@@ -19,6 +19,8 @@ sources:
       Sarvam AI: sarvam
     smartrecruiters:        # India postings only
       Bosch:     BoschGroup
+    workday:                # India postings only; read at most every 30 min (unofficial API)
+      NVIDIA:    nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite   # or the careers link
   pages:                    # pages that announce hiring drives instead of listing jobs
     enabled: true
     every_hours: 2          # 1 to 6; robots.txt is obeyed and no page is ever logged into

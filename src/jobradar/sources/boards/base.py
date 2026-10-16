@@ -24,6 +24,11 @@ class BoardPosting:
     level: str | None = None  # experience level, when the board states it
 
 
+class Partial(list[BoardPosting]):
+    """A read that stopped at the reader's page cap before the board's last posting. The
+    postings it left out haven't closed, so the watcher must not close them."""
+
+
 class BoardGone(Exception):
     """The board answered 404."""
 
@@ -35,8 +40,16 @@ class BoardUnavailable(Exception):
 async def get_json(
     client: httpx.AsyncClient, url: str, params: dict[str, Any] | None = None
 ) -> Any:
+    return await _json(client, "GET", url, params=params)
+
+
+async def post_json(client: httpx.AsyncClient, url: str, body: dict[str, Any]) -> Any:
+    return await _json(client, "POST", url, json=body)
+
+
+async def _json(client: httpx.AsyncClient, method: str, url: str, **kwargs: Any) -> Any:
     try:
-        resp = await client.get(url, params=params)
+        resp = await client.request(method, url, headers={"Accept": "application/json"}, **kwargs)
     except httpx.HTTPError as e:
         raise BoardUnavailable(f"could not reach {httpx.URL(url).host}: {type(e).__name__}") from e
     if resp.status_code == 404:

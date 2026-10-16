@@ -30,7 +30,7 @@ from jobradar.pipeline.links import canonicalise
 from jobradar.pipeline.task_types import BOARD_CHECK, BOARDS_TICK, NOTION_UPSERT
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sources.base import Emit, IncomingMessage
-from jobradar.sources.boards.base import BoardGone, BoardPosting, BoardUnavailable
+from jobradar.sources.boards.base import BoardGone, BoardPosting, BoardUnavailable, Partial
 from jobradar.sources.boards.filters import why_skipped
 from jobradar.sources.boards.readers import READERS
 
@@ -40,6 +40,13 @@ TICK_SECONDS = 60
 GONE_AFTER = 3  # real 404s in a row
 GONE_RETRY = timedelta(days=30)
 CLOSED_REASON = "closed on the company board"
+# Unofficial APIs are read less often than `every_minutes`, whatever it says.
+MIN_EVERY_MINUTES = {"workday": 30}
+# After a capped read, a posting JobRadar hasn't seen may be an old one that was beyond the
+# cap until newer ones closed. It counts as new only if the board says it's this recent.
+# Workday's "Posted N Days Ago" is the real publish date, so its boards always get this rule.
+PARTIAL_NEW_WITHIN = timedelta(days=3)
+DATED_BOARDS = ("workday",)
 USER_AGENT = "JobRadar/0.2 (+https://github.com/ThePlator/JobRadar)"
 
 
@@ -112,7 +119,8 @@ class BoardWatcher:
             return False
         if board.last_checked is None:
             return True
-        every = timedelta(minutes=self.config.every_minutes)
+        ats = self.boards[key].ats
+        every = timedelta(minutes=max(self.config.every_minutes, MIN_EVERY_MINUTES.get(ats, 0)))
         # Spread checks out: each board's turn comes at its own offset within the interval.
         return now - from_iso(board.last_checked) >= every - _offset(key, every) / 4
 
@@ -151,6 +159,9 @@ class BoardWatcher:
             return
 
         current = {p.id: p.url for p in postings}
+        # A read that stopped at the reader's page cap left the oldest postings out: they
+        # haven't closed, and mustn't come back as "new" later either.
+        complete = not isinstance(postings, Partial)
         seen: dict[str, str] | None = json.loads(board.seen_json) if board.seen_json else None
         board.misses, board.skip_until, board.last_error = 0, None, None
         board.last_ok = to_iso(now)
@@ -168,6 +179,9 @@ class BoardWatcher:
             return
         else:
             fresh = [p for p in postings if p.id not in seen]
+            if not complete or ref.ats in DATED_BOARDS:
+                recent = now - PARTIAL_NEW_WITHIN
+                fresh = [p for p in fresh if p.posted_at and p.posted_at >= recent]
             passed = []
             for posting in fresh:
                 why = why_skipped(posting.title, posting.location, posting.level)
@@ -192,14 +206,15 @@ class BoardWatcher:
                         posted_at=posting.posted_at or now,
                     )
                 )
-            closed = [await self._close(url) for pid, url in seen.items() if pid not in current]
+            vanished = [url for pid, url in seen.items() if pid not in current] if complete else []
+            closed = [await self._close(url) for url in vanished]
             board.new_total += len(passed)
             if fresh or any(closed):
                 log.info("board checked", extra={"board": ref.key, "new": len(fresh),
                          "passed_filters": len(passed), "closed": sum(closed)})  # fmt: skip
         if board.latest_json is None and postings:  # boards read before this was kept
             board.latest_json = latest(postings, now)
-        board.seen_json = json.dumps(current)
+        board.seen_json = json.dumps(current if complete else {**(seen or {}), **current})
         board.jobs_on_board = len(current)
         self.repo.save_board(board)
 
