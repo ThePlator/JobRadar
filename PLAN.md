@@ -235,14 +235,15 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] What becomes the job: the post carries links found in the added text (made absolute); with no link, it uses the page URL and re-queues extraction for that page's existing job, so a second announcement updates Notion instead of vanishing as a duplicate sighting
 - [x] Page states: never checked → watching; 403/429 → back off 2 h, then 4 h; the 3rd in a row → paused and you're told; robots.txt disallow → blocked (both until `pages resume`); a failed DNS lookup or other error is unknown for that round
 - [x] Config `sources.pages` (`enabled`, `every_hours` 1–6, `watch` of name → URL), shipped empty; CLI `pages` (`--check`), `pages add` (reads it once, robots.txt obeyed), `pages remove`, `pages resume`
-- [ ] Workday reader (unofficial search API on the career site; may break): board key `host/Site` from the careers link; find the India filter id once per board (kept in memory); page 20 at a time, 1.5 s apart, up to 15 pages; id from the requisition id, else the job path; posted date from the detail call for new postings only. 404 → `BoardGone`; 400/403/422/429/5xx, no India filter or a changed response shape → `BoardUnavailable`. Read every 30–60 min whatever `every_minutes` says.
-- [ ] Workday rung in the still-open check (per-job endpoint), and `myworkdayjobs.com` in platform detection
-- [ ] `boards add workday <careers link>` checks the India filter exists before saving
+- [x] Workday reader (unofficial search API on the career site; may break): board key `host/Site` from the careers link; find the India filter id once per board (kept in memory); page 20 at a time, 1.5 s apart, up to 15 pages; id from the requisition id, else the job path; posted date from the list's "Posted N Days Ago" (no detail calls); "2 Locations" shown as "India · 2 Locations". 404 → `BoardGone`; 400/403/422/429/5xx, no India filter or a changed response shape → `BoardUnavailable`. Read at most every 30 min whatever `every_minutes` says.
+- [x] Workday rung in the still-open check (per-job endpoint), and `myworkdayjobs.com` in platform detection
+- [x] `boards add <Workday careers link>` checks the India filter exists before saving
 - [ ] `boards suggest` also counts Workday and SuccessFactors links seen in Telegram posts
 - [ ] SuccessFactors reader, site by site: sitemap first, then RSS, then the India search page; remember which worked per board; new ids get one page fetch for location before the filters. A site with none of these goes to the page watcher. Read career-ops' `providers/successfactors.mjs` (MIT) first.
 - [x] Rules (pages): robots.txt for every page; pages no more often than hourly; honest `JobRadar/…` user agent; never log in or solve a CAPTCHA; cleaned page text capped at 50,000 characters; nothing watched by default, and the docs say you're responsible for each site's terms
 - [x] Page tests: baseline posts nothing; a date-only change posts nothing; an added paragraph with a link posts once and not again after a restart; refusals back off then pause; robots disallow never fetches; a redesign takes a new baseline
-- [ ] Workday tests (recorded responses): normal pages, short last page, no India filter, 404, 422, 429, changed field name, a posting that disappears
+- [x] Workday tests (recorded responses): pages, short last page, no India filter, 404, 422, changed response shape, page cap; plus still-open 200/404/410/429/5xx and crafted links
+- [x] A read that stops at a reader's page cap (Workday, SmartRecruiters) is partial: nothing is closed, and an unseen posting counts as new only if posted within 3 days (always applied to Workday, whose "Posted N Days Ago" is the real date)
 
 **Job age** (catch old and ghost postings)
 

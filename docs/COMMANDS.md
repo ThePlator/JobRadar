@@ -70,7 +70,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar retry --failed` | Put failed tasks back in the queue; they run on the next `jobradar run` |
 | `jobradar boards` | Company job boards you watch: postings, how many were passed on, last read, problems, and each board's newest posting with why it passed or was skipped |
 | `jobradar boards --check` | Read every board now (the first read only records a baseline) |
-| `jobradar boards add <link>` | Add a board to config.yaml after checking it exists, e.g. `jobradar boards add https://jobs.lever.co/meesho --name Meesho` or `jobradar boards add greenhouse stripe --name Stripe`. Shows how many postings pass your filters now. Restart to start watching it |
+| `jobradar boards add <link>` | Add a board to config.yaml after checking it exists, e.g. `jobradar boards add https://jobs.lever.co/meesho --name Meesho`, `jobradar boards add greenhouse stripe --name Stripe`, or a Workday careers link (`jobradar boards add https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite --name NVIDIA`; it must have an India location filter). Shows how many postings pass your filters now. Restart to start watching it |
 | `jobradar boards remove <name>` | Remove a board from config.yaml by its name, board name or link (`--ats lever` if the name is in several sections). Restart to stop reading it |
 | `jobradar pages` | Pages you watch for announcements (hiring-drive pages): posts made, last read, last change, state (watching, backing off, paused, blocked) and the last problem |
 | `jobradar pages --check` | Read every page now (the first read only records a baseline) |

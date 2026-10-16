@@ -1,14 +1,15 @@
 """Is this posting still open? Asked of the hiring system itself, before a job is matched.
 
 Telegram channels repost jobs for days, so a link may point at a posting that has already
-closed. Greenhouse, Lever and SmartRecruiters answer per job (200 = open, 404 = gone);
-Ashby has one list per company, so the posting must still be on it.
+closed. Greenhouse, Lever, SmartRecruiters and Workday answer per job (200 = open, 404 =
+gone); Ashby has one list per company, so the posting must still be on it.
 
 Only a definite answer hides a job: a 404/410 for that posting, or its absence from an Ashby
 list that was read fine. Timeouts, 429/5xx, redirects and every other site are "unknown"
 and the job carries on as before.
 
-Requests only ever go to the fixed API hosts below. The board name and posting id are
+Requests only ever go to the fixed API hosts below (for Workday, the company's own
+`*.myworkdayjobs.com` host, matched by a strict pattern). The board name and posting id are
 taken from the link's path with a strict pattern, so a crafted link can't pick the host.
 """
 
@@ -28,6 +29,9 @@ USER_AGENT = "JobRadar/0.2 (+https://github.com/ThePlator/JobRadar)"
 _NAME = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _UUID = re.compile(r"^[0-9a-fA-F-]{36}$")
 _DIGITS = re.compile(r"^\d{1,20}$")
+_WORKDAY_HOST = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}\.wd\d{1,3}\.myworkdayjobs\.com$")
+_LOCALE = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
+_SEGMENT = re.compile(r"^[A-Za-z0-9._~%-]{1,200}$")
 
 
 class Liveness(StrEnum):
@@ -40,7 +44,7 @@ class Liveness(StrEnum):
 class AtsLink:
     """A link to one posting on a hiring system: which system, whose board, which posting."""
 
-    ats: str  # greenhouse | lever | ashby | smartrecruiters
+    ats: str  # greenhouse | lever | ashby | smartrecruiters | workday
     board: str
     posting: str
     eu: bool = False  # Lever's EU instance
@@ -60,6 +64,8 @@ def ats_link(url: str | None) -> AtsLink | None:
     path = [p for p in parts.path.split("/") if p]
     query = parse_qs(parts.query)
     found: AtsLink | None = None
+    if _WORKDAY_HOST.match(host):
+        return _workday_link(host, path)
     if host in ("boards.greenhouse.io", "job-boards.greenhouse.io",
                 "boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io"):  # fmt: skip
         if len(path) >= 3 and path[1] == "jobs":
@@ -78,8 +84,26 @@ def ats_link(url: str | None) -> AtsLink | None:
     return found if pattern.match(found.posting) else None
 
 
+def _workday_link(host: str, path: list[str]) -> AtsLink | None:
+    """company.wd5.myworkdayjobs.com/[en-US/]Site/job/<place>/<title>_<req id>"""
+    if path and _LOCALE.match(path[0]):
+        path = path[1:]
+    if len(path) < 3 or path[1] != "job" or not _NAME.match(path[0]):
+        return None
+    rest = path[1:]
+    if any(
+        p in (".", "..") or not _SEGMENT.match(p) or "%2f" in p.lower() or "%2e" in p.lower()
+        for p in rest
+    ):
+        return None
+    return AtsLink("workday", f"{host}/{path[0]}", "/".join(rest))
+
+
 def _api_url(link: AtsLink) -> str:
     match link.ats:
+        case "workday":
+            host, site = link.board.split("/", 1)
+            return f"https://{host}/wday/cxs/{host.split('.')[0]}/{site}/{link.posting}"
         case "greenhouse":
             return f"https://boards-api.greenhouse.io/v1/boards/{link.board}/jobs/{link.posting}"
         case "lever":

@@ -375,8 +375,8 @@ def boards(
         _run(read_all())
         typer.echo("Read every board. New postings (if any) are queued for `jobradar run`.\n")
     ats_names = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
-                 "smartrecruiters": "SmartRecruiters"}  # fmt: skip
-    width = max(len(ref.name or ref.company) for ref in config.companies) + 2
+                 "smartrecruiters": "SmartRecruiters", "workday": "Workday"}  # fmt: skip
+    width = max(len(ref.label.split(" · ", 1)[1]) for ref in config.companies) + 2
     typer.echo(f"  {'':<{width}}{'postings':>8}  {'passed on':>9}  {'last read (UTC)':<16}  status")
     for ats, title in ats_names.items():
         refs = [ref for ref in config.companies if ref.ats == ats]
@@ -395,7 +395,7 @@ def boards(
                 state = "ok"
             postings = str(len(json.loads(b.seen_json))) if b.seen_json else "-"
             last = (b.last_ok or "")[:16].replace("T", " ")
-            name = ref.name or ref.company
+            name = ref.label.split(" · ", 1)[1]
             typer.echo(f"  {name:<{width}}{postings:>8}  {b.new_total:>9}  {last:<16}  {state}")
             if b.latest_json:
                 newest = json.loads(b.latest_json)
@@ -415,8 +415,8 @@ def boards_add(
     board: Annotated[
         str,
         typer.Argument(
-            help="A link to the board (https://job-boards.greenhouse.io/stripe), or the "
-            "hiring system followed by the board name: greenhouse stripe"
+            help="A link to the board (https://job-boards.greenhouse.io/stripe, or a Workday "
+            "careers link), or the hiring system followed by the board name: greenhouse stripe"
         ),
     ],
     board_name: Annotated[
@@ -446,7 +446,8 @@ def boards_add(
             "e.g. `jobradar boards add greenhouse stripe --name Stripe`."
         )
         raise
-    label = name or ref.company.replace("-", " ").title()
+    slug = ref.company.split(".")[0] if ref.ats == "workday" else ref.company
+    label = name or slug.replace("-", " ").title()
     try:
         before = CONFIG_PATH.read_text()
         after = add_board(before, ref.ats, ref.company, label)

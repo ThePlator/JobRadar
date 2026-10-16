@@ -55,11 +55,15 @@ class WhatsAppSourceConfig(_Strict):
     port: int = Field(default=8765, ge=1024, le=65535)
 
 
-BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters"]
+BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday"]
 _ATS_NAMES = {
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
-    "smartrecruiters": "SmartRecruiters",
+    "smartrecruiters": "SmartRecruiters", "workday": "Workday",
 }  # fmt: skip
+# A Workday career site: "<company>.wd<N>.myworkdayjobs.com/<Site>" (its board name in config).
+WORKDAY_BOARD = re.compile(
+    r"^([a-z0-9][a-z0-9-]{0,62})\.(wd\d{1,3})\.myworkdayjobs\.com/([A-Za-z0-9_-]{1,100})$"
+)
 
 
 _BOARD_LINKS = [
@@ -75,16 +79,25 @@ _BOARD_LINKS = [
     ("smartrecruiters", r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9._-]+)"),
     ("smartrecruiters", r"api\.smartrecruiters\.com/v1/companies/([A-Za-z0-9._-]+)"),
 ]
+# The careers link (optionally with a language part, /en-US/) or the API address.
+_WORKDAY_LINK = re.compile(
+    r"^(?:https?://)?([a-z0-9][a-z0-9-]*\.wd\d{1,3}\.myworkdayjobs\.com)/"
+    r"(?:wday/cxs/[a-z0-9-]+/)?(?:[a-z]{2}-[A-Z]{2}/)?([A-Za-z0-9_-]+)",
+    re.IGNORECASE,
+)
 
 
 def board_from_link(link: str) -> tuple[str, str]:
     """('greenhouse', 'stripe') from https://job-boards.greenhouse.io/stripe (or a job link
-    on that board)."""
+    on that board). For Workday the board name is the site: ('workday',
+    'nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite')."""
+    if m := _WORKDAY_LINK.search(link.strip()):
+        return "workday", f"{m.group(1).lower()}/{m.group(2)}"
     for ats, pattern in _BOARD_LINKS:
         if m := re.search(r"^(?:https?://)?(?:www\.)?" + pattern, link.strip(), re.IGNORECASE):
             return ats, m.group(1)
     raise ValueError(
-        f"{link!r} isn't a Greenhouse, Lever, Ashby or SmartRecruiters board link "
+        f"{link!r} isn't a Greenhouse, Lever, Ashby, SmartRecruiters or Workday board link "
         "(e.g. https://job-boards.greenhouse.io/stripe)"
     )
 
@@ -94,8 +107,20 @@ class BoardRef(_Strict):
     board address (e.g. boards.greenhouse.io/**stripe**)."""
 
     ats: BoardATS
-    company: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
+    company: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$")
     name: str | None = None  # how it shows in Notion and emails; default: the company slug
+
+    @model_validator(mode="after")
+    def _board_name(self) -> BoardRef:
+        if self.ats == "workday":
+            if not WORKDAY_BOARD.match(self.company):
+                raise ValueError(
+                    f"workday: '{self.company}' should look like "
+                    "company.wd5.myworkdayjobs.com/SiteName (paste the careers link)"
+                )
+        elif "/" in self.company or len(self.company) > 100:
+            raise ValueError(f"{self.ats}: '{self.company}' isn't a board name")
+        return self
 
     @property
     def key(self) -> str:
@@ -104,7 +129,8 @@ class BoardRef(_Strict):
     @property
     def label(self) -> str:
         """'Greenhouse · Stripe': how the board shows in Notion and emails."""
-        return f"{_ATS_NAMES[self.ats]} · {self.name or self.company}"
+        default = self.company.split(".")[0] if self.ats == "workday" else self.company
+        return f"{_ATS_NAMES[self.ats]} · {self.name or default}"
 
 
 class BoardsConfig(_Strict):
@@ -118,6 +144,7 @@ class BoardsConfig(_Strict):
     lever: dict[str, str] | list[str] = Field(default_factory=dict)
     ashby: dict[str, str] | list[str] = Field(default_factory=dict)
     smartrecruiters: dict[str, str] | list[str] = Field(default_factory=dict)
+    workday: dict[str, str] | list[str] = Field(default_factory=dict)  # India postings only
     # Every board as a flat list; filled from the sections above (or given directly).
     companies: list[BoardRef] = Field(default_factory=list)
 
