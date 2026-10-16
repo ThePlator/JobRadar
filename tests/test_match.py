@@ -163,7 +163,8 @@ def seed_job(repo: Repo, job_id: str = "job1", **data: Any) -> None:
     raw_id, _ = repo.save_raw_message(src.id, job_id, "2026-10-07T08:00:00.000000Z", "post")
     repo.get_or_create_job(job_id, f"https://acme.com/{job_id}")
     repo.add_job_source(job_id, raw_id)
-    body = posting(**data).model_dump(mode="json")
+    # A job with stated details: a bare title never alerts (see test_unread_jobs_never_alert).
+    body = posting(**{"skills_required": ["Python"], **data}).model_dump(mode="json")
     repo.save_extraction(job_id, json.dumps(body), "Acme", "Backend Intern", None, "rules-v1",
                          JobStatus.EXTRACTED)  # fmt: skip
 
@@ -192,7 +193,7 @@ async def test_match_scores_the_job_and_syncs_notion(repo: Repo, queue: TaskQueu
     assert (down.calls, llm.calls) == (1, 1)  # the first provider failed, the next answered
     job = repo.get_job("job1")
     assert job is not None and (job.score, job.status) == (100, JobStatus.NEW)
-    assert job.score_reason == "Strong fit · 100 · eligible ✓"
+    assert job.score_reason == "Strong fit · 100 · eligible ✓ · Python ✓"
     assert repo.match_answers("v1")[0][0] == "job1"
 
 
@@ -273,7 +274,8 @@ async def test_strong_match_alerts_weak_one_hides(repo: Repo, queue: TaskQueue) 
         async def match(self, job: JobView, profile: dict[str, Any]) -> MatchAnswers:
             return answers["strong" if job.posting.role == "Strong" else "weak"]
 
-    repo.save_extraction("strong", posting(role="Strong").model_dump_json(), "Acme", "Strong",
+    strong = posting(role="Strong", skills_required=["Python"])
+    repo.save_extraction("strong", strong.model_dump_json(), "Acme", "Strong",
                          None, "rules-v1", JobStatus.EXTRACTED)  # fmt: skip
     m = Matcher(repo, queue, [ByJob()], PROFILE, "v1", MatchingConfig(), FILTERS,
                 ScoringConfig(alert_above=75), alerts, clock=CLOCK)  # fmt: skip
@@ -367,3 +369,23 @@ async def test_your_status_is_never_overridden(repo: Repo, queue: TaskQueue) -> 
     job = repo.get_job("job1")
     assert job is not None and job.status == JobStatus.NEW  # weak, but you chose to keep it
     assert job.score == 30 and alerts.queued == []
+
+
+async def test_unread_jobs_never_alert(repo: Repo, queue: TaskQueue) -> None:
+    # Accenture's unreadable Workday pages (2026-10-16): only a title, so the provider said
+    # "eligible" and 99; that stays in the Inbox but sends no email.
+    from jobradar.config import ScoringConfig
+
+    seed_job(repo, "bare", skills_required=[])
+    seed_job(repo, "described", skills_required=[])
+    repo.save_page("described", "https://acme.com/described", "Dev", "Minimum 0 years. " * 30,
+                   None, None)  # fmt: skip
+    alerts = Alerts()
+    m = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, ScoringConfig(alert_above=75), alerts, clock=CLOCK)  # fmt: skip
+    for job_id in ("bare", "described"):
+        queue.enqueue(MATCH, job_id)
+    await run(queue, m)
+    assert alerts.queued == ["described"]
+    bare = repo.get_job("bare")
+    assert bare is not None and bare.status == JobStatus.NEW and bare.score == 100
