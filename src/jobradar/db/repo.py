@@ -870,6 +870,23 @@ class Repo:
             ).all()
         return [str(r[0]) for r in rows]
 
+    def jobs_from_source(self, title: str) -> list[str]:
+        """Jobs first or also seen in the source shown as `title` ("Workday · Accenture"),
+        that you haven't moved in Notion (for `jobradar extract --again`)."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT DISTINCT j.id FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "JOIN raw_message r ON r.id = js.raw_message_id "
+                    "JOIN source s ON s.id = r.source_id "
+                    "WHERE lower(s.title) = lower(:title) AND j.user_status_at IS NULL "
+                    "AND j.status != 'discarded' AND j.canonical_url IS NOT NULL "
+                    "ORDER BY j.created_at"
+                ),
+                {"title": title},
+            ).all()
+        return [str(r[0]) for r in rows]
+
     # ---- LLM cache and spend ------------------------------------------------------------------
 
     def llm_cache_get(self, key: str) -> str | None:

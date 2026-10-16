@@ -75,3 +75,22 @@ def test_remote_and_sparse_postings() -> None:
         "employment_type": "internship",
     }  # fmt: skip
     assert from_job_posting({"title": "", "baseSalary": {"value": 0}}) == {}
+
+
+def test_experience_and_text_from_the_description() -> None:
+    from jobradar.pipeline.structured import description_text
+
+    # Accenture's Workday JobPosting (2026-10-16): experience only in the description.
+    posting = {
+        "@type": "JobPosting", "title": "Application Developer",
+        "hiringOrganization": {"name": "8113 ASOL- Bangalore 7 SEZ Company"},
+        "description": "<p>Project Role : Application Developer</p><p>Minimum 5 year(s) of "
+        "experience is required</p><ul><li>Java &amp; Spring</li></ul>",
+    }  # fmt: skip
+    assert from_job_posting(posting)["experience_min"] == 5
+    assert description_text(posting) == (
+        "Project Role : Application Developer\nMinimum 5 year(s) of experience is required\n"
+        "Java & Spring"
+    )
+    stated = {**posting, "experienceRequirements": {"monthsOfExperience": 12}}
+    assert from_job_posting(stated)["experience_min"] == 1  # the stated field wins

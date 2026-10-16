@@ -43,9 +43,14 @@ ExtractMode = Literal["fallback", "always"]
 
 
 def free_fields(
-    structured: dict[str, Any] | None, post: str | None, posted: date | None
+    structured: dict[str, Any] | None,
+    post: str | None,
+    posted: date | None,
+    from_board: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    """Fields from the free layers, and which layer gave each one."""
+    """Fields from the free layers, and which layer gave each one. For a posting read off a
+    company board, the post's "Company:" is the board's company and beats the page's hiring
+    entity ("8113 ASOL- Bangalore 7 SEZ Company" for Accenture)."""
     from_page = from_job_posting(structured) if structured else {}
     from_labels = from_post(post, posted.year if posted else None) if post else {}
     # Job blogs fill validThrough automatically (six months on, or 31 December), so a "Last
@@ -56,6 +61,8 @@ def free_fields(
         or (posted and not posted <= page_deadline <= posted + timedelta(PAGE_DEADLINE_DAYS))
     ):
         del from_page["deadline"]
+    if from_board and "company" in from_labels:
+        from_page.pop("company", None)
     fields: dict[str, Any] = {}
     sources: dict[str, str] = {}
     for layer, found in (("structured", from_page), ("post_labels", from_labels)):
@@ -129,7 +136,8 @@ class Extractor:
         posted = from_iso(first.posted_at).date() if first else None
 
         structured = json.loads(page.structured_json) if page and page.structured_json else None
-        fields, sources = free_fields(structured, own_post(self.repo, job.id), posted)
+        from_board = any(s.platform == "board" for s in sightings)
+        fields, sources = free_fields(structured, own_post(self.repo, job.id), posted, from_board)
         has_key_fields = all(fields.get(k) for k in _KEY)
         use_llm = self.llm is not None and (self.mode == "always" or not has_key_fields)
 

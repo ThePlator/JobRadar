@@ -42,11 +42,17 @@ GONE_RETRY = timedelta(days=30)
 CLOSED_REASON = "closed on the company board"
 # Unofficial APIs are read less often than `every_minutes`, whatever it says.
 MIN_EVERY_MINUTES = {"workday": 30}
-# After a capped read, a posting JobRadar hasn't seen may be an old one that was beyond the
-# cap until newer ones closed. It counts as new only if the board says it's this recent.
-# Workday's "Posted N Days Ago" is the real publish date, so its boards always get this rule.
-PARTIAL_NEW_WITHIN = timedelta(days=3)
+# A board that lists more postings than its reader reads (Accenture: tens of thousands, in an
+# order that changes between reads) can't be compared read to read: an unseen posting may just
+# have been beyond the cap last time. Such reads pass nothing on; `jobradar boards` says why.
+TOO_BIG = "lists more postings than JobRadar reads, in a changing order: nothing passed on"
+SEEN_KEEP = 5_000  # ids remembered for a board that's too big to read whole
+# Workday's "Posted N Days Ago" is the real publish date: an unseen posting older than this
+# isn't new (it was re-listed or came into view), so it isn't passed on.
+NEW_WITHIN = timedelta(days=3)
 DATED_BOARDS = ("workday",)
+# A safety net: more new postings than this at once is a glitch, not a hiring spree.
+MAX_NEW_PER_CHECK = 10
 USER_AGENT = "JobRadar/0.2 (+https://github.com/ThePlator/JobRadar)"
 
 
@@ -159,8 +165,8 @@ class BoardWatcher:
             return
 
         current = {p.id: p.url for p in postings}
-        # A read that stopped at the reader's page cap left the oldest postings out: they
-        # haven't closed, and mustn't come back as "new" later either.
+        # A read that stopped at the reader's page cap: nothing in it is known to be new, and
+        # postings it left out haven't closed.
         complete = not isinstance(postings, Partial)
         seen: dict[str, str] | None = json.loads(board.seen_json) if board.seen_json else None
         board.misses, board.skip_until, board.last_error = 0, None, None
@@ -178,10 +184,9 @@ class BoardWatcher:
             log.warning("board listed nothing; ignoring this round", extra={"board": ref.key})
             return
         else:
-            fresh = [p for p in postings if p.id not in seen]
-            if not complete or ref.ats in DATED_BOARDS:
-                recent = now - PARTIAL_NEW_WITHIN
-                fresh = [p for p in fresh if p.posted_at and p.posted_at >= recent]
+            fresh = [p for p in postings if p.id not in seen] if complete else []
+            if ref.ats in DATED_BOARDS:
+                fresh = [p for p in fresh if p.posted_at and p.posted_at >= now - NEW_WITHIN]
             passed = []
             for posting in fresh:
                 why = why_skipped(posting.title, posting.location, posting.level)
@@ -194,6 +199,10 @@ class BoardWatcher:
                     log.info("board posting skipped", extra=about | {"why": why})
             if fresh:
                 board.latest_json = latest(fresh, now)
+            if len(passed) > MAX_NEW_PER_CHECK:
+                log.warning("board passed on too many at once; keeping the first 10",
+                            extra={"board": ref.key, "new": len(passed)})  # fmt: skip
+                passed = passed[:MAX_NEW_PER_CHECK]
             for posting in passed:
                 await self.emit(
                     IncomingMessage(
@@ -214,8 +223,13 @@ class BoardWatcher:
                          "passed_filters": len(passed), "closed": sum(closed)})  # fmt: skip
         if board.latest_json is None and postings:  # boards read before this was kept
             board.latest_json = latest(postings, now)
-        board.seen_json = json.dumps(current if complete else {**(seen or {}), **current})
-        board.jobs_on_board = len(current)
+        if not complete:
+            board.last_error = TOO_BIG
+            if seen is not None:
+                log.info("board too big to track; nothing passed on", extra={"board": ref.key})
+            current = dict(list({**(seen or {}), **current}.items())[-SEEN_KEEP:])
+        board.seen_json = json.dumps(current)
+        board.jobs_on_board = len(postings)
         self.repo.save_board(board)
 
     async def _close(self, url: str) -> bool:

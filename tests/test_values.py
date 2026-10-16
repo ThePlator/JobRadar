@@ -107,3 +107,23 @@ def test_company_and_role_cleanup() -> None:
     assert clean_role("Systems Engineer (SE) | 2027 Batch") == "Systems Engineer (SE)"
     assert clean_role("SDE | Backend") == "SDE | Backend"  # no id: kept
     assert clean_role("Multiple Roles") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "years"),
+    [
+        ("Must have skills : Java Minimum 7.5 year(s) of experience is required Educational "
+         "Qualification : 15 years full time education", (7.5, None)),
+        ("We need 3+ years of relevant industry experience in Java", (3, None)),
+        ("2-4 yrs exp in Python", (2, 4)),
+        ("Experience: 0-2 Years", (0, 2)),
+        ("Experience required - 1 year", (1, None)),
+        ("Educational Qualification : 15 years full time education", (None, None)),
+        ("A company with 25 years of history, great experience", (None, None)),
+        ("Freshers welcome", (None, None)),
+    ],
+)  # fmt: skip
+def test_experience_in_description(text: str, years: tuple[float | None, float | None]) -> None:
+    from jobradar.pipeline.values import experience_in_text
+
+    assert experience_in_text(text) == years

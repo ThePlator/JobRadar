@@ -99,3 +99,21 @@ async def test_keeps_job_posting_data() -> None:
     respx.get("https://acme.com/j/2").respond(200, html=ARTICLE.replace("</head>", ld + "</head>"))
     page = await fetcher().fetch("https://acme.com/j/2")
     assert page.structured == {"@type": "JobPosting", "title": "SDE"}
+
+
+@respx.mock
+async def test_javascript_page_reads_its_jobposting_description() -> None:
+    # Workday job pages are JavaScript; their JobPosting data still has the description.
+    data = (
+        '{"@context": "https://schema.org", "@type": "JobPosting", "title": "Developer", '
+        '"description": "Minimum 5 year(s) of experience is required. Java and Spring."}'
+    )
+    html = (
+        f"<html><head><script type='application/ld+json'>{data}</script></head>"
+        "<body><div id='root'></div></body></html>"
+    )
+    respx.get("https://acme.com/robots.txt").respond(404)
+    respx.get("https://acme.com/job/1").respond(200, html=html)
+    page = await fetcher().fetch("https://acme.com/job/1")
+    assert page.text == "Minimum 5 year(s) of experience is required. Java and Spring."
+    assert page.note is None

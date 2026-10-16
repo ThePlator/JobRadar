@@ -59,6 +59,33 @@ _FRESHER = re.compile(
 )
 
 
+# "Minimum 7.5 year(s) of experience", "3+ years of relevant experience", "2-4 yrs exp"
+_EXP_BEFORE = re.compile(
+    r"(\d+(?:\.\d+)?\s*(?:(?:-|\u2013|\u2014|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*"
+    r"(?:years?|yrs?|months?)(?:\s*\(s\))?\+?)\s*(?:of\s+)?(?:[\w-]+\s+){0,3}?"
+    r"(?:experience|exp)\b",
+    re.IGNORECASE,
+)
+# "Experience: 2+ years", "Experience required - 0-2 Years"
+_EXP_AFTER = re.compile(
+    r"\b(?:experience|exp)(?:\s+required)?\s*[:\-\u2013]\s*"
+    r"(\d+(?:\.\d+)?\s*(?:(?:-|\u2013|\u2014|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*"
+    r"(?:years?|yrs?|months?))",
+    re.IGNORECASE,
+)
+
+
+def experience_in_text(text: str) -> tuple[float | None, float | None]:
+    """(min, max) years from a job description, only where a number of years sits next to
+    the word "experience" ("15 years full time education" doesn't count)."""
+    for pattern in (_EXP_BEFORE, _EXP_AFTER):
+        if m := pattern.search(text):
+            lo, hi = parse_experience(m.group(1))
+            if lo is not None:
+                return lo, hi
+    return None, None
+
+
 def parse_experience(value: str) -> tuple[float | None, float | None]:
     """(min, max) years. "0-3 Years" -> (0, 3); "2+ years" -> (2, None); "Freshers" -> (0, None)."""
 
