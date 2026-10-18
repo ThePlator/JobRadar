@@ -6,6 +6,9 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Website**
+- `site/`: a one-page showcase published to GitHub Pages by `.github/workflows/pages.yml`. Blip, the agent's mascot, walks one job through the five steps (Watch, Clean, Score, Alert, Resume) as you scroll, with the real alert email and an example resume. Visitors can paste a job post and see it read in their browser (the post-label idea, no AI, nothing sent), and try three AI rewrites against the resume checker's rules. Static HTML, CSS and JS, no build step.
+
 **Tailored resumes (v0.3)**
 - JobRadar builds a one-page PDF resume per job from `profile.yaml`, in your own LaTeX layout (`resume.template: classic` reproduces it exactly; a path to your own `.tex.j2` works too). It's built when a job first scores at or above `scoring.auto_resume_above` (at most `resume.max_per_day`), when you set a job to Shortlisted, or with `jobradar resume <job>`.
 - The writer model (`llm.writer_model`, now Gemini Flash: Pro has no free tier) only selects, orders and rephrases your facts; it never sees your name or contact details. A checker undoes any bullet that adds a number, size word ("doubled", "10x"), technology or banned phrase the original doesn't have, drops unknown bullet ids, and keeps skills to those listed in that group. Every undo is logged and stored with the resume.
