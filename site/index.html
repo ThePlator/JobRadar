@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobRadar: Blip reads the job channels for you</title>
+<meta name="description" content="JobRadar reads Telegram job channels and company job boards, scores every posting against your profile, emails you strong matches in about a minute, and writes a one-page resume that never makes things up. Self-hosted, open source.">
+<meta property="og:title" content="JobRadar">
+<meta property="og:description" content="A self-hosted job agent: strong matches in your inbox in about a minute, and a one-page resume that never makes things up.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='17' fill='white' stroke='%231f2328' stroke-width='3'/%3E%3Cline x1='20' y1='20' x2='33' y2='11' stroke='%231a56db' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='20' cy='20' r='3.5' fill='%231a56db'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>try{var t=localStorage.getItem("jr-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" class="defs" aria-hidden="true">
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+  <!-- Blip, the agent -->
+  <symbol id="blip" viewBox="0 0 200 230">
+    <g class="b-z" aria-hidden="true"><text x="150" y="44">z</text><text x="166" y="24">z</text><text x="180" y="8">z</text></g>
+    <g class="b-antenna"><line class="bl" x1="100" y1="44" x2="100" y2="18" stroke-width="5" stroke-linecap="round"/><circle class="b-ball" cx="100" cy="14" r="9"/></g>
+    <rect class="bb bl" x="28" y="42" width="144" height="116" rx="44" stroke-width="5"/>
+    <rect class="b-visor" x="46" y="62" width="108" height="74" rx="28"/>
+    <g class="b-eyes">
+      <g class="b-open"><ellipse class="b-eye" cx="80" cy="96" rx="10" ry="13"/><ellipse class="b-eye" cx="120" cy="96" rx="10" ry="13"/><circle class="b-glint" cx="84" cy="90" r="3.2"/><circle class="b-glint" cx="124" cy="90" r="3.2"/></g>
+      <g class="b-happy b-eye-s" fill="none" stroke-width="5" stroke-linecap="round"><path d="M70 100 q10 -14 20 0"/><path d="M110 100 q10 -14 20 0"/></g>
+      <g class="b-sleep b-eye-s" fill="none" stroke-width="5" stroke-linecap="round"><path d="M70 97 q10 8 20 0"/><path d="M110 97 q10 8 20 0"/></g>
+    </g>
+    <path class="b-mouth b-eye-s" d="M92 118 q8 7 16 0" fill="none" stroke-width="4" stroke-linecap="round"/>
+    <ellipse class="b-cheek" cx="44" cy="134" rx="10" ry="6.5"/><ellipse class="b-cheek" cx="156" cy="134" rx="10" ry="6.5"/>
+    <rect class="bb bl" x="64" y="160" width="72" height="46" rx="20" stroke-width="5"/>
+    <circle cx="100" cy="183" r="11" fill="none" class="b-chest-ring" stroke-width="3.5"/><line class="b-chest" x1="100" y1="183" x2="108" y2="176" stroke-width="3.5" stroke-linecap="round"/>
+    <g class="b-arm b-arm-l"><path class="bl" d="M64 176 q-16 4 -20 18" fill="none" stroke-width="5" stroke-linecap="round"/></g>
+    <g class="b-arm b-arm-r"><path class="bl" d="M136 176 q16 4 20 18" fill="none" stroke-width="5" stroke-linecap="round"/></g>
+    <rect class="bf" x="74" y="206" width="20" height="14" rx="7"/><rect class="bf" x="106" y="206" width="20" height="14" rx="7"/>
+  </symbol>
+  <symbol id="heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 5 6.4 5c2.1 0 3.6 1.2 4.4 2.6.2.3.6.3.8 0C12.4 6.2 13.9 5 16 5c3.4 0 5.5 3.4 4 6.8C19.5 16.4 12 21 12 21z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+</svg>
+
+<header class="top">
+  <a class="brand" href="#top" aria-label="JobRadar home">
+    <svg viewBox="0 0 40 40" width="30" height="30" aria-hidden="true"><circle class="lg-face" cx="20" cy="20" r="17" stroke-width="3"/><circle class="lg-ring" cx="20" cy="20" r="9" fill="none" stroke-width="2.5" opacity=".35"/><line class="brand-hand" x1="20" y1="20" x2="33" y2="11" stroke-width="3.5" stroke-linecap="round"/><circle class="lg-dot" cx="20" cy="20" r="3.5"/></svg>
+    JobRadar
+  </a>
+  <nav aria-label="Sections">
+    <a href="#night">A real night</a>
+    <a href="#chat">Forward a post</a>
+    <a href="#pen">The red pen</a>
+    <a href="#run">Run it</a>
+    <button class="theme" id="themeBtn" type="button" aria-label="Dark theme" aria-pressed="false"><span class="knob"><svg class="i sun"><use href="#i-sun"/></svg><svg class="i moon"><use href="#i-moon"/></svg></span></button>
+    <a class="gh" href="https://github.com/ThePlator/JobRadar"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg>GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="hero-copy">
+    <h1>Blip reads the job channels, so you don't have to.</h1>
+    <p class="lede">JobRadar is a small agent you run on your own computer. It watches your Telegram job channels and the company job boards you pick, keeps the jobs that fit you, emails you the strong ones, and writes a one-page resume that only says true things.</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/ThePlator/JobRadar"><svg class="i" aria-hidden="true"><use href="#i-github"/></svg>Get it on GitHub</a>
+      <a class="btn" href="#night">Watch a real night</a>
+    </div>
+  </div>
+  <div class="desk">
+    <button class="blip-btn" id="heroBlip" type="button" aria-label="Say hi to Blip">
+      <svg class="blip" viewBox="0 0 200 230"><use href="#blip"/></svg>
+    </button>
+    <div class="bubble" id="heroBubble" role="status">Hi, I'm Blip.</div>
+    <div class="term" aria-label="JobRadar's log, scrolling">
+      <div class="term-lines" id="ticker"></div>
+    </div>
+  </div>
+</section>
+
+<section class="night" id="night">
+  <header class="night-head">
+    <h2>One real night in my log</h2>
+    <p>Thursday, 15 October. Everything below happened on my laptop, with the timestamps from <code>data/run.log</code>. The notes in the margin are Blip's.</p>
+  </header>
+
+  <ol class="log">
+    <li class="entry">
+      <time>22:15:15</time>
+      <div class="thing">
+        <div class="tg">
+          <div class="tg-who">A Telegram job channel</div>
+          <p>Rubrik Hiring Software Engineer<br>Salary: 15 LPA<br>Apply here: <span class="tg-link">rubrik.com/company/careers/departments/job.8256407</span></p>
+        </div>
+        <div class="tg tg-2">
+          <p>QualComm Mass Hiring Associate Software Engineer<br>Salary: 19 LPA<br>Apply here: <span class="tg-link">careers.qualcomm.com/careers/job/446719784235</span></p>
+        </div>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Two links I've never seen. Two new jobs.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:15:18</time>
+      <div class="thing">
+        <div class="row hidden-row"><span>Finance Apprentice Analyst</span><span>eClerx Services</span><span class="why">hidden: weak match (29)</span></div>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Finance, not software. Hidden, not deleted: it's under Hidden in Notion if you disagree.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:15:43</time>
+      <div class="thing">
+        <div class="notion">
+          <div class="n-head"><span>Role</span><span>Company</span><span>Match Score</span><span>Status</span></div>
+          <div class="n-row"><span>Software Engineer</span><span>Rubrik</span><span class="n-score">79</span><span class="n-pill">New</span></div>
+          <div class="n-why">Good fit · 79 · eligible</div>
+        </div>
+        <code class="raw">job matched job_id=7d105a5507 score=79 decision=alert</code>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>79, and you're eligible. That's worth an email.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:15:49</time>
+      <div class="thing">
+        <div class="mailbox">
+          <div class="mb-bar"><b>JobRadar</b><span>[JobRadar 79] Software Engineer @ Rubrik</span></div>
+          <iframe src="assets/email-rubrik.html" title="The alert email JobRadar sent" tabindex="-1"></iframe>
+        </div>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Sent six seconds after I scored it.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:15:56</time>
+      <div class="thing">
+        <div class="notion">
+          <div class="n-row"><span>Associate Software Engineer</span><span>QualComm</span><span class="n-score">92</span><span class="n-pill">New</span></div>
+        </div>
+        <div class="wait"><svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>Next email at 22:25:49, after a 10 minute pause</div>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>92! But you just got an email from me, so I wait ten minutes and send whatever else turns up together.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:20:24</time>
+      <div class="thing">
+        <pre class="skips"><span>druva       Regional VP, Alliances      New Jersey   not in India</span>
+<span>stripe      Account Executive, Bridge   SF, NYC      not in India</span>
+<span>stripe      Staff Software Engineer     Seattle      not in India</span>
+<span>okta        Senior Software Engineer    Toronto      not in India</span>
+<span>databricks  Sr Support Engineer         SF           not in India</span></pre>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Until 22:25 I checked the company boards too. New postings that aren't in India, aren't tech, or are senior never reach you, and cost no AI call.</p>
+    </li>
+
+    <li class="entry">
+      <time>22:25:55</time>
+      <div class="thing">
+        <div class="mailbox">
+          <div class="mb-bar"><b>JobRadar</b><span>[JobRadar 92] Associate Software Engineer @ QualComm</span></div>
+          <iframe src="assets/email-qualcomm.html" title="The second alert email" tabindex="-1"></iframe>
+        </div>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>And there it is. Then I went back to watching.</p>
+    </li>
+
+    <li class="entry later">
+      <time>When you shortlist</time>
+      <div class="thing">
+        <a class="paper-wrap" href="assets/example-resume.pdf" target="_blank" rel="noopener"><img src="assets/example-resume.png" alt="A full one-page example resume built by JobRadar: summary, skills, two internships, three projects and education"></a>
+        <a class="pdf-link" href="assets/example-resume.pdf" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>Open the full PDF</a>
+      </div>
+      <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Set a job to Shortlisted in Notion and I write a one-page resume for it, in your own LaTeX layout. This one belongs to a made-up fresher.</p>
+    </li>
+  </ol>
+</section>
+
+<section class="chat-sec" id="chat">
+  <div class="chat-copy">
+    <h2>Forward Blip a post</h2>
+    <p>Telegram job posts are messy: emoji, fancy fonts, the batch buried on line six. Blip runs a highlighter over the lines it understands and skips the rest, like JobRadar's free first pass. It runs in your browser and nothing is sent anywhere.</p>
+    <div class="samples" role="group" aria-label="Example posts">
+      <button type="button" data-sample="0" aria-pressed="true">A tidy post</button>
+      <button type="button" data-sample="1" aria-pressed="false">"Is hiring" post</button>
+      <button type="button" data-sample="2" aria-pressed="false">Fancy-font post</button>
+    </div>
+    <div class="profile">
+      <label for="mySkills">Your skills</label>
+      <input id="mySkills" value="Python, SQL, React, Node.js, Docker">
+      <label for="myBatch">Your batch</label>
+      <input id="myBatch" value="2026" inputmode="numeric" maxlength="4">
+    </div>
+    <form class="own" id="chatForm">
+      <label for="postText">Or paste your own</label>
+      <textarea id="postText" rows="3" placeholder="Paste a job post from any channel"></textarea>
+      <button type="submit">Let Blip read it</button>
+    </form>
+  </div>
+  <div class="postdesk">
+    <svg class="blip peek" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <article class="tgpost" aria-labelledby="fwdFrom">
+      <p class="fwd" id="fwdFrom">Forwarded from a jobs channel</p>
+      <div class="lines" id="chatLog"></div>
+    </article>
+    <div class="legend" aria-hidden="true">
+      <span class="hl k-company">company</span><span class="hl k-role">role</span><span class="hl k-location">place</span><span class="hl k-batch">who can apply</span><span class="hl k-salary">pay and dates</span><span class="hl k-link">link</span><span class="sk have">you have it</span><span class="sk miss">you don't</span><span class="skip">skipped</span>
+    </div>
+    <p class="readout" id="readout" role="status"></p>
+  </div>
+</section>
+
+<section class="pen" id="pen">
+  <div class="pen-copy">
+    <h2>Blip's red pen</h2>
+    <p>Before a tailored resume is built, Blip checks every AI rewrite against the bullet it came from. A new number, a "10x", a tool you never mentioned, or a word like "expert", and your own sentence goes back in.</p>
+    <div class="drafts" role="group" aria-label="AI rewrites of the bullet">
+      <button type="button" data-rw="0" aria-pressed="false">Brought the slowest report query down from 9 s to 1.2 s using composite indexes and a rewritten join.</button>
+      <button type="button" data-rw="1" aria-pressed="true">Made the slowest report query 10x faster with composite indexes.</button>
+      <button type="button" data-rw="2" aria-pressed="false">Expert at query tuning with Redis caching; cut the slowest report from 9 s to 1.2 s.</button>
+    </div>
+  </div>
+  <div class="proof">
+    <div class="paper" aria-label="Part of an example resume">
+      <p class="pr-name">Your Name</p>
+      <p class="pr-contact">Bengaluru | you@example.com | github.com/you</p>
+      <p class="pr-sec">Experience</p>
+      <p class="pr-role"><span><b>Backend Intern</b>, Example Labs</span><i>Jan 2026 to Apr 2026</i></p>
+      <ul class="pr-list">
+        <li class="pr-dim">Built a REST API in FastAPI and PostgreSQL for the internal billing team, serving 12 internal tools.</li>
+        <li class="pr-target"><span class="draft" id="draft"></span><span class="orig" id="orig">Cut the slowest report query from 9 s to 1.2 s with composite indexes and a rewritten join.</span></li>
+        <li class="pr-dim">Added integration tests with pytest and Testcontainers, raising coverage from 55% to 85%.</li>
+      </ul>
+    </div>
+    <ol class="marks" id="marks" aria-label="Blip's notes"></ol>
+    <p class="verdict" id="verdict" role="status"></p>
+  </div>
+</section>
+
+<section class="facts" id="facts">
+  <h2>Every alert so far</h2>
+  <p class="facts-lede">Each dot is one job Blip emailed me about, placed by how long after the original post it reached my inbox. Hover or tap a dot for its date.</p>
+  <figure class="swarm">
+    <svg id="swarm" viewBox="0 0 960 250" role="img" aria-label="Time from post to inbox for every job alert sent so far"></svg>
+    <figcaption><span class="dot-t"></span>Telegram post <span class="dot-b"></span>company board <span id="swarmHover" class="swarm-hover" aria-live="polite"></span></figcaption>
+  </figure>
+  <p class="swarm-note" id="swarmNote"></p>
+  <div class="minifacts">
+    <div class="mf">
+      <div class="squares" id="squares" aria-hidden="true"></div>
+      <p><b>132 of 175</b> Telegram jobs since 11 Oct were read with no AI call at all.</p>
+    </div>
+    <div class="mf">
+      <p class="boardnames"><span>Stripe</span><span>Rubrik</span><span>HackerRank</span><span>Databricks</span><span>MongoDB</span><span>Twilio</span><span>Okta</span><span>Commvault</span><span>Razorpay</span><span>Slice</span><span>Druva</span><span>Groww</span><span>GitLab</span><span>Meesho</span><span>Zeta</span><span>CRED</span><span>Sarvam AI</span><span>Atlan</span><span>Bosch</span><span>NVIDIA</span><span>Salesforce</span><span>Intel</span><span>Adobe</span><span>HP</span><span>Target</span><span>Workday</span><span>KLA</span><span>Autodesk</span><span>Analog Devices</span><span>Motorola Solutions</span><span>Thomson Reuters</span><span>Equifax</span><span>Fidelity</span><span>Philips</span><span>Cadence</span><span>Nasdaq</span><span>Wolters Kluwer</span><span>Mastercard</span><span>PayPal</span><span>BlackRock</span></p>
+      <p><b>40 company boards</b> read straight from their hiring sites, every 20 minutes.</p>
+    </div>
+    <div class="mf">
+      <p class="pytest" aria-hidden="true"><span id="pyDots"></span><b>482 passed</b> in 27.95s</p>
+      <p><b>482 automated tests</b> run before every change goes in.</p>
+    </div>
+  </div>
+</section>
+
+<section class="run" id="run">
+  <div class="run-copy">
+    <h2>Wake up your own Blip</h2>
+    <p>You'll need Python 3.11 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, a Telegram account, a Notion database made from the template and a free Gemini key. Your keys go in <code>.env</code>, which never leaves your machine.</p>
+    <p>Click a step to see what it prints on a first run. Blip sleeps until the last one.</p>
+    <p class="small">Every command is explained in <a href="https://github.com/ThePlator/JobRadar/blob/main/docs/COMMANDS.md">docs/COMMANDS.md</a>.</p>
+  </div>
+  <div class="bed">
+    <svg class="blip bed-blip sleep" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <ol class="term big steps">
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">1</span><code>git clone https://github.com/ThePlator/JobRadar<br>cd JobRadar</code></button><button type="button" class="copy" aria-label="Copy command" data-copy="git clone https://github.com/ThePlator/JobRadar && cd JobRadar"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Cloning into 'JobRadar'...</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">2</span><code>uv sync</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Installs Python packages into .venv; nothing global.</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">3</span><code>uv run jobradar init</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="cy">+ created config/config.yaml from config.example.yaml: edit it before continuing</span><span class="cy">+ created config/profile.yaml from profile.example.yaml: edit it before continuing</span><span class="cy">+ created .env from .env.example: edit it before continuing</span><span>Telegram login (a code is sent to your Telegram app; nothing is posted):</span><span class="ok">✓ Telegram logged in as you</span><span class="ok">✓ Notion database found and matches the template</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">4</span><code>uv run jobradar chats</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Lists the Telegram chats you can read, with their ids.</span><span>Put ids (or @usernames) under sources.telegram.chats in config.yaml.</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">5</span><code>uv run jobradar run</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Blip is awake. Leave this running; Ctrl+C puts it back to sleep.</span></div></li>
+    </ol>
+  </div>
+</section>
+</main>
+
+<footer>
+  <svg class="blip tiny" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+  <p>Made by <a href="https://theplator.dev">Sameer</a> while job hunting as a fresher. MIT licensed. <a href="https://github.com/ThePlator/JobRadar">Source on GitHub</a>.</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
