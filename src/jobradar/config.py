@@ -224,10 +224,30 @@ class PagesConfig(_Strict):
         return seen
 
 
+FreehireSeniority = Literal["intern", "junior", "middle", "senior"]
+
+
+def _juniors() -> list[FreehireSeniority]:
+    return ["intern", "junior"]
+
+
+class FreehireConfig(_Strict):
+    """freehire.me's public job search (github.com/strelov1/freehire): one query covers
+    thousands of companies on hiring systems JobRadar has no reader for. Off by default."""
+
+    enabled: bool = False
+    every_minutes: int = Field(default=30, ge=15, le=240)
+    countries: list[str] = Field(default_factory=lambda: ["IN"], min_length=1)
+    seniority: list[FreehireSeniority] = Field(default_factory=_juniors, min_length=1)
+    categories: list[str] = Field(default_factory=list)  # e.g. [backend, fullstack]; empty: all
+    max_pages: int = Field(default=5, ge=1, le=20)  # 100 postings a page
+
+
 class SourcesConfig(_Strict):
     telegram: TelegramSourceConfig = Field(default_factory=TelegramSourceConfig)
     boards: BoardsConfig = Field(default_factory=BoardsConfig)
     pages: PagesConfig = Field(default_factory=PagesConfig)
+    freehire: FreehireConfig = Field(default_factory=FreehireConfig)
     email_forward: EmailForwardSourceConfig = Field(default_factory=EmailForwardSourceConfig)
     whatsapp: WhatsAppSourceConfig = Field(default_factory=WhatsAppSourceConfig)
 
