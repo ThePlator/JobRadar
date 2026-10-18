@@ -42,6 +42,60 @@
   }
   if (!still) setTimeout(blink, 1500);
 
+  // Waves hello; hearts when you click; dozes off when you leave it alone.
+  function wave(svg) {
+    if (still) return;
+    svg.classList.remove("wave"); void svg.getBoundingClientRect(); svg.classList.add("wave");
+    clearTimeout(svg._wave); svg._wave = setTimeout(() => svg.classList.remove("wave"), 2100);
+  }
+  function hearts(host, x, y) {
+    if (still) return;
+    for (let i = 0; i < 6; i++) {
+      const h = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      h.setAttribute("class", "heart"); h.setAttribute("viewBox", "0 0 24 24"); h.setAttribute("aria-hidden", "true");
+      h.innerHTML = '<use href="#heart"/>';
+      h.style.left = `${x - 11 + (Math.random() - .5) * 40}px`; h.style.top = `${y - 11}px`;
+      h.style.setProperty("--dx", `${(Math.random() - .5) * 90}px`);
+      h.style.setProperty("--rot", `${(Math.random() - .5) * 60}deg`);
+      h.style.animationDelay = `${i * 70}ms`;
+      host.append(h);
+      setTimeout(() => h.remove(), 1400 + i * 70);
+    }
+  }
+  for (const svg of blips) {
+    const host = svg.closest(".blip-btn, .stage-blip, .reader");
+    if (!host) continue;
+    host.addEventListener("pointerenter", () => wave(svg));
+    host.addEventListener("click", (e) => {
+      const r = host.getBoundingClientRect();
+      hearts(host, e.clientX - r.left || r.width / 2, e.clientY - r.top || r.height / 3);
+      svg.classList.add("blush"); setTimeout(() => svg.classList.remove("blush"), 1200);
+    });
+  }
+  let idle;
+  const nap = () => blips.forEach((b) => b.classList.add("sleep"));
+  function awake() {
+    clearTimeout(idle);
+    if (blips[0].classList.contains("sleep")) blips.forEach((b) => { b.classList.remove("sleep"); wave(b); });
+    idle = setTimeout(nap, 25000);
+  }
+  for (const ev of ["pointermove", "keydown", "scroll", "touchstart"]) addEventListener(ev, awake, { passive: true });
+  awake();
+  setTimeout(() => wave(blips[0]), 600);
+
+  // ---- light / dark -----------------------------------------------------------------------
+  const themeBtn = $("#themeBtn"), root = document.documentElement;
+  const dark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const syncTheme = () => { themeBtn.setAttribute("aria-pressed", String(dark())); themeBtn.title = dark() ? "Switch to light" : "Switch to dark"; };
+  themeBtn.addEventListener("click", () => {
+    root.dataset.theme = dark() ? "light" : "dark";
+    try { localStorage.setItem("jr-theme", root.dataset.theme); } catch { /* private mode: just this visit */ }
+    syncTheme();
+    say(dark() ? "Night mode. My eyes glow now." : "Good morning!");
+    wave(blips[0]);
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
+
   // ---- top bar ------------------------------------------------------------------------
   const top = $(".top");
   addEventListener("scroll", () => top.classList.toggle("scrolled", scrollY > 8), { passive: true });
@@ -84,6 +138,7 @@
     bubble.classList.remove("pop"); void bubble.offsetWidth; bubble.classList.add("pop");
   }
   $("#heroBlip").addEventListener("click", () => { mood(heroBlip, "happy"); say(LINES[++line % LINES.length]); });
+  syncTheme();
   if (!still) { setInterval(ping, 1700); ping(); ping(); } else { for (let i = 0; i < 4; i++) ping(); }
 
   // ---- the scroll story ---------------------------------------------------------------
