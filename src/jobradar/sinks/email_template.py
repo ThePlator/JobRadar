@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from jobradar.db.models import Job
 from jobradar.pipeline.schemas import JobPosting
@@ -48,6 +48,20 @@ def day_month(iso_date: str | None) -> str:
     except ValueError:
         return ""
     return f"{day.day} {day:%b}"
+
+
+OLD_POSTING_DAYS = 30  # the default of notify.old_posting_days
+
+
+def posting_age(posting: JobPosting | None, today: date | None = None) -> str:
+    """'Posted 2 Sep' (the company's own date), 'Old posting · 2 Sep' past 30 days, or ''."""
+    if posting is None or posting.published_on is None:
+        return ""
+    when = day_month(posting.published_on.isoformat())
+    today = today or date.today()
+    if posting.published_on < today - timedelta(days=OLD_POSTING_DAYS):
+        return f"Old posting · {when}"
+    return f"Posted {when}"
 
 
 def score_colors(score: int | None) -> tuple[str, str]:
@@ -179,6 +193,8 @@ def job_card(
         chips.append(chip(seen[0].upper() + seen[1:], ("#e8f0fe", ACCENT)))
     if closes := day_month(job.deadline):
         chips.append(chip(f"Closes {closes}", FAIR))
+    if age := posting_age(posting):
+        chips.append(chip(age, POOR if age.startswith("Old") else ("#eef1f5", MUTED)))
 
     skill_rows = ""
     if reason.have:
@@ -219,7 +235,9 @@ def job_card(
 
     text = [f"{score}  {role}" + (f" — {sub}" if sub else "")]
     meta = [
-        m for m in (reason.fit, reason.eligibility, seen, f"closes {closes}" if closes else "") if m
+        m
+        for m in (reason.fit, reason.eligibility, seen, f"closes {closes}" if closes else "", age)
+        if m
     ]
     if meta:
         text.append("    " + " · ".join(meta))

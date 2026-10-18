@@ -94,3 +94,14 @@ def test_experience_and_text_from_the_description() -> None:
     )
     stated = {**posting, "experienceRequirements": {"monthsOfExperience": 12}}
     assert from_job_posting(stated)["experience_min"] == 1  # the stated field wins
+
+
+def test_date_posted_becomes_published_on() -> None:
+    base = {"@type": "JobPosting", "title": "Developer"}
+    assert from_job_posting({**base, "datePosted": "2026-10-16"})["published_on"] == date(
+        2026, 10, 16
+    )
+    assert from_job_posting({**base, "datePosted": "2026-09-02T08:00:00Z"})["published_on"] == date(
+        2026, 9, 2
+    )
+    assert "published_on" not in from_job_posting({**base, "datePosted": "last week"})

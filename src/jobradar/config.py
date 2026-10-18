@@ -388,6 +388,9 @@ class NotifyConfig(_Strict):
     max_alerts_per_day: int = Field(default=10, ge=1, le=100)
     # Only jobs first seen this recently can alert; older ones were in your Inbox already.
     alert_max_age_days: float = Field(default=2, gt=0, le=30)
+    # A job its own site says was published longer ago than this gets no instant alert: it
+    # still reaches your Inbox and digest, marked "old posting".
+    old_posting_days: int = Field(default=30, ge=1, le=365)
     digest: bool = True  # a summary email at each digest time
     # An email when a job you shortlisted closes today or tomorrow (checked hourly, 8:00-22:00).
     closing_reminders: bool = True

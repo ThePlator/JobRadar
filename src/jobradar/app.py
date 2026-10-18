@@ -6,11 +6,12 @@ import asyncio
 import contextlib
 import logging
 import signal
+from datetime import UTC, datetime
 
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
 from jobradar.llm import LLM, load_prompt
-from jobradar.pipeline.extract import Extractor, backfill_role_keys
+from jobradar.pipeline.extract import Extractor, backfill_published, backfill_role_keys
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
@@ -152,6 +153,7 @@ def make_matcher(
         repo, queue, providers, profile, version, config.matching,
         config.filters, config.scoring, alerts,
         alert_max_age_days=config.notify.alert_max_age_days, tz=config.notify.tz,
+        old_posting_days=config.notify.old_posting_days,
         liveness=liveness, build_resumes=build_resumes,
     )  # fmt: skip
 
@@ -245,14 +247,17 @@ async def run(settings: Settings) -> None:
         log.info("hid promo links found in earlier posts", extra={"count": hidden})
     if keyed := backfill_role_keys(repo):
         log.info("role keys added to earlier jobs", extra={"count": keyed})
+    if dated := backfill_published(repo, datetime.now(UTC).date()):
+        log.info("publish dates added to earlier jobs", extra={"count": dated})
     if pipeline.matcher is not None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
-    if "Source" in sink.added:  # a column JobRadar just added: fill it on existing pages
+    if sink.added:  # columns JobRadar just added (Source, Posted On): fill them on old pages
         for job_id in (pages := repo.jobs_in_notion()):
             queue.enqueue(NOTION_UPSERT, job_id)
-        log.info("filling the new Source column", extra={"pages": len(pages)})
+        log.info("filling new Notion columns", extra={"columns": ", ".join(sorted(sink.added)),
+                                                     "pages": len(pages)})  # fmt: skip
     pipeline.status_sync.schedule()  # then every 2 minutes
     if pipeline.boards is not None:
         pipeline.boards.schedule()  # then every minute: read the boards that are due

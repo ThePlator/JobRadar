@@ -270,10 +270,10 @@ freehire crawls 92 hiring systems (Workday, Oracle, iCIMS, Taleo, Phenom, Succes
 
 **Job age** (catch old and ghost postings)
 
-- [ ] Keep the company's own publish date when a board reader or the still-open check already calls the platform (Greenhouse, Lever, Ashby, SmartRecruiters, Workday detail); no extra requests
-- [ ] Alert says "on the company's board since 2 Sep"; Notion gets a **Posted On** date
-- [ ] Posted more than 30 days ago: no instant alert; goes to the digest marked "old posting"
-- [ ] Keep "first seen by JobRadar" next to "date the site states": some sites restate an old date on every crawl, so first-seen is the age that can't be rewritten from outside (freehire's `open_within_days` vs `posted_within_days`)
+- [x] Keep the company's own publish date (`published_on`) from what JobRadar already fetches, no extra requests: the page's schema.org `datePosted`, and the date a board read directly gives (Greenhouse first published, Lever created, Ashby published, SmartRecruiters released, Workday "Posted N Days Ago"); the earliest wins, a future date is ignored, the LLM never sets it, and freehire's dates are its own first-seen, not the company's. Jobs extracted earlier get theirs at startup from stored page data
+- [x] Alerts and digest cards show "Posted 2 Sep" (or "Old posting · 2 Sep"); Notion gets a **Posted On** column, added to your database automatically, and a "Published by the company" line in the page body
+- [x] Published more than `notify.old_posting_days` (30) ago: no instant alert ("alert skipped … old posting"); it still reaches your Inbox and the digest, marked "Old posting"
+- [x] Keep "first seen by JobRadar" next to "date the site states": some sites restate an old date on every crawl, so first-seen is the age that can't be rewritten from outside (freehire's `open_within_days` vs `posted_within_days`)
 - [ ] Later: possible ghost job. A job from freehire or Telegram whose company board JobRadar watches, but that isn't on that board, is marked "not on the company's board". An unread or empty board means "no coverage", never "missing"; the mark expires after 14 days unless re-checked (freehire's `internal/job/ghost`)
 
 **Tests**

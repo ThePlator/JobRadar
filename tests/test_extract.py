@@ -430,3 +430,58 @@ async def test_earlier_jobs_get_their_role_key(
     await extract_all(repo, queue, clock, second)
     job = repo.get_job(second)
     assert job is not None and job.status == JobStatus.HIDDEN.value
+
+
+# ---- job age -------------------------------------------------------------------------------------
+
+
+def test_published_on_takes_the_earliest_stated_date() -> None:
+    from datetime import date
+
+    from jobradar.db.repo import Sighting
+    from jobradar.pipeline.extract import published_on
+
+    def seen(platform: str, chat: str, at: str) -> Sighting:
+        return Sighting(platform, chat, None, "1", None, at)
+
+    today = date(2026, 10, 18)
+    board = seen("board", "greenhouse:acme", "2026-09-02T08:00:00.000000Z")
+    via_freehire = seen("board", "freehire:workday", "2026-10-18T08:00:00.000000Z")
+    telegram = seen("telegram", "-1001", "2026-08-01T08:00:00.000000Z")
+    assert published_on(date(2026, 9, 20), [board], today) == date(2026, 9, 2)
+    assert published_on(None, [via_freehire, telegram], today) is None  # neither is the site's
+    assert published_on(date(2027, 1, 1), [], today) is None  # in the future: a typo
+    assert published_on(date(2026, 10, 1), [via_freehire], today) == date(2026, 10, 1)
+
+
+async def test_the_llm_never_sets_the_publish_date(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    seed(repo)
+    fake = FakeCompletion({"company": "Acme", "role": "SDE Intern", "confidence": 0.9,
+                           "published_on": "2026-01-01"})  # fmt: skip
+    page = Page("https://acme.com/careers/1", "SDE Intern | Acme", "Python and SQL.")
+    ex = extractor(repo, queue, clock, FakeFetcher(page), fake)
+    queue.enqueue(FETCH, "job1")
+    await run(queue, ex)
+    job = repo.get_job("job1")
+    assert job is not None and json.loads(job.data_json or "{}")["published_on"] is None
+
+
+def test_earlier_jobs_get_their_publish_date(repo: Repo, clock: FakeClock) -> None:
+    from datetime import date
+
+    from jobradar.pipeline.extract import backfill_published
+
+    src = repo.upsert_source(Platform.BOARD, "greenhouse:acme", "Greenhouse · Acme")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, "1", "2026-09-02T08:00:00.000000Z", "post")
+    repo.get_or_create_job("old", "https://acme.com/j/1")
+    repo.add_job_source("old", raw_id)
+    repo.save_extraction("old", json.dumps({"company": "Acme", "role": "SDE"}), "Acme", "SDE",
+                         None, "rules-v1", JobStatus.EXTRACTED)  # fmt: skip
+    repo.set_notion_page("old", "page-1")
+    assert backfill_published(repo, date(2026, 10, 18)) == 1
+    job = repo.get_job("old")
+    assert job is not None and json.loads(job.data_json or "{}")["published_on"] == "2026-09-02"
+    assert backfill_published(repo, date(2026, 10, 18)) == 0  # checked once, not again

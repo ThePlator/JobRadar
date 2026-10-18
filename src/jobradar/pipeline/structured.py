@@ -7,6 +7,7 @@ from __future__ import annotations
 import html as html_lib
 import json
 import re
+from datetime import date
 from typing import Any
 
 from jobradar.pipeline.values import (
@@ -87,6 +88,15 @@ def description_text(posting: dict[str, Any]) -> str | None:
     text = _TAG.sub(" ", _BLOCK.sub("\n", html_lib.unescape(raw)))
     lines = (" ".join(line.split()) for line in html_lib.unescape(text).splitlines())
     return "\n".join(line for line in lines if line) or None
+
+
+def _date(value: Any) -> date | None:
+    """ "2026-10-16" or "2026-10-16T08:00:00Z" as a date; None for anything else."""
+    text = _text(value)
+    try:
+        return date.fromisoformat(text[:10]) if text else None
+    except ValueError:
+        return None
 
 
 def _locations(posting: dict[str, Any]) -> list[str]:
@@ -173,6 +183,8 @@ def from_job_posting(posting: dict[str, Any]) -> dict[str, Any]:
         fields["salary_text"] = salary
     if (valid := _text(posting.get("validThrough"))) and (deadline := parse_deadline(valid)):
         fields["deadline"] = deadline
+    if published := _date(posting.get("datePosted")):
+        fields["published_on"] = published
     lo, hi = _experience(posting.get("experienceRequirements"))
     if lo is None and hi is None and (about := description_text(posting)):
         # Many sites (Workday among them) state it only in the description:

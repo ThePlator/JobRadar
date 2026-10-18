@@ -66,6 +66,9 @@ class JobPosting(BaseModel):
     form_fields: list[FormField] = Field(default_factory=list)
     summary: str = ""
     confidence: float = 0.0
+    # The date the site says it published the job: page data (schema.org datePosted) or the
+    # company board's own date. Never from the LLM, which could only guess it.
+    published_on: date | None = None
 
     @field_validator("company", "role", "salary_text", mode="before")
     @classmethod
