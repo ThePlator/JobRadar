@@ -8,7 +8,7 @@ round, never "empty". Treating an error as an empty list would close every job o
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -63,12 +63,14 @@ async def _json(client: httpx.AsyncClient, method: str, url: str, **kwargs: Any)
 
 
 def parse_time(value: Any) -> datetime | None:
-    """ISO strings ("2026-10-13T06:02:58.058Z") or epoch milliseconds (Lever)."""
+    """ISO strings ("2026-10-13T06:02:58.058Z", or a bare date like Oracle's "2026-10-18",
+    taken as UTC) or epoch milliseconds (Lever). Always timezone-aware."""
     try:
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value / 1000).astimezone()
         if isinstance(value, str) and value:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except (ValueError, OverflowError, OSError):
         return None
     return None

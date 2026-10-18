@@ -23,6 +23,7 @@ import httpx
 import trafilatura
 
 from jobradar.net import is_public_host
+from jobradar.pipeline import oracle
 from jobradar.pipeline.structured import description_text, find_job_posting
 from jobradar.queue.tasks import RetryableError
 
@@ -108,6 +109,8 @@ class Fetcher:
     async def fetch(self, url: str, links: bool = False) -> Page:
         """Fetch and extract. Raises RetryableError for temporary failures only. With
         `links`, the text is Markdown that keeps each link as [label](absolute URL)."""
+        if (job := oracle.job_link(url)) is not None:
+            return await self._oracle(url, job)
         current = url
         for _ in range(MAX_HOPS + 1):
             host = urlsplit(current).hostname or ""
@@ -128,6 +131,36 @@ class Fetcher:
                 continue
             return await self._read(current, resp, links)
         return Page(current, None, None, "too many redirects")
+
+    async def _oracle(self, url: str, job: oracle.OracleJob) -> Page:
+        """An Oracle job page is JavaScript-only; its public detail address has the job. The
+        same rules apply as for any page: public address, robots.txt, one request a second."""
+        api = job.detail_url
+        if not await is_public_host(job.host):
+            return Page(url, None, None, "not a public address")
+        if not await self._allowed(api):
+            return Page(url, None, None, "blocked by robots.txt")
+        await self._polite(job.host)
+        try:
+            resp = await self._client.get(api, headers={"Accept": "application/json"})
+        except httpx.TimeoutException as e:
+            raise RetryableError(f"timeout fetching {job.host}") from e
+        except httpx.TransportError as e:
+            raise RetryableError(f"could not reach {job.host}: {e}") from e
+        if resp.status_code == 429 or resp.status_code >= 500:
+            raise RetryableError(f"{job.host} answered {resp.status_code}", status=resp.status_code)
+        if resp.status_code != 200:
+            return Page(url, None, None, f"HTTP {resp.status_code}")
+        try:
+            item = oracle.detail_item(resp.json())
+        except ValueError:
+            return Page(url, None, None, "not a job page")
+        if item is None:
+            return Page(url, None, None, "no longer posted")
+        title = str(item.get("Title") or "")[:200] or None
+        text = oracle.page_text(item) or None
+        note = None if text else "no readable text"
+        return Page(url, title, text, note, oracle.as_job_posting(item))
 
     async def _read(self, url: str, resp: httpx.Response, links: bool = False) -> Page:
         if resp.status_code == 429 or resp.status_code >= 500:

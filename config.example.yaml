@@ -21,6 +21,8 @@ sources:
       Bosch:     BoschGroup
     workday:                # India postings only; read at most every 30 min (unofficial API)
       NVIDIA:    nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite   # or the careers link
+    oracle:                 # Oracle Recruiting Cloud; India postings only; at most every 30 min
+      Zensar:    fa-etvl-saasfaprod1.fa.ocs.oraclecloud.com/CX_1          # or the careers link
   freehire:                 # freehire.me's job search: ~90 hiring systems in one public API
     enabled: false
     every_minutes: 30       # at least 15: someone else's free service

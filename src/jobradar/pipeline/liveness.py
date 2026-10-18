@@ -2,7 +2,8 @@
 
 Telegram channels repost jobs for days, so a link may point at a posting that has already
 closed. Greenhouse, Lever, SmartRecruiters and Workday answer per job (200 = open, 404 =
-gone); Ashby has one list per company, so the posting must still be on it.
+gone); Oracle answers per job too (an empty answer = no longer posted); Ashby has one list
+per company, so the posting must still be on it.
 
 Only a definite answer hides a job: a 404/410 for that posting, or its absence from an Ashby
 list that was read fine. Timeouts, 429/5xx, redirects and every other site are "unknown"
@@ -22,6 +23,8 @@ from enum import StrEnum
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
+
+from jobradar.pipeline import oracle
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ class Liveness(StrEnum):
 class AtsLink:
     """A link to one posting on a hiring system: which system, whose board, which posting."""
 
-    ats: str  # greenhouse | lever | ashby | smartrecruiters | workday
+    ats: str  # greenhouse | lever | ashby | smartrecruiters | workday | oracle
     board: str
     posting: str
     eu: bool = False  # Lever's EU instance
@@ -66,6 +69,8 @@ def ats_link(url: str | None) -> AtsLink | None:
     found: AtsLink | None = None
     if _WORKDAY_HOST.match(host):
         return _workday_link(host, path)
+    if (job := oracle.job_link(url)) is not None:
+        return AtsLink("oracle", f"{job.host}/{job.site}", job.job_id)
     if host in ("boards.greenhouse.io", "job-boards.greenhouse.io",
                 "boards.eu.greenhouse.io", "job-boards.eu.greenhouse.io"):  # fmt: skip
         if len(path) >= 3 and path[1] == "jobs":
@@ -101,6 +106,9 @@ def _workday_link(host: str, path: list[str]) -> AtsLink | None:
 
 def _api_url(link: AtsLink) -> str:
     match link.ats:
+        case "oracle":
+            host, site = link.board.split("/", 1)
+            return oracle.detail_url(host, site, link.posting)
         case "workday":
             host, site = link.board.split("/", 1)
             return f"https://{host}/wday/cxs/{host.split('.')[0]}/{site}/{link.posting}"
@@ -137,6 +145,16 @@ class LivenessChecker:
         except httpx.HTTPError as e:
             log.info("still-open check failed", extra={"ats": link.ats, "error": type(e).__name__})
             return Liveness.UNKNOWN
+        if link.ats == "oracle":
+            if resp.status_code != 200:
+                return Liveness.UNKNOWN
+            try:
+                body = resp.json()
+            except ValueError:
+                return Liveness.UNKNOWN
+            if not isinstance(body, dict) or not isinstance(body.get("items"), list):
+                return Liveness.UNKNOWN
+            return Liveness.OPEN if oracle.detail_item(body) else Liveness.CLOSED
         if link.ats != "ashby":
             if resp.status_code in (404, 410):
                 return Liveness.CLOSED

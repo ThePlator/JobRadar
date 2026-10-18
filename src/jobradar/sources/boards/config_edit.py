@@ -90,7 +90,12 @@ def _boards_section(lines: list[str]) -> tuple[int, int]:
 
 
 def _value_board(value: str) -> str:
-    return board_from_link(value)[1] if "/" in value else value
+    if "/" not in value:
+        return value
+    try:
+        return board_from_link(value)[1]
+    except ValueError:  # e.g. an Oracle "host/SiteName", written as is
+        return value
 
 
 def add_board(text: str, ats: str, board: str, name: str) -> str:
