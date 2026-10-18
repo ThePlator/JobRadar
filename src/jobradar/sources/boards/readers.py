@@ -245,10 +245,96 @@ async def workday(client: httpx.AsyncClient, board: str) -> list[BoardPosting]:
     return Partial(postings)  # more than WD_MAX_PAGES pages of India postings
 
 
+# Oracle Recruiting Cloud -------------------------------------------------------------------------
+#
+# The India filter is the "India" value in the site's location facet; its id differs per site,
+# so it is looked up once and kept in memory. A site whose facet doesn't list India (it shows
+# only the top locations: Dell's, for one) is read whole and filtered by country code.
+
+OR_PAGE = 100
+OR_MAX_PAGES = 10  # 1,000 India postings per check
+OR_PAGE_PAUSE = 1.0
+_OR_INDIA: dict[str, str] = {}  # board -> facet id ("" = no India facet: filter by country)
+
+
+def _oracle_page(data: Any) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
+    """(total, postings, location facet) from one list answer; raises when the shape is odd."""
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+        raise BoardUnavailable("the Oracle site answered in an unexpected shape")
+    first = items[0]
+    jobs = first.get("requisitionList")
+    if not isinstance(jobs, list):
+        raise BoardUnavailable("the Oracle site answered in an unexpected shape")
+    facet = first.get("locationsFacet") or []
+    return int(first.get("TotalJobsCount") or 0), jobs, facet if isinstance(facet, list) else []
+
+
+def _in_india_oracle(job: dict[str, Any]) -> bool:
+    if str(job.get("PrimaryLocationCountry") or "").upper() == "IN":
+        return True
+    others = job.get("secondaryLocations") or []
+    return any(
+        isinstance(o, dict) and str(o.get("CountryCode") or "").upper() == "IN" for o in others
+    )
+
+
+async def oracle_board(client: httpx.AsyncClient, board: str) -> list[BoardPosting]:
+    """India only. `board` is "host/SiteName" (checked in config)."""
+    from jobradar.pipeline import oracle
+
+    host, site = board.split("/", 1)
+    india = _OR_INDIA.get(board)
+    if india is None:
+        first = await get_json(client, oracle.list_url(host, site, 1, 0, "facetsList=LOCATIONS,"))
+        _, _, facet = _oracle_page(first)
+        india = next(
+            (str(f.get("Id")) for f in facet
+             if isinstance(f, dict) and str(f.get("Name") or "").strip().casefold() == "india"),
+            "",
+        )  # fmt: skip
+        _OR_INDIA[board] = india
+        await asyncio.sleep(OR_PAGE_PAUSE)
+    extra = f"selectedLocationsFacet={india}," if india else ""
+    postings: list[BoardPosting] = []
+    read = 0
+    for page in range(OR_MAX_PAGES):
+        try:
+            url = oracle.list_url(host, site, OR_PAGE, page * OR_PAGE, extra)
+            data = await get_json(client, url)
+        except BoardUnavailable:
+            _OR_INDIA.pop(board, None)  # the filter may have changed: look it up again next time
+            raise
+        total, jobs, _ = _oracle_page(data)
+        read += len(jobs)
+        for j in jobs:
+            job_id = str(j.get("Id") or "")
+            if not job_id.isdigit() or not (india or _in_india_oracle(j)):
+                continue
+            where = str(j.get("PrimaryLocation") or "India")
+            if "india" not in where.casefold():  # a secondary location is in India
+                where = _join("India", where)
+            remote = str(j.get("WorkplaceTypeCode") or "") == "ORA_REMOTE"
+            postings.append(
+                BoardPosting(
+                    id=job_id,
+                    title=str(j.get("Title") or ""),
+                    location=_join(where, "Remote" if remote else None),
+                    url=oracle.job_page(host, site, job_id),
+                    posted_at=parse_time(j.get("PostedDate")),
+                )
+            )
+        if not jobs or read >= total:
+            return postings
+        await asyncio.sleep(OR_PAGE_PAUSE)
+    return Partial(postings)  # more than OR_MAX_PAGES pages
+
+
 READERS: dict[str, Reader] = {
     "greenhouse": greenhouse,
     "lever": lever,
     "ashby": ashby,
     "smartrecruiters": smartrecruiters,
     "workday": workday,
+    "oracle": oracle_board,
 }

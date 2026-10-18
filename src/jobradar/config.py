@@ -19,6 +19,8 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from jobradar.pipeline import oracle
+
 DEFAULT_CONFIG_PATH = Path("config/config.yaml")
 DEFAULT_ENV_FILE = Path(".env")
 
@@ -55,10 +57,10 @@ class WhatsAppSourceConfig(_Strict):
     port: int = Field(default=8765, ge=1024, le=65535)
 
 
-BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday"]
+BoardATS = Literal["greenhouse", "lever", "ashby", "smartrecruiters", "workday", "oracle"]
 _ATS_NAMES = {
     "greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
-    "smartrecruiters": "SmartRecruiters", "workday": "Workday",
+    "smartrecruiters": "SmartRecruiters", "workday": "Workday", "oracle": "Oracle",
 }  # fmt: skip
 # A Workday career site: "<company>.wd<N>.myworkdayjobs.com/<Site>" (its board name in config).
 WORKDAY_BOARD = re.compile(
@@ -93,11 +95,13 @@ def board_from_link(link: str) -> tuple[str, str]:
     'nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite')."""
     if m := _WORKDAY_LINK.search(link.strip()):
         return "workday", f"{m.group(1).lower()}/{m.group(2)}"
+    if m := oracle.CAREERS_LINK.search(link.strip()):
+        return "oracle", f"{m.group(1).lower()}/{m.group(2)}"
     for ats, pattern in _BOARD_LINKS:
         if m := re.search(r"^(?:https?://)?(?:www\.)?" + pattern, link.strip(), re.IGNORECASE):
             return ats, m.group(1)
     raise ValueError(
-        f"{link!r} isn't a Greenhouse, Lever, Ashby, SmartRecruiters or Workday board link "
+        f"{link!r} isn't a Greenhouse, Lever, Ashby, SmartRecruiters, Workday or Oracle board link "
         "(e.g. https://job-boards.greenhouse.io/stripe)"
     )
 
@@ -118,6 +122,12 @@ class BoardRef(_Strict):
                     f"workday: '{self.company}' should look like "
                     "company.wd5.myworkdayjobs.com/SiteName (paste the careers link)"
                 )
+        elif self.ats == "oracle":
+            if not oracle.valid_board(self.company):
+                raise ValueError(
+                    f"oracle: '{self.company}' should look like host/SiteName "
+                    "(paste the careers link: …/hcmUI/CandidateExperience/en/sites/CX_1/jobs)"
+                )
         elif "/" in self.company or len(self.company) > 100:
             raise ValueError(f"{self.ats}: '{self.company}' isn't a board name")
         return self
@@ -129,7 +139,8 @@ class BoardRef(_Strict):
     @property
     def label(self) -> str:
         """'Greenhouse · Stripe': how the board shows in Notion and emails."""
-        default = self.company.split(".")[0] if self.ats == "workday" else self.company
+        defaults = {"workday": self.company.split(".")[0], "oracle": self.company.split("/")[-1]}
+        default = defaults.get(self.ats, self.company)
         return f"{_ATS_NAMES[self.ats]} · {self.name or default}"
 
 
@@ -145,6 +156,7 @@ class BoardsConfig(_Strict):
     ashby: dict[str, str] | list[str] = Field(default_factory=dict)
     smartrecruiters: dict[str, str] | list[str] = Field(default_factory=dict)
     workday: dict[str, str] | list[str] = Field(default_factory=dict)  # India postings only
+    oracle: dict[str, str] | list[str] = Field(default_factory=dict)  # India postings only
     # Every board as a flat list; filled from the sections above (or given directly).
     companies: list[BoardRef] = Field(default_factory=list)
 
@@ -179,7 +191,9 @@ class BoardsConfig(_Strict):
                 raise ValueError(f"{ats}: list boards as 'Name: board name' lines")
             for name, value in pairs:
                 board = value.strip()
-                if "/" in board:  # a link to the board (or to a job on it)
+                if ats == "oracle" and oracle.valid_board(board):
+                    pass  # host/SiteName as written
+                elif "/" in board:  # a link to the board (or to a job on it)
                     found, board = board_from_link(board)
                     if found != ats:
                         raise ValueError(

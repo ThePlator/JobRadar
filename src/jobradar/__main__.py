@@ -385,7 +385,8 @@ def boards(
         _run(read_all())
         typer.echo("Read every board. New postings (if any) are queued for `jobradar run`.\n")
     ats_names = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby",
-                 "smartrecruiters": "SmartRecruiters", "workday": "Workday"}  # fmt: skip
+                 "smartrecruiters": "SmartRecruiters", "workday": "Workday",
+                 "oracle": "Oracle"}  # fmt: skip
     width = max(len(ref.label.split(" · ", 1)[1]) for ref in config.companies) + 2
     typer.echo(f"  {'':<{width}}{'postings':>8}  {'passed on':>9}  {'last read (UTC)':<16}  status")
     for ats, title in ats_names.items():
@@ -425,8 +426,9 @@ def boards_add(
     board: Annotated[
         str,
         typer.Argument(
-            help="A link to the board (https://job-boards.greenhouse.io/stripe, or a Workday "
-            "careers link), or the hiring system followed by the board name: greenhouse stripe"
+            help="A link to the board (https://job-boards.greenhouse.io/stripe, or a Workday or "
+            "Oracle careers link), or the hiring system followed by the board name: "
+            "greenhouse stripe"
         ),
     ],
     board_name: Annotated[
@@ -456,7 +458,7 @@ def boards_add(
             "e.g. `jobradar boards add greenhouse stripe --name Stripe`."
         )
         raise
-    slug = ref.company.split(".")[0] if ref.ats == "workday" else ref.company
+    slug = ref.label.split(" · ", 1)[1]
     label = name or slug.replace("-", " ").title()
     try:
         before = CONFIG_PATH.read_text()

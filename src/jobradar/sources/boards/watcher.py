@@ -41,16 +41,16 @@ GONE_AFTER = 3  # real 404s in a row
 GONE_RETRY = timedelta(days=30)
 CLOSED_REASON = "closed on the company board"
 # Unofficial APIs are read less often than `every_minutes`, whatever it says.
-MIN_EVERY_MINUTES = {"workday": 30}
+MIN_EVERY_MINUTES = {"workday": 30, "oracle": 30}
 # A board that lists more postings than its reader reads (Accenture: tens of thousands, in an
 # order that changes between reads) can't be compared read to read: an unseen posting may just
 # have been beyond the cap last time. Such reads pass nothing on; `jobradar boards` says why.
 TOO_BIG = "lists more postings than JobRadar reads, in a changing order: nothing passed on"
 SEEN_KEEP = 5_000  # ids remembered for a board that's too big to read whole
-# Workday's "Posted N Days Ago" is the real publish date: an unseen posting older than this
-# isn't new (it was re-listed or came into view), so it isn't passed on.
+# Workday's "Posted N Days Ago" and Oracle's PostedDate are the real publish date: an unseen
+# posting older than this isn't new (it was re-listed or came into view), so it isn't passed on.
 NEW_WITHIN = timedelta(days=3)
-DATED_BOARDS = ("workday",)
+DATED_BOARDS = ("workday", "oracle")
 # A safety net: more new postings than this at once is a glitch, not a hiring spree.
 MAX_NEW_PER_CHECK = 10
 USER_AGENT = "JobRadar/0.2 (+https://github.com/ThePlator/JobRadar)"
