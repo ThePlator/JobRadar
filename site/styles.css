@@ -183,7 +183,7 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .paper-wrap { display: block; width: 520px; transform: rotate(-1.2deg); box-shadow: 0 22px 50px rgba(0, 0, 0, .16); border-radius: 4px; overflow: hidden; transition: transform .25s ease; }
 .paper-wrap:hover { transform: rotate(0) translateY(-4px); }
 .pdf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-top: 8px; }
-.paper-wrap img { display: block; width: 100%; }
+.paper-wrap img { display: block; width: 100%; height: auto; }
 
 .chat-sec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 64px; align-items: center; }
 .chat-copy p { color: var(--muted); max-width: 46ch; }
