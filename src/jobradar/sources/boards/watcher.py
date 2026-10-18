@@ -46,6 +46,12 @@ MIN_EVERY_MINUTES = {"workday": 30, "oracle": 30}
 # order that changes between reads) can't be compared read to read: an unseen posting may just
 # have been beyond the cap last time. Such reads pass nothing on; `jobradar boards` says why.
 TOO_BIG = "lists more postings than JobRadar reads, in a changing order: nothing passed on"
+# Readers that ask for newest first (Oracle sorts by posting date) are the exception: a new
+# posting lands at the top of the list, inside the cap, so a capped read still shows it. Only
+# the bottom of the list is cut off, so nothing there is closed, and the 3-day date rule
+# keeps an old posting that just came into view from counting as new.
+NEWEST_FIRST = ("oracle",)
+TOP_ONLY = "lists more postings than JobRadar reads: new ones at the top are still passed on"
 SEEN_KEEP = 5_000  # ids remembered for a board that's too big to read whole
 # Workday's "Posted N Days Ago" and Oracle's PostedDate are the real publish date: an unseen
 # posting older than this isn't new (it was re-listed or came into view), so it isn't passed on.
@@ -184,7 +190,8 @@ class BoardWatcher:
             log.warning("board listed nothing; ignoring this round", extra={"board": ref.key})
             return
         else:
-            fresh = [p for p in postings if p.id not in seen] if complete else []
+            readable = complete or ref.ats in NEWEST_FIRST
+            fresh = [p for p in postings if p.id not in seen] if readable else []
             if ref.ats in DATED_BOARDS:
                 fresh = [p for p in fresh if p.posted_at and p.posted_at >= now - NEW_WITHIN]
             passed = []
@@ -224,10 +231,12 @@ class BoardWatcher:
         if board.latest_json is None and postings:  # boards read before this was kept
             board.latest_json = latest(postings, now)
         if not complete:
-            board.last_error = TOO_BIG
-            if seen is not None:
+            board.last_error = TOP_ONLY if ref.ats in NEWEST_FIRST else TOO_BIG
+            if seen is not None and ref.ats not in NEWEST_FIRST:
                 log.info("board too big to track; nothing passed on", extra={"board": ref.key})
-            current = dict(list({**(seen or {}), **current}.items())[-SEEN_KEEP:])
+            # Ids still listed go last, so trimming to SEEN_KEEP drops ones that left first.
+            kept = {pid: url for pid, url in (seen or {}).items() if pid not in current}
+            current = dict(list({**kept, **current}.items())[-SEEN_KEEP:])
         board.seen_json = json.dumps(current)
         board.jobs_on_board = len(postings)
         self.repo.save_board(board)
