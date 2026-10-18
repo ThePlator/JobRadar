@@ -45,11 +45,13 @@ gantt
     Tailor + grounding validator     :c1, after f3, 5d
     Render, compile, page limit      :c2, after c1, 4d
     Drive upload + triggers          :c3, after c2, 5d
+    Resume read like an ATS reads it :c4, after c3, 1d
     Gate · 50 jobs, 0 unknown skills  :milestone, g3, after c3, 0d
 
     section v0.4 Kit + email
     Form answers + cover letter      :d1, after c3, 4d
     Email alerts, digest, forwards   :d2, after d1, 3d
+    Follow-ups, skill gaps, replies  :d3, after d2, 4d
     Gate · apply in under 5 min       :milestone, g4, after d2, 0d
 
     section v1.0 Launch
@@ -317,8 +319,17 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 - [x] CLI: `resume <job-id> [--plain] [--template]` (new version), `resume` alone previews your profile
 - [ ] `init` adds Google OAuth (with Drive)
 
+**Resume read the way hiring software reads it** (from [MadsLorentzen/ai-job-search](https://github.com/MadsLorentzen/ai-job-search) `tools/verify_pdf.py`, MIT)
+
+An applicant tracking system (Workday, Oracle, SuccessFactors) reads the PDF's text layer, not the page you see. A resume that looks right can still import with the email missing or the dates dropped; ai-job-search found Workday dropping dates written with an en dash (LaTeX's `--`).
+
+- [ ] After each compile, extract the text layer with pypdf (already a dependency for the page count) and check: the email and phone are there as plain text, not only as an icon or a link target; every date range uses an ASCII hyphen or "to", never an en or em dash; no replacement characters (�) or icon-font glyph names where words should be; reading order keeps each heading before its own bullets
+- [ ] A failure is a template problem, not a content one: log it with the offending text, keep the PDF, and show it in `jobradar resume` and the digest; `classic.tex.j2` must pass every check
+- [ ] Keyword coverage per job: which of the job's stated skills appear in the extracted text, only for skills the profile really has (never added to make the number go up), shown with the resume in Notion
+
 **Tests**
 
+- [ ] Text-layer checks on fixture PDFs: an icon-only email fails, an en-dash date fails, a clean `classic` build passes
 - [x] Grounding validator with adversarial cases (invented skill, changed number, unknown `ref_id`)
 - [x] More grounding cases, borrowed from career-ops `verify-cv-facts.mjs`: a number inside bold or other markup; size words with no digits ("doubled", "10x", "halved"); a tool name buried in a sentence; a phrase from a configurable banned list; a missing or unreadable `profile.yaml` fails loudly instead of passing
 - [x] LaTeX escaping of every special character
@@ -343,6 +354,22 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 - [ ] `sources/email_forward.py`: IMAP folder poll; accept only your own address with DKIM/SPF pass; body text, links and image attachments → `process_message`
 - [ ] Tests against a local SMTP/IMAP test server (e.g. aiosmtpd); `init` sends a test email (`jobradar alerts --test` exists)
 - [ ] CLI `doctor` (`stats` landed early, in v0.1, for the duplicate check)
+
+**After you apply** (from [MadsLorentzen/ai-job-search](https://github.com/MadsLorentzen/ai-job-search), MIT: `/outcome followup`, `/outcome stale`, `/upskill`, `/gmail-sync`)
+
+JobRadar stops at the alert today. These use data it already keeps: your dated Notion status history and each job's matched and missing skills.
+
+- [ ] Follow-up reminder: a job set to Applied with no later status for `followup.after_days` (default 10) gets one email with a short follow-up draft to the recruiter. The draft uses only claims from the resume built for that job (no new skills or numbers, checked by the grounding validator), at most 2 follow-ups per job, never sent by JobRadar. Mark it sent by setting Notion's new **Followed Up** date; the next reminder counts from that date
+- [ ] Quiet sweep: Applied for 60+ days with no reply and 2 follow-ups → the digest suggests marking it "No response" (you decide; nothing changes on its own)
+- [ ] Skills you keep missing: once a week the digest lists the skills good matches (score ≥ `alert_above`) asked for that your profile lacks, with counts, e.g. "Docker in 14 good matches, AWS in 9". Missing skills come from the skills rule already stored per job; no LLM call
+- [ ] Replies from companies: read the existing `email_forward` mailbox (or a second folder you choose) for mail from the domains of companies you applied to; an interview invite, test link or rejection becomes a **suggested** status in Notion with the email's subject quoted. Never changes Status itself; offers are never guessed
+- [ ] Not taken: LinkedIn guest search (against LinkedIn's terms; accounts get banned), language and visa gates (Indian freshers' equivalents, batch and degree, already exist), cover letters and interview prep (done directly with Claude Code)
+
+**Tests**
+
+- [ ] Follow-up due exactly at 10 days, not before; none after 2; a later status (Interview, Rejected) stops them; a follow-up draft with a new claim is rejected
+- [ ] Skill-gap counts only from jobs at or above `alert_above`, deduplicated per job
+- [ ] Reply detection: invite, test, rejection, and an unrelated newsletter from the same domain (no suggestion)
 
 **Exit gate:** timed run — open a shortlisted job, submit the real form, in under 5 minutes.
 
