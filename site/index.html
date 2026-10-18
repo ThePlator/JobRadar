@@ -190,11 +190,11 @@
 <section class="chat-sec" id="chat">
   <div class="chat-copy">
     <h2>Forward Blip a post</h2>
-    <p>Paste a job post the way you'd forward it on Telegram. Blip reads the labelled lines like JobRadar's free first pass does. It runs in your browser and nothing is sent anywhere.</p>
+    <p>Telegram job posts are messy: emoji, fancy fonts, the batch buried on line six. Blip runs a highlighter over the lines it understands and skips the rest, like JobRadar's free first pass. It runs in your browser and nothing is sent anywhere.</p>
     <div class="samples" role="group" aria-label="Example posts">
-      <button type="button" data-sample="0">A tidy post</button>
-      <button type="button" data-sample="1">"Is hiring" post</button>
-      <button type="button" data-sample="2">Fancy-font post</button>
+      <button type="button" data-sample="0" aria-pressed="true">A tidy post</button>
+      <button type="button" data-sample="1" aria-pressed="false">"Is hiring" post</button>
+      <button type="button" data-sample="2" aria-pressed="false">Fancy-font post</button>
     </div>
     <div class="profile">
       <label for="mySkills">Your skills</label>
@@ -202,15 +202,22 @@
       <label for="myBatch">Your batch</label>
       <input id="myBatch" value="2026" inputmode="numeric" maxlength="4">
     </div>
-  </div>
-  <div class="phone">
-    <div class="ph-head"><svg class="blip mini" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><div><b>Blip</b><small id="phStatus">online</small></div></div>
-    <div class="ph-body" id="chatLog" aria-live="polite"></div>
-    <form class="ph-input" id="chatForm">
-      <label for="postText" class="vh">Job post</label>
-      <textarea id="postText" rows="3" placeholder="Paste a job post here"></textarea>
-      <button type="submit" class="send" aria-label="Send to Blip"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg></button>
+    <form class="own" id="chatForm">
+      <label for="postText">Or paste your own</label>
+      <textarea id="postText" rows="3" placeholder="Paste a job post from any channel"></textarea>
+      <button type="submit">Let Blip read it</button>
     </form>
+  </div>
+  <div class="desk">
+    <svg class="blip peek" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <article class="tgpost" aria-labelledby="fwdFrom">
+      <p class="fwd" id="fwdFrom">Forwarded from a jobs channel</p>
+      <div class="lines" id="chatLog"></div>
+    </article>
+    <div class="legend" aria-hidden="true">
+      <span class="hl k-company">company</span><span class="hl k-role">role</span><span class="hl k-location">place</span><span class="hl k-batch">who can apply</span><span class="hl k-salary">pay and dates</span><span class="hl k-link">link</span><span class="sk have">you have it</span><span class="sk miss">you don't</span><span class="skip">skipped</span>
+    </div>
+    <p class="readout" id="readout" role="status"></p>
   </div>
 </section>
 

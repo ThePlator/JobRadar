@@ -64,7 +64,7 @@
     }
   }
   for (const svg of blips) {
-    const host = svg.closest(".blip-btn, .ph-head");
+    const host = svg.closest(".blip-btn");
     if (!host) continue;
     host.addEventListener("pointerenter", () => wave(svg));
     host.addEventListener("click", (e) => {
@@ -195,46 +195,76 @@
     "Northwind is hiring for Backend Developer!\n\nFreshers can apply. Work with Java, Spring Boot, MySQL and Docker.\nLocation: Pune\n\nhttps://careers.example.com/northwind/backend-dev",
     "𝗚𝗿𝗲𝗮𝘁 𝗢𝗽𝗽𝗼𝗿𝘁𝘂𝗻𝗶𝘁𝘆 🚀\n➡️ 𝗣𝗼𝘀𝘁 𝗡𝗮𝗺𝗲 : Associate Data Analyst\n➡️ 𝗢𝗿𝗴𝗮𝗻𝗶𝘀𝗮𝘁𝗶𝗼𝗻 - Contoso Analytics\n📍 Job Location : Remote, India\n🎓 Passout : 2024, 2025, 2026\n💼 Exp : 0-1 years\nTools: Excel, SQL, Power BI, Python\n👉 https://example.com/apply/contoso",
   ];
-  const chat = $("#chatLog"), ta = $("#postText"), status = $("#phStatus"), miniBlip = $(".ph-head svg");
-  function msg(cls, html) {
-    const m = document.createElement("div");
-    m.className = "msg " + cls;
-    m.innerHTML = html;
-    chat.append(m);
-    chat.scrollTop = chat.scrollHeight;
-    return m;
+  // Which field a single line gives, so the line can get that field's highlighter colour.
+  function lineKind(raw) {
+    const l = plain(raw);
+    if (!l) return null;
+    const m = l.match(labelRe);
+    if (m && !/^http/i.test(m[2])) return KIND[m[1].toLowerCase()];
+    if (/^(.+?)\s+is\s+hiring\b/i.test(l) && !/http/i.test(l)) return "hiring";
+    if (/https?:\/\//.test(raw)) return "link";
+    return null;
   }
-  msg("bot", "Forward me a job post. I'll tell you what it says and whether it's for you.");
-  function answer(text) {
-    msg("me", esc(text.length > 260 ? text.slice(0, 260) + "…" : text));
-    status.textContent = "reading…";
-    const typing = msg("bot typing", "reading…");
+  const NAMES = { hiring: "company, role", company: "company", role: "role", location: "place", batch: "batch", eligibility: "eligibility",
+    experience: "experience", salary: "pay", deadline: "last date", link: "apply link" };
+  const lines = $("#chatLog"), ta = $("#postText"), readout = $("#readout"), desk = $(".desk"), peek = $(".blip.peek");
+  let current = SAMPLES[0], run = 0;
+  function show(text) {
+    current = text;
+    const r = read(text);
+    const mine = new Set($("#mySkills").value.split(",").map((s) => key(s.trim())).filter(Boolean));
+    const batch = +$("#myBatch").value, batchOk = r.years.length ? r.years.includes(batch) : null;
+    const techRe = r.tech.length ? new RegExp(`(^|[^A-Za-z0-9+#.])(${[...r.tech].sort((x, y) => y.length - x.length)
+      .map((t) => t.replace(/[+.#]/g, "\\$&")).join("|")})(?![A-Za-z0-9+#])`, "gi") : null;
+    const raw = text.split("\n").slice(0, 24);
+    lines.innerHTML = raw.map((l) => {
+      const k = lineKind(l);
+      let h = esc(l.length > 140 ? l.slice(0, 140) + "…" : l) || "&nbsp;";
+      if (techRe) h = h.replace(techRe, (_, pre, t) => `${pre}<span class="sk ${mine.has(key(t)) ? "have" : "miss"}">${t}</span>`);
+      const years = k === "batch" && batchOk !== null && /\b20[1-3]\d\b/.test(l), skills = !k && h.includes('class="sk ');
+      const tag = k ? `<span class="tag">${NAMES[k]}${years ? (batchOk ? " ✓" : " ✗") : ""}</span>` : skills ? '<span class="tag">skills</span>' : "";
+      const cls = k ? "hl k-" + k : skills ? "skills" : l.trim() ? "skip" : "gap";
+      return `<p class="ln ${cls}${years && !batchOk ? " bad" : ""}"><span class="tx">${h}</span>${tag}</p>`;
+    }).join("");
+    // The highlighter goes down the post one line at a time; Blip's eyes follow it.
+    const me = ++run, marked = $$(".ln.hl, .ln.skip, .ln.skills", lines);
+    desk.classList.add("reading");
+    marked.forEach((ln, i) => {
+      if (still) { ln.classList.add("on"); return; }
+      setTimeout(() => {
+        if (me !== run) return;
+        ln.classList.add("on");
+        const pr = peek.getBoundingClientRect(), lr = ln.getBoundingClientRect();
+        const dy = lr.top - (pr.top + pr.height * .4), dx = lr.left + 120 - (pr.left + pr.width / 2), d = Math.hypot(dx, dy) || 1;
+        $(".b-eyes", peek).style.transform = `translate(${(dx / d) * 9}px, ${(dy / d) * 6}px)`;
+      }, 160 + i * 170);
+    });
+    const have = r.tech.filter((t) => mine.has(key(t))), miss = r.tech.filter((t) => !mine.has(key(t)));
+    const got = [r.found.company, r.found.role, r.found.location, r.years.length, r.exp, r.link].filter(Boolean).length;
+    let say = r.tech.length ? `You have ${have.length} of the ${r.tech.length} skills it names.` + (miss.length ? ` Missing: ${miss.join(", ")}.` : "") : "It doesn't name any skills I know.";
+    say += batchOk === null ? " No batch stated." : batchOk ? ` Your ${batch} batch is in.` : ` ${batch} isn't listed, so I'd hide this one.`;
+    readout.classList.remove("on");
     setTimeout(() => {
-      typing.remove();
-      status.textContent = "online";
-      const r = read(text);
-      const rows = [["Company", r.found.company], ["Role", r.found.role], ["Location", r.found.location],
-        ["Batch", r.years.join(", ")], ["Experience", r.exp], ["Apply", r.link]];
-      const got = rows.filter(([, v]) => v).length;
-      msg("bot", `<div class="kv">${rows.map(([k, v]) => `<span>${k}</span><span>${v ? esc(v) : "<i>not stated</i>"}</span>`).join("")}</div>`);
-      const mine = new Set($("#mySkills").value.split(",").map((s) => key(s.trim())).filter(Boolean));
-      const have = r.tech.filter((t) => mine.has(key(t))), miss = r.tech.filter((t) => !mine.has(key(t)));
-      const batch = +$("#myBatch").value, batchOk = r.years.length ? r.years.includes(batch) : null;
-      let verdict = r.tech.length ? `You have <b>${have.length} of ${r.tech.length}</b> skills it names` + (miss.length ? ` (missing ${esc(miss.join(", "))}).` : ".") : "It doesn't name any skills I know.";
-      verdict += batchOk === null ? " No batch stated." : batchOk ? ` Your ${batch} batch is eligible.` : ` Your ${batch} batch isn't listed, so I'd hide this one.`;
-      msg("bot", verdict + `<br><small>${got} of 6 details found without any AI.</small>`);
-      mood(miniBlip, batchOk === false ? null : "happy", 1500);
-    }, still ? 0 : 900);
+      if (me !== run) return;
+      desk.classList.remove("reading");
+      readout.innerHTML = `${esc(say)}<small>${got} of 6 details found without any AI.</small>`;
+      readout.classList.add("on");
+      mood(peek, batchOk === false ? "alarm" : "happy", 1600);
+    }, still ? 0 : 260 + marked.length * 170);
   }
-  $$(".samples button").forEach((b) => b.addEventListener("click", () => answer(SAMPLES[+b.dataset.sample])));
+  const pick = (i) => $$(".samples button").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.sample === i)));
+  $$(".samples button").forEach((b) => b.addEventListener("click", () => { pick(+b.dataset.sample); show(SAMPLES[+b.dataset.sample]); }));
   $("#chatForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const text = ta.value.trim();
     if (!text) { ta.focus(); ta.placeholder = "Paste a job post first"; return; }
-    ta.value = "";
-    answer(text);
+    pick(-1); show(text);
   });
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#chatForm").requestSubmit(); });
+  let typingTimer;
+  for (const id of ["#mySkills", "#myBatch"]) $(id).addEventListener("input", () => { clearTimeout(typingTimer); typingTimer = setTimeout(() => show(current), 400); });
+  // Read the first post when the section scrolls into view.
+  new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); show(current); } }, { threshold: .35 }).observe(desk);
 
   // ---- the red pen (the rules in resume/validate.py, simplified) ------------------------------
   const ORIGINAL = $(".mine").textContent;
