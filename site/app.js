@@ -104,7 +104,7 @@
     bubble.textContent = text;
     bubble.classList.remove("pop"); void bubble.offsetWidth; bubble.classList.add("pop");
   }
-  const LINES = ["Hi, I'm Blip.", "I read every new post in your job channels.", "Same job in three channels? One row.",
+  const LINES = ["Hi, I'm Blip.", "I read every new post in your job channels.", "Same job in three channels? One row.", "Same role in five cities? One job.",
     "Senior and sales roles never reach you.", "I'll never call you an expert.", "Click me again. I like it."];
   let line = 0;
   $("#heroBlip").addEventListener("click", () => { mood(heroBlip, "happy"); say(LINES[++line % LINES.length]); });
@@ -321,11 +321,13 @@
 
   // ---- every alert so far: time from post to inbox, one dot per job (from data/jobradar.db) -----
   const ALERTS = [["12 Oct, 13:52","t",6647],["12 Oct, 21:18","t",13],["12 Oct, 21:28","t",61],["12 Oct, 21:28","t",45],["12 Oct, 21:39","t",624],
-    ["12 Oct, 21:39","t",614],["12 Oct, 21:39","t",600],["12 Oct, 21:39","t",596],["12 Oct, 21:39","t",584],["13 Oct, 10:09","t",27],["13 Oct, 12:01","t",21],
-    ["13 Oct, 15:05","t",72],["13 Oct, 22:28","t",124],["13 Oct, 23:12","t",2779],["14 Oct, 10:47","t",44469],["14 Oct, 10:48","t",44494],["14 Oct, 12:32","t",45],
-    ["14 Oct, 18:25","t",1414],["14 Oct, 22:33","t",72],["15 Oct, 12:40","t",87],["15 Oct, 22:15","t",1760],["15 Oct, 22:25","t",2360],["16 Oct, 15:26","b",19610110],
-    ["16 Oct, 15:36","t",83826],["16 Oct, 17:29","b",80],["16 Oct, 17:29","b",85],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],
-    ["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["17 Oct, 18:35","t",2051],["18 Oct, 11:52","t",51]];
+    ["12 Oct, 21:39","t",614],["12 Oct, 21:39","t",600],["12 Oct, 21:39","t",596],["12 Oct, 21:39","t",584],["13 Oct, 10:09","t",27],
+    ["13 Oct, 12:01","t",21],["13 Oct, 15:05","t",72],["13 Oct, 22:28","t",124],["13 Oct, 23:12","t",2779],["14 Oct, 10:47","t",44469],
+    ["14 Oct, 10:48","t",44494],["14 Oct, 12:32","t",45],["14 Oct, 18:25","t",1414],["14 Oct, 22:33","t",72],["15 Oct, 12:40","t",87],
+    ["15 Oct, 22:15","t",1760],["15 Oct, 22:25","t",2360],["16 Oct, 15:26","b",19610110],["16 Oct, 15:36","t",83826],["16 Oct, 17:29","b",80],
+    ["16 Oct, 17:29","b",85],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],
+    ["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["17 Oct, 18:35","t",2051],["18 Oct, 11:52","t",51],["18 Oct, 14:29","t",34],
+    ["18 Oct, 20:04","t",52]];
   const human = (sec) => sec < 90 ? `${sec} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : sec < 172800 ? `${Math.round(sec / 3600)} h` : `${Math.round(sec / 86400)} days`;
   (function swarm() {
     const svg = $("#swarm"), NS = "http://www.w3.org/2000/svg", MAX = 172800, BASE = 196;
@@ -360,8 +362,8 @@
       `The cluster at 10 minutes is jobs waiting for the next email. ${secs.length - within(720)} took longer, up to ${human(secs.filter((v) => v <= MAX).at(-1))}.`;
     new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); svg.classList.add("in"); } }, { threshold: .3 }).observe(svg);
   })();
-  // 132 of 175 Telegram jobs read by the free first pass (job.prompt_version = rules-v1, since 11 Oct).
-  $("#squares").innerHTML = Array.from({ length: 175 }, (_, i) => `<i${i < 132 ? ' class="on"' : ""}></i>`).join("");
+  // 138 of 181 Telegram jobs read by the free first pass (job.prompt_version = rules-v1, since 11 Oct).
+  $("#squares").innerHTML = Array.from({ length: 181 }, (_, i) => `<i${i < 138 ? ' class="on"' : ""}></i>`).join("");
   $("#pyDots").textContent = ".".repeat(96);
 
   // ---- wake up your own Blip: each step shows its first-run output ------------------------------
