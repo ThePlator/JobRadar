@@ -314,7 +314,7 @@ async def test_connect_adds_the_source_column(mock_api: respx.MockRouter) -> Non
     assert json.loads(patch.calls[0].request.content) == {
         "properties": {"Source": {"multi_select": {}}}
     }
-    assert sink.extra == sink.added == {"Source"}
+    assert sink.added == {"Source"} and sink.extra == {"Source", "Posted On"}
     await sink.aclose()
 
 
@@ -324,7 +324,7 @@ async def test_connect_carries_on_without_the_source_column(mock_api: respx.Mock
         403, json={"code": "restricted_resource", "message": "no edit access"}
     )
     sink = await notion.connect(settings(), http=http())
-    assert sink.extra == set()
+    assert sink.extra == {"Posted On"}  # the one that could not be added is left out
     await sink.aclose()
 
 
@@ -343,3 +343,13 @@ def test_source_column(platform: str, chat: str | None, label: str) -> None:
     props = build_properties(job, seen, new_page=True, source=True)
     assert props["Source"] == {"multi_select": [{"name": label}]}
     assert "Source" not in build_properties(job, seen, new_page=True)
+
+
+def test_posted_on_column_and_body_line() -> None:
+    import json as json_
+
+    data = json_.loads(extracted_job().data_json or "{}") | {"published_on": "2026-09-02"}
+    j = extracted_job().model_copy(update={"data_json": json_.dumps(data)})
+    props = build_properties(j, [], new_page=False, posted_on=True)
+    assert props["Posted On"] == {"date": {"start": "2026-09-02"}}
+    assert "Posted On" not in build_properties(j, [], new_page=False)  # column not there

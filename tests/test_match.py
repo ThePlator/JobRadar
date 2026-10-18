@@ -424,3 +424,21 @@ async def test_still_open_check_skips_only_first_hand_board_jobs(
     # Read off the company's own board: open. Via freehire: second-hand, so ask.
     assert liveness.calls == (1 if asked else 0)
     assert (job.status == JobStatus.HIDDEN) is asked
+
+
+@pytest.mark.parametrize(("published", "alerted"), [("2026-08-01", False), ("2026-10-01", True)])
+async def test_old_postings_reach_the_inbox_but_never_alert(
+    repo: Repo, queue: TaskQueue, published: str, alerted: bool
+) -> None:
+    from jobradar.config import ScoringConfig
+
+    seed_job(repo, published_on=published)  # CLOCK is 2026-10-08
+    alerts = Alerts()
+    m = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, ScoringConfig(alert_above=75), alerts, clock=CLOCK,
+                old_posting_days=30)  # fmt: skip
+    queue.enqueue(MATCH, "job1")
+    await run(queue, m)
+    assert (alerts.queued == ["job1"]) is alerted
+    job = repo.get_job("job1")
+    assert job is not None and job.status == JobStatus.NEW  # in your Inbox either way

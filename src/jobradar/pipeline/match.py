@@ -127,6 +127,7 @@ class Matcher:
         scoring: ScoringConfig | None = None,
         alerts: AlertQueue | None = None,
         alert_max_age_days: float = 2,
+        old_posting_days: int = 30,
         tz: tzinfo | None = None,
         clock: Clock = utcnow,
         liveness: LivenessChecker | None = None,
@@ -142,6 +143,7 @@ class Matcher:
         self.scoring = scoring or ScoringConfig()
         self.alerts = alerts  # None: alerts off
         self.alert_max_age_days = alert_max_age_days
+        self.old_posting_days = old_posting_days
         self.tz = tz
         self.clock = clock
         self.liveness = liveness  # None: don't ask hiring sites whether postings are open
@@ -273,6 +275,10 @@ class Matcher:
         today = now.astimezone(self.tz).date() if self.tz else now.date()
         if posting.deadline and posting.deadline < today:
             return f"deadline {posting.deadline.isoformat()} has passed"
+        published = posting.published_on
+        if published and published < today - timedelta(days=self.old_posting_days):
+            days = self.old_posting_days
+            return f"old posting: published {published.isoformat()}, over {days} days ago"
         return None
 
     def catch_up(self) -> tuple[int, int]:

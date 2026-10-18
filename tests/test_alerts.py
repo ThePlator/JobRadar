@@ -224,3 +224,15 @@ def test_email_styles_stay_inside_their_attributes() -> None:
     from jobradar.sinks.email_template import FONT
 
     assert "'" not in FONT  # a quote here would end style='…' early and drop the rest
+
+
+def test_posting_age_chip() -> None:
+    from datetime import date
+
+    from jobradar.pipeline.schemas import JobPosting
+    from jobradar.sinks.email_template import posting_age
+
+    today = date(2026, 10, 18)
+    assert posting_age(JobPosting(published_on=date(2026, 10, 10)), today) == "Posted 10 Oct"
+    assert posting_age(JobPosting(published_on=date(2026, 9, 2)), today) == "Old posting · 2 Sep"
+    assert posting_age(JobPosting(), today) == "" and posting_age(None, today) == ""

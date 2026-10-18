@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.db.models import FetchedPage, JobStatus
-from jobradar.db.repo import Repo, TaskRecord
+from jobradar.db.repo import Repo, Sighting, TaskRecord
 from jobradar.llm import SchemaError, load_prompt
 from jobradar.pipeline.dedupe import role_key
 from jobradar.pipeline.fetch import Fetcher
@@ -73,6 +73,43 @@ def free_fields(
             if name not in fields:
                 fields[name], sources[name] = value, layer
     return fields, sources
+
+
+def published_on(page_date: Any, sightings: list[Sighting], today: date) -> date | None:
+    """The earliest date the job's own sites state: the page's datePosted, and the date each
+    company board gave (boards read directly, not via freehire, whose dates are its own).
+    A date in the future is a typo and ignored."""
+    dates = [page_date] if isinstance(page_date, date) else []
+    dates += [
+        from_iso(s.posted_at).date()
+        for s in sightings
+        if s.platform == "board" and not s.chat_id.startswith("freehire:")
+    ]
+    dates = [d for d in dates if d <= today]
+    return min(dates) if dates else None
+
+
+def backfill_published(repo: Repo, today: date) -> int:
+    """Give jobs extracted before publish dates were kept theirs, from the page data and board
+    dates already stored (no requests). Returns how many got one."""
+    filled = 0
+    for job_id in repo.jobs_in_notion():
+        job = repo.get_job(job_id)
+        if job is None or not job.data_json:
+            continue
+        data = json.loads(job.data_json)
+        if "published_on" in data:  # extracted since dates are kept, or already filled
+            continue
+        page = repo.get_page(job_id)
+        structured = json.loads(page.structured_json) if page and page.structured_json else None
+        page_date = from_job_posting(structured).get("published_on") if structured else None
+        found = published_on(page_date, repo.job_sightings(job_id), today)
+        data["published_on"] = found.isoformat() if found else None  # checked: not again
+        if found:
+            data.setdefault("_sources", {})["published_on"] = "structured" if page_date else "board"
+            filled += 1
+        repo.set_job_data(job_id, json.dumps(data, ensure_ascii=False))
+    return filled
 
 
 def backfill_role_keys(repo: Repo) -> int:
@@ -153,6 +190,11 @@ class Extractor:
         structured = json.loads(page.structured_json) if page and page.structured_json else None
         from_board = any(s.platform == "board" for s in sightings)
         fields, sources = free_fields(structured, own_post(self.repo, job.id), posted, from_board)
+        if published := published_on(fields.get("published_on"), sightings, self.clock().date()):
+            fields["published_on"] = published
+            sources["published_on"] = sources.get("published_on", "board")
+        else:
+            fields.pop("published_on", None)
         has_key_fields = all(fields.get(k) for k in _KEY)
         use_llm = self.llm is not None and (self.mode == "always" or not has_key_fields)
 
@@ -167,6 +209,8 @@ class Extractor:
             else:
                 for name in JobPosting.model_fields:
                     value = getattr(found, name)
+                    if name == "published_on":
+                        continue  # only the site's own date counts; the LLM would guess
                     if name not in fields and value not in (None, "", [], "unknown"):
                         fields[name], sources[name] = value, "llm"
                 is_job = found.is_job

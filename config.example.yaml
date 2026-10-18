@@ -101,6 +101,7 @@ notify:
   alert_batch_minutes: 10 # first alert is instant; later ones within 10 min come as one email
   max_alerts_per_day: 10
   alert_max_age_days: 2   # only jobs first seen this recently can alert
+  old_posting_days: 30    # published longer ago by the company's own site: no instant alert
   digest: true            # summary email at each digest time (skipped when nothing happened)
   digest_times: ["09:00", "19:00"]
   closing_reminders: true # email when a job you shortlisted closes today or tomorrow

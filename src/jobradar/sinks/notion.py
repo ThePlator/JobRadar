@@ -53,6 +53,8 @@ SCHEMA: dict[str, str] = {
 ADDED_LATER: dict[str, str] = {
     # Where the job was seen: "Telegram · Freshershunt", "Greenhouse · Stripe".
     "Source": "multi_select",
+    # When the company's own site says it published the job (page data or its job board).
+    "Posted On": "date",
 }
 
 # Agent-side status -> Notion Status option. Written only when the page is created; after
@@ -357,6 +359,7 @@ def build_properties(
     new_page: bool,
     source: bool = False,
     resume: str | None = None,
+    posted_on: bool = False,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "Role": {"title": _text(page_title(job, sightings))},
@@ -392,6 +395,8 @@ def build_properties(
             props["Salary"] = {"rich_text": _text(p.salary_text)}
         if p.deadline:
             props["Deadline"] = {"date": {"start": p.deadline.isoformat()}}
+        if posted_on and p.published_on:
+            props["Posted On"] = {"date": {"start": p.published_on.isoformat()}}
         apply = p.apply_url or apply
     if apply and len(apply) <= TEXT_LIMIT:
         props["Apply Link"] = {"url": apply}
@@ -424,6 +429,7 @@ def _posting_blocks(p: JobPosting) -> list[dict[str, Any]]:
         ("Location", ", ".join(p.locations)),
         ("Salary", p.salary_text or ""),
         ("Apply by", p.deadline.isoformat() if p.deadline else ""),
+        ("Published by the company", p.published_on.isoformat() if p.published_on else ""),
     ]
     lines = [f"{label}: {value}" for label, value in eligibility if value]
     if lines:
@@ -511,7 +517,12 @@ class NotionSink:
         page_id = job.notion_page_id or await self.client.find_page(self.data_source_id, job_id)
         if page_id:
             props = build_properties(
-                job, sightings, new_page=False, source="Source" in self.extra, resume=resume
+                job,
+                sightings,
+                new_page=False,
+                source="Source" in self.extra,
+                resume=resume,
+                posted_on="Posted On" in self.extra,
             )
             try:
                 if "Status" in props and await self.client.page_status(page_id) not in _AGENT_OWNED:
@@ -529,7 +540,12 @@ class NotionSink:
             page_id = await self.client.create_page(
                 self.data_source_id,
                 build_properties(
-                    job, sightings, new_page=True, source="Source" in self.extra, resume=resume
+                    job,
+                    sightings,
+                    new_page=True,
+                    source="Source" in self.extra,
+                    resume=resume,
+                    posted_on="Posted On" in self.extra,
                 ),
                 build_body(sightings, posting_of(job), match_line(job)),
             )
