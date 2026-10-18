@@ -248,21 +248,52 @@
   </div>
 </section>
 
-<section class="facts">
-  <h2>What I've measured so far</h2>
-  <p>Over 18 real alerts, the median time from a job being posted to the email in my inbox was <b>81 seconds</b>. Since the free first pass went live, <b>73 of 91 jobs</b> were read without any AI call. My setup watches <b>40 company job boards</b> and a handful of Telegram channels, and the code is covered by <b>482 automated tests</b>.</p>
+<section class="facts" id="facts">
+  <h2>Every alert so far</h2>
+  <p class="facts-lede">Each dot is one job Blip emailed me about, placed by how long after the original post it reached my inbox. Hover or tap a dot for its date.</p>
+  <figure class="swarm">
+    <svg id="swarm" viewBox="0 0 960 250" role="img" aria-label="Time from post to inbox for every job alert sent so far"></svg>
+    <figcaption><span class="dot-t"></span>Telegram post <span class="dot-b"></span>company board <span id="swarmHover" class="swarm-hover" aria-live="polite"></span></figcaption>
+  </figure>
+  <p class="swarm-note" id="swarmNote"></p>
+  <div class="minifacts">
+    <div class="mf">
+      <div class="squares" id="squares" aria-hidden="true"></div>
+      <p><b>132 of 175</b> Telegram jobs since 11 Oct were read with no AI call at all.</p>
+    </div>
+    <div class="mf">
+      <p class="boardnames"><span>Stripe</span><span>Rubrik</span><span>HackerRank</span><span>Databricks</span><span>MongoDB</span><span>Twilio</span><span>Okta</span><span>Commvault</span><span>Razorpay</span><span>Slice</span><span>Druva</span><span>Groww</span><span>GitLab</span><span>Meesho</span><span>Zeta</span><span>CRED</span><span>Sarvam AI</span><span>Atlan</span><span>Bosch</span><span>NVIDIA</span><span>Salesforce</span><span>Intel</span><span>Adobe</span><span>HP</span><span>Target</span><span>Workday</span><span>KLA</span><span>Autodesk</span><span>Analog Devices</span><span>Motorola Solutions</span><span>Thomson Reuters</span><span>Equifax</span><span>Fidelity</span><span>Philips</span><span>Cadence</span><span>Nasdaq</span><span>Wolters Kluwer</span><span>Mastercard</span><span>PayPal</span><span>BlackRock</span></p>
+      <p><b>40 company boards</b> read straight from their hiring sites, every 20 minutes.</p>
+    </div>
+    <div class="mf">
+      <p class="pytest" aria-hidden="true"><span id="pyDots"></span><b>482 passed</b> in 27.95s</p>
+      <p><b>482 automated tests</b> run before every change goes in.</p>
+    </div>
+  </div>
 </section>
 
 <section class="run" id="run">
-  <h2>Run your own Blip</h2>
-  <p>You'll need Python 3.11 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, a Telegram account, a Notion database and a free Gemini key. <code>jobradar init</code> asks for each.</p>
-  <div class="term big">
-    <div class="cmd"><span class="ps">$</span><code>git clone https://github.com/ThePlator/JobRadar && cd JobRadar</code><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
-    <div class="cmd"><span class="ps">$</span><code>uv sync</code><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
-    <div class="cmd"><span class="ps">$</span><code>uv run jobradar init</code><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
-    <div class="cmd"><span class="ps">$</span><code>uv run jobradar run</code><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+  <div class="run-copy">
+    <h2>Wake up your own Blip</h2>
+    <p>You'll need Python 3.11 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, a Telegram account, a Notion database made from the template and a free Gemini key. Your keys go in <code>.env</code>, which never leaves your machine.</p>
+    <p>Click a step to see what it prints on a first run. Blip sleeps until the last one.</p>
+    <p class="small">Every command is explained in <a href="https://github.com/ThePlator/JobRadar/blob/main/docs/COMMANDS.md">docs/COMMANDS.md</a>.</p>
   </div>
-  <p class="small">Every command is explained in <a href="https://github.com/ThePlator/JobRadar/blob/main/docs/COMMANDS.md">docs/COMMANDS.md</a>.</p>
+  <div class="bed">
+    <svg class="blip bed-blip sleep" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <ol class="term big steps">
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">1</span><code>git clone https://github.com/ThePlator/JobRadar && cd JobRadar</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Cloning into 'JobRadar'...</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">2</span><code>uv sync</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Installs Python packages into .venv; nothing global.</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">3</span><code>uv run jobradar init</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="cy">+ created config/config.yaml from config.example.yaml: edit it before continuing</span><span class="cy">+ created config/profile.yaml from profile.example.yaml: edit it before continuing</span><span class="cy">+ created .env from .env.example: edit it before continuing</span><span>Telegram login (a code is sent to your Telegram app; nothing is posted):</span><span class="ok">✓ Telegram logged in as you</span><span class="ok">✓ Notion database found and matches the template</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">4</span><code>uv run jobradar chats</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Lists the Telegram chats you can read, with their ids.</span><span>Put ids (or @usernames) under sources.telegram.chats in config.yaml.</span></div></li>
+      <li class="step"><div class="cmd"><button type="button" class="open" aria-expanded="false"><span class="n">5</span><code>uv run jobradar run</code></button><button type="button" class="copy" aria-label="Copy command"><svg class="i"><use href="#i-copy"/></svg></button></div>
+        <div class="out" hidden><span class="dim">Blip is awake. Leave this running; Ctrl+C puts it back to sleep.</span></div></li>
+    </ol>
+  </div>
 </section>
 </main>
 

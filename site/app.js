@@ -74,10 +74,11 @@
     });
   }
   let idle;
-  const nap = () => blips.forEach((b) => b.classList.add("sleep"));
+  const awakeOnes = blips.filter((b) => !b.classList.contains("bed-blip"));
+  const nap = () => awakeOnes.forEach((b) => b.classList.add("sleep"));
   function awake() {
     clearTimeout(idle);
-    if (blips[0].classList.contains("sleep")) blips.forEach((b) => { b.classList.remove("sleep"); wave(b); });
+    if (awakeOnes[0].classList.contains("sleep")) awakeOnes.forEach((b) => { b.classList.remove("sleep"); wave(b); });
     idle = setTimeout(nap, 25000);
   }
   for (const ev of ["pointermove", "keydown", "scroll", "touchstart"]) addEventListener(ev, awake, { passive: true });
@@ -317,6 +318,61 @@
   $$(".drafts button").forEach((b, i) => b.addEventListener("click", () => proofread(i)));
   proofread(1);
   new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); proofread(1); } }, { threshold: .15 }).observe(proof);
+
+  // ---- every alert so far: time from post to inbox, one dot per job (from data/jobradar.db) -----
+  const ALERTS = [["12 Oct, 13:52","t",6647],["12 Oct, 21:18","t",13],["12 Oct, 21:28","t",61],["12 Oct, 21:28","t",45],["12 Oct, 21:39","t",624],
+    ["12 Oct, 21:39","t",614],["12 Oct, 21:39","t",600],["12 Oct, 21:39","t",596],["12 Oct, 21:39","t",584],["13 Oct, 10:09","t",27],["13 Oct, 12:01","t",21],
+    ["13 Oct, 15:05","t",72],["13 Oct, 22:28","t",124],["13 Oct, 23:12","t",2779],["14 Oct, 10:47","t",44469],["14 Oct, 10:48","t",44494],["14 Oct, 12:32","t",45],
+    ["14 Oct, 18:25","t",1414],["14 Oct, 22:33","t",72],["15 Oct, 12:40","t",87],["15 Oct, 22:15","t",1760],["15 Oct, 22:25","t",2360],["16 Oct, 15:26","b",19610110],
+    ["16 Oct, 15:36","t",83826],["16 Oct, 17:29","b",80],["16 Oct, 17:29","b",85],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],
+    ["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["16 Oct, 17:39","b",691],["17 Oct, 18:35","t",2051],["18 Oct, 11:52","t",51]];
+  const human = (sec) => sec < 90 ? `${sec} s` : sec < 5400 ? `${Math.round(sec / 60)} min` : sec < 172800 ? `${Math.round(sec / 3600)} h` : `${Math.round(sec / 86400)} days`;
+  (function swarm() {
+    const svg = $("#swarm"), NS = "http://www.w3.org/2000/svg", MAX = 172800, BASE = 196;
+    // Drawn at the page's own width so labels stay readable on phones.
+    const W = Math.max(320, Math.min(960, Math.round(svg.getBoundingClientRect().width) || 960)), narrow = W < 600;
+    const L = 22, R = W - (narrow ? 40 : 60), r = narrow ? 6 : 8;
+    svg.setAttribute("viewBox", `0 0 ${W} 250`);
+    const x = (sec) => L + (Math.log10(Math.max(sec, 10)) - 1) / (Math.log10(MAX) - 1) * (R - L);
+    const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; svg.append(e); return e; };
+    // The 10-minute window: alerts inside it share one email, so they wait for it to close.
+    el("rect", { x: x(560), y: 8, width: x(720) - x(560), height: BASE + r - 8, class: "sw-band" });
+    el("text", { x: x(640), y: 24, class: "sw-band-label", "text-anchor": "middle" }, "one email per 10 min");
+    el("line", { x1: L, x2: W - 10, y1: BASE + r + 4, y2: BASE + r + 4, class: "sw-axis" });
+    for (const [sec, label] of [[10, "10 s"], [60, "1 min"], [600, "10 min"], [3600, "1 h"], ...(narrow ? [] : [[43200, "12 h"]]), [86400, "1 day"]]) {
+      el("line", { x1: x(sec), x2: x(sec), y1: BASE + r + 4, y2: BASE + r + 10, class: "sw-axis" });
+      el("text", { x: x(sec), y: BASE + r + 28, "text-anchor": "middle", class: "sw-tick" }, label);
+    }
+    const stacks = {}, hover = $("#swarmHover");
+    ALERTS.forEach(([when, src, sec], i) => {
+      const off = sec > MAX, cx = off ? W - r - 8 : x(sec), bin = Math.round(cx / (r * 2.1));
+      const level = stacks[bin] = (stacks[bin] ?? -1) + 1;
+      const c = el("circle", { cx: bin * r * 2.1, cy: BASE - level * r * 2.1, r, class: `sw-dot ${src}`, tabindex: 0,
+        style: `--i:${i}` });
+      const say = `${when}: ${src === "t" ? "Telegram post" : "company board"}, ${off ? `the posting was already ${human(sec)} old when Blip first saw it` : `in my inbox ${human(sec)} after it was posted`}`;
+      const tip = document.createElementNS(NS, "title"); tip.textContent = say; c.append(tip);
+      const show = () => { hover.textContent = say; };
+      c.addEventListener("pointerenter", show); c.addEventListener("focus", show); c.addEventListener("click", show);
+      if (off) el("text", { x: W - r - 8, y: BASE - level * r * 2.1 - 16, "text-anchor": "end", class: "sw-tick" }, "7 months");
+    });
+    const secs = ALERTS.map((a) => a[2]).sort((p, q) => p - q), within = (t) => secs.filter((v) => v <= t).length;
+    $("#swarmNote").textContent = `${within(120)} of ${secs.length} reached me within two minutes, and ${within(720)} within 12 minutes. ` +
+      `The cluster at 10 minutes is jobs waiting for the next email. ${secs.length - within(720)} took longer, up to ${human(secs.filter((v) => v <= MAX).at(-1))}.`;
+    new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); svg.classList.add("in"); } }, { threshold: .3 }).observe(svg);
+  })();
+  // 132 of 175 Telegram jobs read by the free first pass (job.prompt_version = rules-v1, since 11 Oct).
+  $("#squares").innerHTML = Array.from({ length: 175 }, (_, i) => `<i${i < 132 ? ' class="on"' : ""}></i>`).join("");
+  $("#pyDots").textContent = ".".repeat(96);
+
+  // ---- wake up your own Blip: each step shows its first-run output ------------------------------
+  const bedBlip = $(".bed-blip"), steps = $$(".step");
+  steps.forEach((st, i) => $(".open", st).addEventListener("click", (e) => {
+    const btn = e.currentTarget, out = $(".out", st), open = btn.getAttribute("aria-expanded") !== "true";
+    btn.setAttribute("aria-expanded", String(open)); out.hidden = !open;
+    st.classList.toggle("done", open || st.classList.contains("done"));
+    if (i === steps.length - 1 && open) { bedBlip.classList.remove("sleep"); mood(bedBlip, "happy", 0); wave(bedBlip); }
+    if (i === steps.length - 1 && !open) { bedBlip.classList.remove("happy"); bedBlip.classList.add("sleep"); }
+  }));
 
   // ---- copy buttons ------------------------------------------------------------------------------
   $$(".copy").forEach((btn) => btn.addEventListener("click", async () => {
