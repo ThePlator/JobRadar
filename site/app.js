@@ -263,8 +263,10 @@
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#chatForm").requestSubmit(); });
   let typingTimer;
   for (const id of ["#mySkills", "#myBatch"]) $(id).addEventListener("input", () => { clearTimeout(typingTimer); typingTimer = setTimeout(() => show(current), 400); });
-  // Read the first post when the section scrolls into view.
-  new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); show(current); } }, { threshold: .35 }).observe(desk);
+  // The first post is read on load, so the desk is never empty; the highlighter replays once
+  // when the section first scrolls into view.
+  show(current);
+  new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); show(current); } }, { threshold: .15 }).observe(desk);
 
   // ---- the red pen (the rules in resume/validate.py, simplified) ------------------------------
   const ORIGINAL = $(".mine").textContent;
