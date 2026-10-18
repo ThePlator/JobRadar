@@ -332,80 +332,48 @@ footer p { margin: 0; }
 @keyframes zz { 0% { opacity: 0; transform: translate(0, 6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -10px); } }
 @keyframes heart { 0% { opacity: 0; transform: translate(0, 0) scale(.4); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--dx), -110px) scale(1.1) rotate(var(--rot)); } }
 
-/* What's coming: Blip's assembly line. Boxes on a belt, nearest = built first; the later
-   ones wait in a pile. Picking a box fills the packing slip. */
-.coming-head { max-width: 680px; }
-.coming-head p { color: var(--muted); }
-.factory { display: flex; align-items: flex-end; gap: 6px; margin-top: 48px; }
-.bench { flex: none; width: 128px; position: relative; display: flex; flex-direction: column; align-items: center; }
-.worker { width: 96px; margin-bottom: -6px; position: relative; z-index: 1; }
-.table { width: 128px; height: 46px; border-radius: 8px 8px 4px 4px; background: var(--card); border: 2px solid var(--ink); position: relative; }
-.table::before, .table::after { content: ""; position: absolute; bottom: -22px; width: 8px; height: 22px; background: var(--ink); border-radius: 0 0 3px 3px; }
-.table::before { left: 14px; } .table::after { right: 14px; }
-.line { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; padding-top: 18px; scrollbar-width: thin; }
-.boxes { list-style: none; margin: 0; padding: 0 8px; display: flex; align-items: flex-end; gap: 10px; width: max-content; }
-.pile { display: flex; flex-direction: column-reverse; align-items: center; }
-.pile .box + .box { margin-bottom: -2px; transform: rotate(-3deg) translateX(6px); }
-.box { position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; width: var(--s, 140px); height: calc(var(--s, 140px) * .86); padding: 22px 10px 12px; border: 0; border-radius: 6px; cursor: pointer; background: linear-gradient(180deg, var(--box) 0 70%, var(--box-edge)); color: var(--box-ink); box-shadow: inset 0 -6px 0 rgba(0, 0, 0, .08), 0 2px 0 rgba(0, 0, 0, .12); transition: transform .2s ease, box-shadow .2s ease; font: inherit; }
-.box.soon { --s: 120px; } .box.later { --s: 104px; }
-.box .tape { position: absolute; top: 0; left: 50%; width: 26%; height: 100%; transform: translateX(-50%); background: rgba(255, 255, 255, .16); border-left: 1px dashed rgba(0, 0, 0, .12); border-right: 1px dashed rgba(0, 0, 0, .12); }
-.box .label { position: relative; background: #fffdf7; color: #1f2328; font: 700 13.5px/1.2 var(--body); padding: 7px 8px; border-radius: 3px; width: 88%; text-align: center; box-shadow: 0 1px 2px rgba(0, 0, 0, .15); }
-.box.later .label { font-size: 12px; }
-.stamp { display: inline-block; font: 700 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .12em; padding: 4px 7px; border: 2px solid currentColor; border-radius: 4px; color: var(--accent); }
-.stamp.soon { color: #c2690c; } .stamp.later { color: var(--muted); }
-.box .stamp { position: relative; margin-top: 8px; transform: rotate(-7deg); background: color-mix(in srgb, #fffdf7 70%, transparent); }
-.box.soon .stamp { color: #a3500a; } .box.later .stamp { color: #57606a; }
-.box:hover, .box:focus-visible { transform: translateY(-6px); }
-.pile .box + .box:hover, .pile .box + .box:focus-visible { transform: rotate(-3deg) translate(6px, -6px); }
-.box[aria-pressed="true"] { transform: translateY(-12px); box-shadow: 0 0 0 3px var(--accent), 0 14px 22px rgba(0, 0, 0, .18); }
-.pile .box + .box[aria-pressed="true"] { transform: rotate(-3deg) translate(6px, -12px); }
-.belt { position: relative; height: 34px; margin-top: 4px; border-radius: 17px; background: var(--belt); overflow: hidden; width: max(100%, var(--belt-w, 100%)); }
-.tread { position: absolute; inset: 4px 0 auto; height: 6px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .22) 0 14px, transparent 14px 30px); animation: tread 1.6s linear infinite; }
-.rollers { position: absolute; inset: 13px 10px 5px; display: flex; justify-content: space-between; }
-.rollers i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .35); background: conic-gradient(rgba(255, 255, 255, .35) 0 25%, transparent 0 50%, rgba(255, 255, 255, .35) 0 75%, transparent 0); animation: roll 1.2s linear infinite reverse; }
-@keyframes tread { to { background-position: -30px 0; } }
-@keyframes roll { to { transform: rotate(360deg); } }
-.slip { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 40px; max-width: 900px; background: #fffdf7; color: #1f2328; border-radius: 4px; padding: 22px 26px; box-shadow: var(--shadow); position: relative; transform: rotate(-.4deg);
-  -webkit-mask: radial-gradient(circle 6px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 6px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x;
-  mask: radial-gradient(circle 6px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 6px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x; }
-.slip-head { display: flex; align-items: center; gap: 12px; margin: 0; font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: #57606a; }
-.slip .stamp.next { color: #1a56db; } .slip .stamp.soon { color: #a3500a; } .slip .stamp.later { color: #57606a; }
-.slip h3 { margin: 10px 0 6px; font: 700 22px/1.2 var(--display); }
-.slip p:not(.slip-head):not(.slip-note) { margin: 0; color: #3b4048; font-size: 16px; line-height: 1.55; }
-.slip-note { margin: 0; font: 700 26px/1.15 "Caveat", cursive; color: #3b4048; transform: rotate(-2deg); }
-.box .detail { display: none; }
-@media (max-width: 760px) {
-  .slip { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+/* What's coming: an Indian Railways departure board in amber LED dots, and the
+   station announcement for the row you pick. The board is the one loud thing here. */
+.coming-head p { color: var(--muted); max-width: 60ch; }
+.station { margin-top: 40px; max-width: 980px; }
+.board { --led: #ffb21e; --go: #5fe08a; --wait: #ffb21e; --later: #c98a1c;
+  background: #15140f; border: 10px solid #2b2a24; border-radius: 6px; padding: 18px 22px 22px;
+  box-shadow: inset 0 0 0 1px #000, 0 18px 40px rgba(0, 0, 0, .25);
+  background-image: radial-gradient(rgba(255, 255, 255, .045) 1px, transparent 1.2px); background-size: 6px 6px; }
+.board, .board button { font-family: "Doto", "JetBrains Mono", monospace; font-weight: 900; color: var(--led); }
+.board .flap, .board th, .board-top { text-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
+.board-top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 24px; letter-spacing: .04em;
+  padding-bottom: 12px; border-bottom: 2px solid #2b2a24; margin-bottom: 6px; }
+.clock { font-size: 28px; color: #ff5a3c; }
+.board table { width: 100%; border-collapse: collapse; }
+.board th { text-align: left; font-size: 14px; font-weight: 700; color: #8d7a4f; padding: 10px 10px 6px; text-shadow: none; }
+.board td { padding: 0; border-top: 1px solid #24231d; font-size: 20px; white-space: nowrap; }
+.board td.st, .board td.pf { padding: 10px; }
+.board td button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 10px; cursor: pointer; white-space: normal; }
+.board td button:focus-visible { outline: 2px solid var(--led); outline-offset: -2px; }
+.board tr:hover td, .board tr.on td { background: rgba(255, 178, 30, .07); }
+.board tr.on td:first-child button::before { content: "▶ "; }
+.board tr.arriving .st { color: var(--go); }
+.board tr.scheduled td { color: var(--later); }
+.board tr.scheduled button { color: var(--later); }
+.board th:nth-child(2), .board td.st { width: 1%; }
+.board th:nth-child(3), .board td.pf { width: 1%; text-align: right; }
+.board th:nth-child(3) { text-align: right; }
+.announce { display: flex; gap: 14px; align-items: flex-start; margin: 0; padding: 16px 20px; min-height: 92px;
+  background: var(--card); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px;
+  font: 500 17px/1.55 var(--body); color: var(--ink); max-width: 980px; box-sizing: border-box; }
+.horn { flex: none; width: 24px; height: 24px; margin-top: 2px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.horn path:first-child { fill: var(--accent); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 640px) {
+  .board { border-width: 6px; padding: 12px 12px 14px; }
+  .board-top { font-size: 18px; } .clock { font-size: 20px; }
+  .board td { font-size: 15px; } .board th { font-size: 12px; }
+  .board td.st, .board td.pf, .board td button { padding: 9px 6px; }
+  .board td.st { white-space: normal; }
+  .board th:nth-child(3), .board td.pf { display: none; }
+  .announce { font-size: 16px; min-height: 140px; }
 }
-/* Phones: the belt turns vertical and runs up to Blip; the picked box opens in place. */
-@media (max-width: 600px) {
-  .factory { flex-direction: column; align-items: center; gap: 0; margin-top: 32px; }
-  .bench { width: 120px; } .worker { width: 78px; } .table { width: 120px; height: 34px; }
-  .table::before, .table::after { display: none; }
-  .line { width: 100%; overflow: visible; padding: 14px 0 0 40px; position: relative; }
-  .boxes { flex-direction: column; align-items: stretch; width: auto; padding: 0; gap: 12px; }
-  .boxes > li { display: flex; flex-direction: column; }
-  .pile { gap: 0; align-items: stretch; }
-  .pile .box + .box { margin: -4px 0 0; transform: rotate(-1.2deg); }
-  .box { width: auto; height: auto; flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 14px 14px 44px; text-align: left; }
-  .box.soon { margin-right: 4%; } .box.later { margin-right: 8%; }
-  .box .tape { left: 14px; width: 18px; transform: none; }
-  .box .label { width: auto; flex: 1; text-align: left; font-size: 15px; }
-  .box.later .label { font-size: 14px; }
-  .box .stamp { margin: 0; flex: none; }
-  .box .detail { display: none; flex-basis: 100%; background: #fffdf7; color: #3b4048; border-radius: 3px; padding: 10px 12px; font-size: 14.5px; line-height: 1.5; text-align: left; }
-  .box .detail em { display: block; margin-top: 6px; font: 700 21px/1.1 "Caveat", cursive; font-style: normal; color: #3b4048; }
-  .box[aria-pressed="true"] .detail { display: block; }
-  .box:hover, .box:focus-visible, .box[aria-pressed="true"],
-  .pile .box + .box:hover, .pile .box + .box:focus-visible, .pile .box + .box[aria-pressed="true"] { transform: none; }
-  .box[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), 0 8px 18px rgba(0, 0, 0, .16); }
-  .belt { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; height: auto; margin: 0; border-radius: 13px; }
-  .tread { inset: 0 auto 0 4px; width: 6px; height: auto; background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .22) 0 14px, transparent 14px 30px); animation-name: tread-up; }
-  .rollers { inset: 10px 3px 10px 11px; flex-direction: column; }
-  .rollers i { width: 10px; height: 10px; border-width: 1.5px; }
-  .slip { display: none; }
-}
-@keyframes tread-up { to { background-position: 0 -30px; } }
 
 @media (max-width: 960px) {
   .hero, .chat-sec, .pen, .run { grid-template-columns: minmax(0, 1fr); gap: 40px; }
