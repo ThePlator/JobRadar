@@ -7,7 +7,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 ### Added
 
 **Website**
-- `site/`: a one-page showcase published to GitHub Pages by `.github/workflows/pages.yml`. Blip, the agent's mascot, walks one job through the five steps (Watch, Clean, Score, Alert, Resume) as you scroll, with the real alert email and an example resume. Visitors can paste a job post and see it read in their browser (the post-label idea, no AI, nothing sent), and try three AI rewrites against the resume checker's rules. Static HTML, CSS and JS, no build step.
+- `site/`: a one-page site published to GitHub Pages by `.github/workflows/pages.yml`, in light and dark themes (follows the system, with a switch). It tells one real night from my log (15 Oct, 22:15 to 22:25) with the real timestamps: two Telegram posts, a finance job hidden as a weak match (29), Rubrik scored 79 and emailed six seconds later, QualComm scored 92 and held for the 10 minute pause, US sales roles skipped from the company boards. Blip, the mascot, annotates each moment in handwriting. Visitors can forward a post to Blip in a chat (read in the browser with the post-label rules, nothing sent) and try three AI rewrites against the resume checker's rules. Static HTML, CSS and JS.
 
 **Tailored resumes (v0.3)**
 - JobRadar builds a one-page PDF resume per job from `profile.yaml`, in your own LaTeX layout (`resume.template: classic` reproduces it exactly; a path to your own `.tex.j2` works too). It's built when a job first scores at or above `scoring.auto_resume_above` (at most `resume.max_per_day`), when you set a job to Shortlisted, or with `jobradar resume <job>`.

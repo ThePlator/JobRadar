@@ -1,10 +1,11 @@
-// JobRadar showcase: Blip's eyes and moods, the radar, the scroll story, the post reader
-// demo and the resume checker. No libraries, nothing sent anywhere.
+// JobRadar site: Blip (eyes, moods, naps), the theme switch, the log ticker, the chat that
+// reads a forwarded post, and the red pen. No libraries; nothing is sent anywhere.
 (() => {
   "use strict";
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // ---- Blip: one inline copy per spot, so each can have its own mood --------------------
   const blipSvg = $("#blip").innerHTML;
@@ -63,7 +64,7 @@
     }
   }
   for (const svg of blips) {
-    const host = svg.closest(".blip-btn, .stage-blip, .reader");
+    const host = svg.closest(".blip-btn, .ph-head");
     if (!host) continue;
     host.addEventListener("pointerenter", () => wave(svg));
     host.addEventListener("click", (e) => {
@@ -96,80 +97,53 @@
   });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", syncTheme);
 
-  // ---- top bar ------------------------------------------------------------------------
-  const top = $(".top");
-  addEventListener("scroll", () => top.classList.toggle("scrolled", scrollY > 8), { passive: true });
-
-  // ---- hero radar: postings appear as the sweep passes; filtered ones dim ---------------
-  const POSTS = [
-    ["Software Engineer, Intern", true], ["Backend Engineer, New Grad", true],
-    ["Account Executive", false], ["Associate Software Engineer", true],
-    ["Senior SRE", false], ["Data Analyst, Fresher", true], ["Sales Manager", false],
-    ["Full Stack Developer Intern", true], ["Staff Engineer", false], ["ML Engineer, Graduate", true],
-  ];
-  const pings = $("#pings"), heroBlip = $("#heroBlip svg"), bubble = $("#heroBubble");
-  let n = 0;
-  function ping() {
-    const [title, good] = POSTS[n++ % POSTS.length];
-    const a = Math.random() * Math.PI * 2, r = 18 + Math.random() * 22;
-    const el = document.createElement("div");
-    el.className = "ping" + (good ? "" : " dim");
-    el.textContent = title;
-    el.style.left = `${50 + Math.cos(a) * r}%`;
-    el.style.top = `${44 + Math.sin(a) * r * 0.8}%`;
-    pings.append(el);
-    if (pings.children.length > 4) {
-      const old = pings.firstElementChild;
-      old.classList.add("out");
-      setTimeout(() => old.remove(), 350);
-    }
-    if (good && Math.random() < 0.5) say(`${title}? Checking your profile…`);
-  }
-  const LINES = [
-    "Hi! I'm Blip. I read job channels so you don't have to.",
-    "I skip senior and sales roles for you.",
-    "Same job in 3 channels? One row.",
-    "Strong match: emailing you now.",
-    "I never add a skill you don't have.",
-  ];
-  let line = 0;
+  // ---- hero speech bubble -----------------------------------------------------------------
+  const heroBlip = $("#heroBlip svg"), bubble = $("#heroBubble");
   function say(text) {
     bubble.textContent = text;
     bubble.classList.remove("pop"); void bubble.offsetWidth; bubble.classList.add("pop");
   }
+  const LINES = ["Hi, I'm Blip.", "I read every new post in your job channels.", "Same job in three channels? One row.",
+    "Senior and sales roles never reach you.", "I'll never call you an expert.", "Click me again. I like it."];
+  let line = 0;
   $("#heroBlip").addEventListener("click", () => { mood(heroBlip, "happy"); say(LINES[++line % LINES.length]); });
+
+
   syncTheme();
-  if (!still) { setInterval(ping, 1700); ping(); ping(); } else { for (let i = 0; i < 4; i++) ping(); }
 
-  // ---- the scroll story ---------------------------------------------------------------
-  const stage = $("#stage"), stageBlip = $(".stage-blip svg"), stageBubble = $("#stageBubble");
-  const SAY = {
-    1: ["New post in a channel!", null],
-    2: ["Same job, 3 channels. Merged.", null],
-    3: ["92. That's a good one.", "happy"],
-    4: ["Sent! It's in your inbox.", "alarm"],
-    5: ["One page. Only true things.", "happy"],
-  };
-  const steps = $$(".step");
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const s = e.target.dataset.step;
-      if (stage.dataset.step === s) continue;
-      stage.dataset.step = s;
-      steps.forEach((x) => x.classList.toggle("on", x === e.target));
-      stageBubble.textContent = SAY[s][0];
-      stageBubble.classList.remove("pop"); void stageBubble.offsetWidth; stageBubble.classList.add("pop");
-      mood(stageBlip, SAY[s][1], 1800);
-    }
-  }, {
-    // On phones the pinned picture covers the top half, so a step switches lower down.
-    rootMargin: matchMedia("(max-width: 900px)").matches ? "-68% 0px -27% 0px" : "-45% 0px -45% 0px",
-  });
-  steps.forEach((s) => io.observe(s));
-  steps[0].classList.add("on");
+  const top = $(".top");
+  addEventListener("scroll", () => top.classList.toggle("scrolled", scrollY > 8), { passive: true });
 
-  // ---- the post reader (the same label idea as pipeline/post_labels.py) ------------------
+  // ---- hero: the real log lines from 15 Oct, scrolling under Blip ---------------------------
+  const LOG = [
+    ["22:15:12", "new job", "job4freshers.co.in/apprentice-analyst-eclerx-walk-in"],
+    ["22:15:13", "new job", "freshershunt.in/akamai-technical-academy-2026"],
+    ["22:15:15", "new job", "rubrik.com/company/careers/departments/job.8256407"],
+    ["22:15:17", "new job", "careers.qualcomm.com/careers/job/446719784235"],
+    ["22:15:18", "job hidden", "eClerx: weak match (29)", true],
+    ["22:15:43", "job matched", "Rubrik score=79 decision=alert"],
+    ["22:15:49", "alert email sent", "jobs=1"],
+    ["22:15:56", "job matched", "QualComm score=92 decision=alert"],
+    ["22:20:24", "board posting skipped", "druva: Regional Vice President, not in India", true],
+    ["22:22:25", "board posting skipped", "stripe: Account Executive, not in India", true],
+    ["22:23:25", "board posting skipped", "okta: Senior Software Engineer, not in India", true],
+    ["22:25:55", "alert email sent", "jobs=1"],
+  ];
+  const ticker = $("#ticker");
+  let li = 0;
+  function tick() {
+    const [t, what, rest, dim] = LOG[li++ % LOG.length];
+    const d = document.createElement("div");
+    d.innerHTML = `<span class="t">${t}</span><span class="${dim ? "hid" : "k"}">${esc(what)}</span> ${esc(rest)}`;
+    ticker.append(d);
+    while (ticker.children.length > 8) ticker.firstElementChild.remove();
+    if (!dim && what === "alert email sent") { mood(heroBlip, "alarm", 1500); }
+    if (what === "job matched") { mood(heroBlip, "happy", 1200); }
+  }
+  for (let i = 0; i < 7; i++) tick();
+  if (!still) setInterval(tick, 1600);
+
+  // ---- forward a post: the reader, in a chat --------------------------------------------------
   const LABELS = {
     company: ["company", "company name", "organization", "organisation", "hiring company", "employer"],
     role: ["role", "job role", "post", "post name", "position", "job title", "designation", "profile", "job profile"],
@@ -221,62 +195,49 @@
     "Northwind is hiring for Backend Developer!\n\nFreshers can apply. Work with Java, Spring Boot, MySQL and Docker.\nLocation: Pune\n\nhttps://careers.example.com/northwind/backend-dev",
     "𝗚𝗿𝗲𝗮𝘁 𝗢𝗽𝗽𝗼𝗿𝘁𝘂𝗻𝗶𝘁𝘆 🚀\n➡️ 𝗣𝗼𝘀𝘁 𝗡𝗮𝗺𝗲 : Associate Data Analyst\n➡️ 𝗢𝗿𝗴𝗮𝗻𝗶𝘀𝗮𝘁𝗶𝗼𝗻 - Contoso Analytics\n📍 Job Location : Remote, India\n🎓 Passout : 2024, 2025, 2026\n💼 Exp : 0-1 years\nTools: Excel, SQL, Power BI, Python\n👉 https://example.com/apply/contoso",
   ];
-  const ta = $("#postText"), say2 = $("#demoSay"), dBlip = $("#demoBlip"), reader = $(".reader");
-  const sampleBtns = $$(".samples button");
-  function loadSample(i) {
-    ta.value = SAMPLES[i];
-    sampleBtns.forEach((b, j) => b.setAttribute("aria-pressed", String(i === j)));
+  const chat = $("#chatLog"), ta = $("#postText"), status = $("#phStatus"), miniBlip = $(".ph-head svg");
+  function msg(cls, html) {
+    const m = document.createElement("div");
+    m.className = "msg " + cls;
+    m.innerHTML = html;
+    chat.append(m);
+    chat.scrollTop = chat.scrollHeight;
+    return m;
   }
-  sampleBtns.forEach((b, i) => b.addEventListener("click", () => { loadSample(i); run(); }));
-  loadSample(0);
-
-  function row(dl, label, value, i) {
-    const dt = document.createElement("dt"), dd = document.createElement("dd");
-    dt.textContent = label;
-    dd.textContent = value || "not stated";
-    if (!value) dd.className = "none";
-    for (const el of [dt, dd]) { el.classList.add("row-in"); el.style.animationDelay = `${i * 70}ms`; }
-    dl.append(dt, dd);
-  }
-  function chip(text, have) {
-    const s = document.createElement("span");
-    s.className = "chip" + (have ? " have" : "");
-    s.innerHTML = have ? '<svg class="i" aria-hidden="true"><use href="#i-check"/></svg>' : "";
-    s.append(text);
-    return s;
-  }
-  function run() {
-    const text = ta.value.trim();
-    if (!text) { say2.textContent = "Paste a job post first, then press Read this post."; return; }
-    reader.classList.add("reading");
-    say2.textContent = "Reading…";
+  msg("bot", "Forward me a job post. I'll tell you what it says and whether it's for you.");
+  function answer(text) {
+    msg("me", esc(text.length > 260 ? text.slice(0, 260) + "…" : text));
+    status.textContent = "reading…";
+    const typing = msg("bot typing", "reading…");
     setTimeout(() => {
-      reader.classList.remove("reading");
-      const r = read(text), dl = $("#fields");
-      dl.replaceChildren();
+      typing.remove();
+      status.textContent = "online";
+      const r = read(text);
       const rows = [["Company", r.found.company], ["Role", r.found.role], ["Location", r.found.location],
-        ["Batch", r.years.join(", ")], ["Experience", r.exp], ["Apply link", r.link]];
-      rows.forEach(([l, v], i) => row(dl, l, v, i));
-      const mine = $("#mySkills").value.split(",").map((s) => s.trim()).filter(Boolean);
-      const mineKeys = new Set(mine.map(key));
-      const out = $("#skillOut");
-      out.replaceChildren(...r.tech.map((t) => chip(t, mineKeys.has(key(t)))));
-      const have = r.tech.filter((t) => mineKeys.has(key(t))).length;
-      const batch = +$("#myBatch").value;
-      const batchOk = !r.years.length ? null : r.years.includes(batch);
-      const p = document.createElement("p");
-      p.textContent = (r.tech.length ? `You have ${have} of the ${r.tech.length} skills this post names. ` : "This post names no skills I know. ")
-        + (batchOk === null ? "It doesn't state a batch." : batchOk ? `Your ${batch} batch is eligible.` : `Your ${batch} batch isn't listed, so I'd hide it.`);
-      out.append(p);
+        ["Batch", r.years.join(", ")], ["Experience", r.exp], ["Apply", r.link]];
       const got = rows.filter(([, v]) => v).length;
-      say2.textContent = batchOk === false ? "Not your batch. I'd hide this one." : `Found ${got} of 6 details without asking any AI.`;
-      mood(dBlip, batchOk === false ? null : "happy", 1600);
+      msg("bot", `<div class="kv">${rows.map(([k, v]) => `<span>${k}</span><span>${v ? esc(v) : "<i>not stated</i>"}</span>`).join("")}</div>`);
+      const mine = new Set($("#mySkills").value.split(",").map((s) => key(s.trim())).filter(Boolean));
+      const have = r.tech.filter((t) => mine.has(key(t))), miss = r.tech.filter((t) => !mine.has(key(t)));
+      const batch = +$("#myBatch").value, batchOk = r.years.length ? r.years.includes(batch) : null;
+      let verdict = r.tech.length ? `You have <b>${have.length} of ${r.tech.length}</b> skills it names` + (miss.length ? ` (missing ${esc(miss.join(", "))}).` : ".") : "It doesn't name any skills I know.";
+      verdict += batchOk === null ? " No batch stated." : batchOk ? ` Your ${batch} batch is eligible.` : ` Your ${batch} batch isn't listed, so I'd hide this one.`;
+      msg("bot", verdict + `<br><small>${got} of 6 details found without any AI.</small>`);
+      mood(miniBlip, batchOk === false ? null : "happy", 1500);
     }, still ? 0 : 900);
   }
-  $("#readBtn").addEventListener("click", run);
+  $$(".samples button").forEach((b) => b.addEventListener("click", () => answer(SAMPLES[+b.dataset.sample])));
+  $("#chatForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = ta.value.trim();
+    if (!text) { ta.focus(); ta.placeholder = "Paste a job post first"; return; }
+    ta.value = "";
+    answer(text);
+  });
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#chatForm").requestSubmit(); });
 
-  // ---- the resume checker (the rules in resume/validate.py, simplified) -----------------
-  const ORIGINAL = $("#origText").textContent;
+  // ---- the red pen (the rules in resume/validate.py, simplified) ------------------------------
+  const ORIGINAL = $(".mine").textContent;
   const BANNED = ["expert", "world-class", "guru", "ninja", "rockstar", "cutting-edge", "passionate"];
   const SIZE = /\b(doubl\w*|tripl\w*|halv\w*|\d+(\.\d+)?\s?x)\b/gi;
   const nums = (s) => new Set((s.match(/\d[\d,]*(?:\.\d+)?\+?%?/g) || []).map((x) => x.replace(/,/g, "")));
@@ -295,18 +256,15 @@
     return why;
   }
   const verdict = $("#verdict");
-  $$(".rewrites button").forEach((b, _, all) => b.addEventListener("click", () => {
+  $$(".stickies button").forEach((b, _, all) => b.addEventListener("click", () => {
     all.forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     const why = check(b.textContent);
-    verdict.className = "verdict " + (why.length ? "undone" : "kept");
     verdict.innerHTML = why.length
-      ? `<div class="v-title"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Undone. Your wording goes back in.</div><p class="struck"></p><ul>${why.map((w) => `<li>Adds ${w}</li>`).join("")}</ul>`
-      : `<div class="v-title"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Kept. Same facts, same numbers.</div>`;
-    const struck = $(".struck", verdict);
-    if (struck) struck.textContent = b.textContent;
+      ? `<span class="no">Nope, your sentence goes back in.</span><s>${esc(b.textContent)}</s>${why.map((w) => `<small>It adds ${esc(w)}.</small>`).join("")}`
+      : `<span class="ok">Fine by me. Same facts, same 15%.</span>`;
   }));
 
-  // ---- copy buttons --------------------------------------------------------------------
+  // ---- copy buttons ------------------------------------------------------------------------------
   $$(".copy").forEach((btn) => btn.addEventListener("click", async () => {
     const code = btn.parentElement.querySelector("code").textContent;
     try { await navigator.clipboard.writeText(code); } catch { return; }
