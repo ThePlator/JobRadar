@@ -312,7 +312,7 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .cmd { display: flex; align-items: center; gap: 8px; border-radius: 10px; }
 .cmd:hover { background: rgba(255, 255, 255, .05); }
 .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; background: none; border: 0; padding: 8px 6px 8px 8px; cursor: pointer; text-align: left; color: inherit; font: inherit; }
-.open code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; color: #e6edf3; font-size: 15px; }
+.open code { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; color: #e6edf3; font-size: 15px; }
 .n { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 12px var(--mono); color: #8b949e; border: 1px solid #3d444d; }
 .done .n { background: #2da44e; border-color: #2da44e; color: #fff; }
 .out { display: grid; gap: 2px; padding: 2px 12px 12px 50px; font: 400 13px/1.55 var(--mono); color: #c9d1d9; overflow-wrap: anywhere; }

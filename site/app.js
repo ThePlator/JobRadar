@@ -376,7 +376,7 @@
 
   // ---- copy buttons ------------------------------------------------------------------------------
   $$(".copy").forEach((btn) => btn.addEventListener("click", async () => {
-    const code = btn.parentElement.querySelector("code").textContent;
+    const code = btn.dataset.copy || btn.parentElement.querySelector("code").textContent;
     try { await navigator.clipboard.writeText(code); } catch { return; }
     btn.classList.add("done"); btn.setAttribute("aria-label", "Copied");
     setTimeout(() => { btn.classList.remove("done"); btn.setAttribute("aria-label", "Copy command"); }, 1400);
