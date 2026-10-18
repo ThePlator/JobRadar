@@ -34,8 +34,11 @@ gantt
     Suggestions, boards CLI, Source  :f3, after f4, 3d
     Drive-page watcher               :f5, after f3, 2d
     Workday reader + still-open rung :f6, after f5, 2d
-    Job age + outcomes by source     :f7, after f6, 2d
-    SuccessFactors, site by site     :f8, after f7, 3d
+    freehire source                  :f9, after f6, 1d
+    One role across cities = one job :f10, after f9, 1d
+    Job age + outcomes by source     :f7, after f10, 2d
+    Oracle reader                    :f11, after f7, 1d
+    SuccessFactors, site by site     :f8, after f11, 3d
     Gate · board alert in 30 min      :milestone, gf, after f8, 0d
 
     section v0.3 Resume
@@ -164,7 +167,7 @@ Goal: every row has structured details and a trustworthy match score.
 **Understanding and matching**
 
 - [x] `pipeline/extract.py`: page text (12k-character cap) + message + OCR → `JobPosting`; `confidence < 0.4` with no company or role → `discarded`; schema failure → `needs_review`
-- [ ] (part C) Fingerprint dedupe after extraction (30-day window)
+- [ ] (part C) Fingerprint dedupe after extraction (30-day window), built as "one role across cities = one job" in v0.2.5 below
 - [x] (part B) Free extraction first: page JSON-LD and post labels, Gemini only as fallback (B4a)
 - [x] (part B) `pipeline/match.py` + `providers/` (LLM, skills rule) + `pipeline/decide.py` + `pipeline/scam.py` (built instead of `score.py`): hard rules, weighted Match Score, ordered decide policy, scam points, route `hidden` / `new` / alert
 - [ ] (part B3) Jev provider, run alongside Gemini first (needs a TypeSafe key)
@@ -220,6 +223,7 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] Notion **Source** column ("Telegram · Freshershunt", "Greenhouse · Commvault"), added to the database automatically; a view grouped by Source is made in Notion (the API can't create views)
 - [x] Emails: "posted 4 min ago on Commvault's Greenhouse board"; digest section "From company boards"
 - [x] Starter company list for Indian freshers (career-ops' `portals.example.yml` is mostly US and European companies)
+- [ ] Grow it from freehire's `internal/job/collections/indian_roots.txt` (260 companies with Indian roots: IT majors, startups and unicorns, Indian-founder companies abroad): find each company's hiring board from its job links and suggest it through `boards suggest`
 
 **More providers** (same pattern, after the gate)
 
@@ -239,17 +243,38 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 - [x] Workday rung in the still-open check (per-job endpoint), and `myworkdayjobs.com` in platform detection
 - [x] `boards add <Workday careers link>` checks the India filter exists before saving
 - [ ] `boards suggest` also counts Workday and SuccessFactors links seen in Telegram posts
-- [ ] SuccessFactors reader, site by site: sitemap first, then RSS, then the India search page; remember which worked per board; new ids get one page fetch for location before the filters. A site with none of these goes to the page watcher. Read career-ops' `providers/successfactors.mjs` (MIT) first.
+- [ ] SuccessFactors reader, site by site: sitemap first (`/job_sitemap.xml`, or `/sitemap.xml` as on Wipro: 6,180 job links with city and title in each URL), then RSS, then the India search page; remember which worked per board; new ids get one page fetch (schema.org JobPosting data) for location and description before the filters. A site with none of these goes to the page watcher. Reference implementations: freehire's `internal/ingest/sources/successfactors.go` and career-ops' `providers/successfactors.mjs` (both MIT).
+- [ ] Oracle Recruiting Cloud reader (`*.oraclecloud.com`): board `host/CX_n`; the public list address `hcmRestApi/resources/latest/recruitingCEJobRequisitions` with `expand=requisitionList` and the paging offset **inside** the `finder=findReqs;siteNumber=…,limit=…,offset=…,sortBy=POSTING_DATES_DESC` clause (a top-level offset is ignored and re-reads page 1 forever); detail per new job from `recruitingCEJobRequisitionDetails`; job link `hcmUI/CandidateExperience/en/sites/<site>/job/<id>`. Plus an Oracle step in the still-open check and `oraclecloud.com` in platform detection. Reference: freehire's `internal/ingest/sources/oracle.go` (MIT). Read at most every 30 min.
 - [x] Rules (pages): robots.txt for every page; pages no more often than hourly; honest `JobRadar/…` user agent; never log in or solve a CAPTCHA; cleaned page text capped at 50,000 characters; nothing watched by default, and the docs say you're responsible for each site's terms
 - [x] Page tests: baseline posts nothing; a date-only change posts nothing; an added paragraph with a link posts once and not again after a restart; refusals back off then pause; robots disallow never fetches; a redesign takes a new baseline
 - [x] Workday tests (recorded responses): pages, short last page, no India filter, 404, 422, changed response shape, page cap; plus still-open 200/404/410/429/5xx and crafted links
 - [x] A read that stops at a reader's page cap (Workday, SmartRecruiters) is partial: nothing is closed, and an unseen posting counts as new only if posted within 3 days (always applied to Workday, whose "Posted N Days Ago" is the real date)
+
+**freehire: one search API for thousands of companies** ([strelov1/freehire](https://github.com/strelov1/freehire), MIT; live at freehire.me)
+
+freehire crawls 92 hiring systems (Workday, Oracle, iCIMS, Taleo, Phenom, SuccessFactors…) and serves them through a public API with no key (600 requests a minute). Checked 2026-10-18: about 4,900 new India postings a day.
+
+- [ ] `sources/boards/readers.py` `freehire` reader: `GET https://freehire.me/api/v1/jobs/search` with `countries=IN`, `seniority=intern,junior`, `open_within_days=1`, `sort=created_at`, 100 per page, at most 10 pages per read, every 30 min; each posting keeps the company's own job link (the `utm_source=freehire` tag is stripped by link cleaning, so a job also on a watched board stays one job)
+- [ ] Config `sources.freehire` (`enabled`, `every_minutes`, `seniority`, optional `q` and `category`); off by default; Notion Source "freehire · <original source>"
+- [ ] Their `countries=IN` also matches Indiana, USA ("Tell City, IN"): JobRadar's own India filter must still run on every posting (it matches whole words, so "Indiana" is already rejected)
+- [ ] Their category tags are thin (1 backend intern/junior job in a day): fetch broadly and let JobRadar's title filter and matching decide
+- [ ] It's a third-party service: errors and 429s are "unavailable" (never "no jobs"), honour `x-ratelimit-*` headers, honest user agent; if the API changes, only this source stops
+- [ ] Tests (recorded responses): a normal page, the 10,000 offset limit, `meta.ignored_params` present (a dropped filter must fail loudly, not return the whole catalogue), 429, an Indiana posting rejected
+
+**One role across cities = one job** (freehire's `jobdedup`: the role fingerprint leaves the location out)
+
+- [ ] After extraction, a job with the same company and role (normalised title) as an open job seen in the last 30 days joins it instead of becoming a new job: one Notion row, locations merged ("Pune · Hyderabad · Chennai"), one alert at most
+- [ ] Only when the company is known and the title gives a key; a lookup failure keeps the job separate (dedupe is an improvement, never a reason to lose a job)
+- [ ] The older job stays the main one; a job you moved in Notion is never merged into
+- [ ] Tests: 10 cities of one Accenture role → one job; different roles at one company stay separate; same title at two companies stays separate
 
 **Job age** (catch old and ghost postings)
 
 - [ ] Keep the company's own publish date when a board reader or the still-open check already calls the platform (Greenhouse, Lever, Ashby, SmartRecruiters, Workday detail); no extra requests
 - [ ] Alert says "on the company's board since 2 Sep"; Notion gets a **Posted On** date
 - [ ] Posted more than 30 days ago: no instant alert; goes to the digest marked "old posting"
+- [ ] Keep "first seen by JobRadar" next to "date the site states": some sites restate an old date on every crawl, so first-seen is the age that can't be rewritten from outside (freehire's `open_within_days` vs `posted_within_days`)
+- [ ] Later: possible ghost job. A job from freehire or Telegram whose company board JobRadar watches, but that isn't on that board, is marked "not on the company's board". An unread or empty board means "no coverage", never "missing"; the mark expires after 14 days unless re-checked (freehire's `internal/job/ghost`)
 
 **Tests**
 
@@ -358,6 +383,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 | Notion rate limits | 429s during backfill | Rely on the limiter; batch body appends |
 | A hiring platform changes its public API | Board errors or "unknown" still-open results jump in `boards list` | Treat as unknown (never closed); fix that provider; recorded-response tests catch the shape change |
 | A drive page is redesigned | One page posts a burst of "changes" that aren't jobs | Cap posts per page per check; when most of the text changed at once, take a new silent baseline instead of posting |
+| freehire's API changes or goes down | freehire source errors in `jobradar boards` | Treat as unavailable (never "no jobs"); the other sources carry on; fix or switch it off |
 
 ## Metrics to verify before v1.0
 
