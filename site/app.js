@@ -366,6 +366,37 @@
   $("#squares").innerHTML = Array.from({ length: 181 }, (_, i) => `<i${i < 138 ? ' class="on"' : ""}></i>`).join("");
   $("#pyDots").textContent = ".".repeat(96);
 
+  // ---- arriving at JobRadar: the departure board settles once, then each row is announced -----
+  (function board() {
+    const rows = $$("#boardRows tr"), say = $("#announceText"), clock = $("#boardClock");
+    const tick = () => { clock.textContent = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" }); };
+    tick(); setInterval(tick, 15000);
+    function pick(tr) {
+      rows.forEach((r) => { r.classList.toggle("on", r === tr); $("button", r).setAttribute("aria-pressed", String(r === tr)); });
+      say.textContent = `Attention please. ${tr.dataset.say}`;
+    }
+    rows.forEach((tr) => $("button", tr).addEventListener("click", () => pick(tr)));
+    pick(rows[0]);
+    if (still) return;
+    // The split-flap settle: every cell scrambles, then its letters land left to right.
+    const cells = $$("#coming .flap").map((el) => ({ el, text: el.textContent }));
+    const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    const flip = () => {
+      const t0 = performance.now();
+      (function step(t) {
+        let busy = false;
+        for (const [k, c] of cells.entries()) {
+          const done = Math.floor((t - t0 - k * 45) / 28);
+          if (done >= c.text.length) { c.el.textContent = c.text; continue; }
+          busy = true;
+          c.el.textContent = [...c.text].map((ch, i) => i < done || ch === " " ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0]).join("");
+        }
+        if (busy) requestAnimationFrame(step);
+      })(t0);
+    };
+    new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); flip(); } }, { threshold: .35 }).observe($(".board"));
+  })();
+
   // ---- wake up your own Blip: each step shows its first-run output ------------------------------
   const bedBlip = $(".bed-blip"), steps = $$(".step");
   steps.forEach((st, i) => $(".open", st).addEventListener("click", (e) => {

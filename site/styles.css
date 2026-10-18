@@ -19,6 +19,7 @@
   --sticky: #fff1a8;
   --sticky-ink: #3d3500;
   --hand: #3b4048;
+  --box: #d9ab6e; --box-edge: #b9864a; --box-ink: #4a3317; --belt: #2b3038;
   --hl-1: #ffe66d; --hl-2: #ffc2d4; --hl-3: #b6f0c8; --hl-4: #bfd8ff; --hl-5: #ffd3a8; --hl-6: #e2d5ff;
   --display: "Bricolage Grotesque", "Figtree", system-ui, sans-serif;
   --body: "Figtree", system-ui, sans-serif;
@@ -30,7 +31,7 @@
 :root[data-theme="dark"] {
   --page: #10151d; --card: #171e28; --ink: #e7ecf2; --muted: #9aa6b2; --line: #2a3442;
   --accent: #7aa2ff; --on-ink: #10151d; --code-bg: #0b1016; --dots: rgba(231, 236, 242, .06);
-  --strike: #ff7b72; --tg: #1d2733; --sticky: #4a4322; --sticky-ink: #fff1a8; --hand: #c7d0da; --hl-1: rgba(255, 214, 10, .28); --hl-2: rgba(255, 143, 171, .3); --hl-3: rgba(74, 222, 128, .24); --hl-4: rgba(122, 162, 255, .3); --hl-5: rgba(255, 159, 67, .28); --hl-6: rgba(180, 150, 255, .28); --blip-body: #222b37; --blip-line: #cfd8e3; --blip-visor: #0b1016; --blip-eye: #a9c4ff;
+  --strike: #ff7b72; --tg: #1d2733; --sticky: #4a4322; --sticky-ink: #fff1a8; --hand: #c7d0da; --hl-1: rgba(255, 214, 10, .28); --hl-2: rgba(255, 143, 171, .3); --hl-3: rgba(74, 222, 128, .24); --hl-4: rgba(122, 162, 255, .3); --hl-5: rgba(255, 159, 67, .28); --hl-6: rgba(180, 150, 255, .28); --blip-body: #222b37; --blip-line: #cfd8e3; --blip-visor: #0b1016; --blip-eye: #a9c4ff; --box: #8b6a40; --box-edge: #6e5331; --box-ink: #fff3df; --belt: #0b1016;
   --glow: drop-shadow(0 0 6px rgba(122, 162, 255, .75));
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 14px 36px rgba(0, 0, 0, .35);
   color-scheme: dark;
@@ -39,7 +40,7 @@
   :root:not([data-theme="light"]) {
     --page: #10151d; --card: #171e28; --ink: #e7ecf2; --muted: #9aa6b2; --line: #2a3442;
     --accent: #7aa2ff; --on-ink: #10151d; --code-bg: #0b1016; --dots: rgba(231, 236, 242, .06);
-    --strike: #ff7b72; --tg: #1d2733; --sticky: #4a4322; --sticky-ink: #fff1a8; --hand: #c7d0da; --hl-1: rgba(255, 214, 10, .28); --hl-2: rgba(255, 143, 171, .3); --hl-3: rgba(74, 222, 128, .24); --hl-4: rgba(122, 162, 255, .3); --hl-5: rgba(255, 159, 67, .28); --hl-6: rgba(180, 150, 255, .28); --blip-body: #222b37; --blip-line: #cfd8e3; --blip-visor: #0b1016; --blip-eye: #a9c4ff;
+    --strike: #ff7b72; --tg: #1d2733; --sticky: #4a4322; --sticky-ink: #fff1a8; --hand: #c7d0da; --hl-1: rgba(255, 214, 10, .28); --hl-2: rgba(255, 143, 171, .3); --hl-3: rgba(74, 222, 128, .24); --hl-4: rgba(122, 162, 255, .3); --hl-5: rgba(255, 159, 67, .28); --hl-6: rgba(180, 150, 255, .28); --blip-body: #222b37; --blip-line: #cfd8e3; --blip-visor: #0b1016; --blip-eye: #a9c4ff; --box: #8b6a40; --box-edge: #6e5331; --box-ink: #fff3df; --belt: #0b1016;
     --glow: drop-shadow(0 0 6px rgba(122, 162, 255, .75));
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 14px 36px rgba(0, 0, 0, .35);
     color-scheme: dark;
@@ -331,20 +332,48 @@ footer p { margin: 0; }
 @keyframes zz { 0% { opacity: 0; transform: translate(0, 6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -10px); } }
 @keyframes heart { 0% { opacity: 0; transform: translate(0, 0) scale(.4); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--dx), -110px) scale(1.1) rotate(var(--rot)); } }
 
-/* What's coming: a board of notes. Next = sticky notes, Soon = cards, Later = dashed. */
+/* What's coming: an Indian Railways departure board in amber LED dots, and the
+   station announcement for the row you pick. The board is the one loud thing here. */
 .coming-head p { color: var(--muted); max-width: 60ch; }
-.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; margin-top: 44px; align-items: start; }
-.lane h3 { margin: 0 0 16px; font: 700 30px/1 "Caveat", cursive; color: var(--hand); }
-.lane { display: grid; gap: 18px; }
-.card-note { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
-.card-note h4 { margin: 0 0 8px; font: 700 18px/1.25 var(--display); color: var(--ink); }
-.card-note p { margin: 0; color: var(--muted); font-size: 15.5px; line-height: 1.5; }
-.card-note.sticky { background: var(--sticky); border-color: transparent; border-radius: 3px; box-shadow: var(--shadow); transform: rotate(-.8deg); }
-.card-note.sticky:nth-child(odd) { transform: rotate(.7deg); }
-.card-note.sticky h4, .card-note.sticky p { color: var(--sticky-ink); }
-.card-note .aside { margin-top: 10px; font: 700 22px/1.1 "Caveat", cursive; }
-.card-note.maybe { background: transparent; border-style: dashed; }
-@media (max-width: 960px) { .board { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
+.station { margin-top: 40px; max-width: 980px; }
+.board { --led: #ffb21e; --go: #5fe08a; --wait: #ffb21e; --later: #c98a1c;
+  background: #15140f; border: 10px solid #2b2a24; border-radius: 6px; padding: 18px 22px 22px;
+  box-shadow: inset 0 0 0 1px #000, 0 18px 40px rgba(0, 0, 0, .25);
+  background-image: radial-gradient(rgba(255, 255, 255, .045) 1px, transparent 1.2px); background-size: 6px 6px; }
+.board, .board button { font-family: "Doto", "JetBrains Mono", monospace; font-weight: 900; color: var(--led); }
+.board .flap, .board th, .board-top { text-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
+.board-top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-size: 24px; letter-spacing: .04em;
+  padding-bottom: 12px; border-bottom: 2px solid #2b2a24; margin-bottom: 6px; }
+.clock { font-size: 28px; color: #ff5a3c; }
+.board table { width: 100%; border-collapse: collapse; }
+.board th { text-align: left; font-size: 14px; font-weight: 700; color: #8d7a4f; padding: 10px 10px 6px; text-shadow: none; }
+.board td { padding: 0; border-top: 1px solid #24231d; font-size: 20px; white-space: nowrap; }
+.board td.st, .board td.pf { padding: 10px; }
+.board td button { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 10px; cursor: pointer; white-space: normal; }
+.board td button:focus-visible { outline: 2px solid var(--led); outline-offset: -2px; }
+.board tr:hover td, .board tr.on td { background: rgba(255, 178, 30, .07); }
+.board tr.on td:first-child button::before { content: "▶ "; }
+.board tr.arriving .st { color: var(--go); }
+.board tr.scheduled td { color: var(--later); }
+.board tr.scheduled button { color: var(--later); }
+.board th:nth-child(2), .board td.st { width: 1%; }
+.board th:nth-child(3), .board td.pf { width: 1%; text-align: right; }
+.board th:nth-child(3) { text-align: right; }
+.announce { display: flex; gap: 14px; align-items: flex-start; margin: 0; padding: 16px 20px; min-height: 92px;
+  background: var(--card); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px;
+  font: 500 17px/1.55 var(--body); color: var(--ink); max-width: 980px; box-sizing: border-box; }
+.horn { flex: none; width: 24px; height: 24px; margin-top: 2px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.horn path:first-child { fill: var(--accent); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 640px) {
+  .board { border-width: 6px; padding: 12px 12px 14px; }
+  .board-top { font-size: 18px; } .clock { font-size: 20px; }
+  .board td { font-size: 15px; } .board th { font-size: 12px; }
+  .board td.st, .board td.pf, .board td button { padding: 9px 6px; }
+  .board td.st { white-space: normal; }
+  .board th:nth-child(3), .board td.pf { display: none; }
+  .announce { font-size: 16px; min-height: 140px; }
+}
 
 @media (max-width: 960px) {
   .hero, .chat-sec, .pen, .run { grid-template-columns: minmax(0, 1fr); gap: 40px; }
