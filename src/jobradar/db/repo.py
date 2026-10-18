@@ -590,6 +590,7 @@ class Repo:
     def save_extraction(
         self, job_id: str, data_json: str, company: str | None, role: str | None,
         deadline: str | None, prompt_version: str, status: JobStatus,
+        fingerprint: str | None = None,
     ) -> None:  # fmt: skip
         with self._tx() as c:
             c.execute(
@@ -597,14 +598,73 @@ class Repo:
                     """
                     UPDATE job SET data_json = :data, company = :company, role = :role,
                         deadline = :deadline, prompt_version = :version, status = :status,
-                        updated_at = :now
+                        fingerprint = :fingerprint, updated_at = :now
                     WHERE id = :id
                     """
                 ),
                 {"id": job_id, "data": data_json, "company": company, "role": role,
                  "deadline": deadline, "version": prompt_version, "status": status.value,
-                 "now": self._now()},
+                 "fingerprint": fingerprint, "now": self._now()},
             )  # fmt: skip
+
+    def jobs_without_fingerprint(self) -> list[tuple[str, str | None, str | None]]:
+        """(id, company, role) of extracted jobs with no role key yet."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT id, company, role FROM job WHERE fingerprint IS NULL "
+                    "AND data_json IS NOT NULL AND status != 'discarded'"
+                )
+            ).all()
+        return [(str(r[0]), r[1], r[2]) for r in rows]
+
+    def set_fingerprints(self, keys: dict[str, str]) -> None:
+        with self._tx() as c:
+            for job_id, key in keys.items():
+                c.execute(
+                    text("UPDATE job SET fingerprint = :fp WHERE id = :id"),
+                    {"fp": key, "id": job_id},
+                )
+
+    def same_role_main(self, job_id: str, fingerprint: str, since: str) -> str | None:
+        """The oldest open job with this company and role, first seen since `since` and
+        before this one, that you haven't moved in Notion; None if there is none."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    """
+                    SELECT id FROM job
+                    WHERE fingerprint = :fp AND id != :id AND user_status_at IS NULL
+                      AND status IN ('extracted', 'new') AND created_at >= :since
+                      AND created_at < (SELECT created_at FROM job WHERE id = :id)
+                    ORDER BY created_at, id LIMIT 1
+                    """
+                ),
+                {"fp": fingerprint, "id": job_id, "since": since},
+            ).first()
+        return str(row[0]) if row else None
+
+    def copy_sightings(self, from_job: str, to_job: str) -> int:
+        """Add every message that posted `from_job` to `to_job` too. Returns how many."""
+        with self._tx() as c:
+            result = c.execute(
+                text(
+                    "INSERT INTO job_source (job_id, raw_message_id) "
+                    "SELECT :to, raw_message_id FROM job_source WHERE job_id = :from "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"to": to_job, "from": from_job},
+            )
+        if result.rowcount:
+            self.touch_job(to_job)
+        return int(result.rowcount or 0)
+
+    def set_job_data(self, job_id: str, data_json: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text("UPDATE job SET data_json = :data, updated_at = :now WHERE id = :id"),
+                {"id": job_id, "data": data_json, "now": self._now()},
+            )
 
     # ---- matching -----------------------------------------------------------------------------
 

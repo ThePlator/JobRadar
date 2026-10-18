@@ -10,7 +10,7 @@ import signal
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
 from jobradar.llm import LLM, load_prompt
-from jobradar.pipeline.extract import Extractor
+from jobradar.pipeline.extract import Extractor, backfill_role_keys
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.ingest import Ingest, make_emit
 from jobradar.pipeline.links import ShortLinkExpander
@@ -243,6 +243,8 @@ async def run(settings: Settings) -> None:
     worker = pipeline.worker
     if hidden := pipeline.ingest.sweep_promos():
         log.info("hid promo links found in earlier posts", extra={"count": hidden})
+    if keyed := backfill_role_keys(repo):
+        log.info("role keys added to earlier jobs", extra={"count": keyed})
     if pipeline.matcher is not None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:

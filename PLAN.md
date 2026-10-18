@@ -167,7 +167,7 @@ Goal: every row has structured details and a trustworthy match score.
 **Understanding and matching**
 
 - [x] `pipeline/extract.py`: page text (12k-character cap) + message + OCR → `JobPosting`; `confidence < 0.4` with no company or role → `discarded`; schema failure → `needs_review`
-- [ ] (part C) Fingerprint dedupe after extraction (30-day window), built as "one role across cities = one job" in v0.2.5 below
+- [x] (part C) Fingerprint dedupe after extraction (30-day window), built as "one role across cities = one job" in v0.2.5 below
 - [x] (part B) Free extraction first: page JSON-LD and post labels, Gemini only as fallback (B4a)
 - [x] (part B) `pipeline/match.py` + `providers/` (LLM, skills rule) + `pipeline/decide.py` + `pipeline/scam.py` (built instead of `score.py`): hard rules, weighted Match Score, ordered decide policy, scam points, route `hidden` / `new` / alert
 - [ ] (part B3) Jev provider, run alongside Gemini first (needs a TypeSafe key)
@@ -263,10 +263,10 @@ freehire crawls 92 hiring systems (Workday, Oracle, iCIMS, Taleo, Phenom, Succes
 
 **One role across cities = one job** (freehire's `jobdedup`: the role fingerprint leaves the location out)
 
-- [ ] After extraction, a job with the same company and role (normalised title) as an open job seen in the last 30 days joins it instead of becoming a new job: one Notion row, locations merged ("Pune · Hyderabad · Chennai"), one alert at most
-- [ ] Only when the company is known and the title gives a key; a lookup failure keeps the job separate (dedupe is an improvement, never a reason to lose a job)
-- [ ] The older job stays the main one; a job you moved in Notion is never merged into
-- [ ] Tests: 10 cities of one Accenture role → one job; different roles at one company stay separate; same title at two companies stays separate
+- [x] After extraction, a job with the same company and role (normalised title) as an open job seen in the last 30 days joins it instead of becoming a new job: one Notion row, locations merged ("Pune · Hyderabad · Chennai"), one alert at most
+- [x] Only when the company is known and the title gives a key; a lookup failure keeps the job separate (dedupe is an improvement, never a reason to lose a job)
+- [x] The older job stays the main one; a job you moved in Notion, a hidden job or one older than 30 days is never merged into; the joined job is hidden with "same role as an earlier job: …", keeps its Notion row and link, and isn't matched. Jobs extracted earlier get their role key at startup
+- [x] Tests: 3 cities of one Accenture role → one job; different roles at one company stay separate; same title at two companies stays separate
 
 **Job age** (catch old and ghost postings)
 

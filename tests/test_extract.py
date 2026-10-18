@@ -1,6 +1,9 @@
 import json
 from typing import Any
 
+from sqlalchemy import text
+
+from jobradar.clock import to_iso
 from jobradar.db.models import JobStatus, Platform
 from jobradar.db.repo import Repo
 from jobradar.llm import LLM, SchemaError
@@ -309,3 +312,121 @@ def test_board_posts_keep_the_boards_company() -> None:
     post = "Company: Accenture\nRole: Application Developer\nLocation: India"
     assert free_fields(page, post, None, from_board=True)[0]["company"] == "Accenture"
     assert free_fields(page, post, None)[0]["company"] != "Accenture"  # other posts: page first
+
+
+# ---- one role across cities = one job ------------------------------------------------------------
+
+
+def post(company: str, role: str, city: str, n: int) -> str:
+    return f"Company: {company}\nRole: {role}\nLocation: {city}\nhttps://jobs.example.com/{n}"
+
+
+def seed_role(repo: Repo, clock: FakeClock, n: int, text: str) -> str:
+    """One Telegram post of one job, `n` minutes after the last; returns the job id."""
+    clock.advance(60)
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Jobs")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, str(n), to_iso(clock()), text)
+    job_id = f"job{n}"
+    repo.get_or_create_job(job_id, f"https://jobs.example.com/{n}")
+    repo.add_job_source(job_id, raw_id)
+    return job_id
+
+
+async def extract_all(repo: Repo, queue: TaskQueue, clock: FakeClock, *ids: str) -> list[str]:
+    ex = Extractor(repo, queue, FakeFetcher(Page("https://x", None, None, "no readable text")),
+                   None, MODEL, match=True, clock=clock)  # fmt: skip
+    done = []
+    for job_id in ids:  # one at a time, in the order they arrived
+        queue.enqueue(FETCH, job_id)
+        done += await run(queue, ex)
+    return done
+
+
+async def test_one_role_in_three_cities_is_one_job(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    ids = [
+        seed_role(repo, clock, n, post("Accenture", "Custom Software Engineer", city, n))
+        for n, city in enumerate(["Pune", "Hyderabad", "Chennai"], start=1)
+    ]
+    done = await extract_all(repo, queue, clock, *ids)
+    assert done.count("match") == 1  # only the first is matched: one alert at most
+    main = repo.get_job("job1")
+    assert main is not None and main.status == JobStatus.EXTRACTED.value
+    assert json.loads(main.data_json or "{}")["locations"] == ["Pune", "Hyderabad", "Chennai"]
+    assert len(repo.job_sightings("job1")) == 3  # "Seen In" counts every post
+    for other in ("job2", "job3"):
+        job = repo.get_job(other)
+        assert job is not None and job.status == JobStatus.HIDDEN.value
+        assert job.score_reason == (
+            "same role as an earlier job: Accenture · Custom Software Engineer"
+        )
+
+
+async def test_different_roles_or_companies_stay_separate(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    ids = [
+        seed_role(repo, clock, 1, post("Accenture", "Custom Software Engineer", "Pune", 1)),
+        seed_role(repo, clock, 2, post("Accenture", "Data Engineer", "Pune", 2)),
+        seed_role(repo, clock, 3, post("Infosys", "Custom Software Engineer", "Pune", 3)),
+    ]
+    await extract_all(repo, queue, clock, *ids)
+    for job_id in ids:
+        job = repo.get_job(job_id)
+        assert job is not None and job.status == JobStatus.EXTRACTED.value
+
+
+async def test_never_joined_to_a_job_you_moved_an_old_one_or_a_hidden_one(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    role = ("Accenture", "Custom Software Engineer")
+    first = seed_role(repo, clock, 1, post(*role, "Pune", 1))
+    await extract_all(repo, queue, clock, first)
+    repo.set_user_status(first, JobStatus.APPLIED)  # you moved it in Notion
+    second = seed_role(repo, clock, 2, post(*role, "Hyderabad", 2))
+    await extract_all(repo, queue, clock, second)
+    job = repo.get_job(second)
+    assert job is not None and job.status == JobStatus.EXTRACTED.value
+
+    clock.advance(31 * 86400)  # the second one is now over 30 days old
+    third = seed_role(repo, clock, 3, post(*role, "Chennai", 3))
+    await extract_all(repo, queue, clock, third)
+    job = repo.get_job(third)
+    assert job is not None and job.status == JobStatus.EXTRACTED.value
+
+    repo.set_job_status(third, JobStatus.HIDDEN, "weak match (30)")
+    fourth = seed_role(repo, clock, 4, post(*role, "Noida", 4))
+    await extract_all(repo, queue, clock, fourth)
+    job = repo.get_job(fourth)
+    assert job is not None and job.status == JobStatus.EXTRACTED.value
+
+
+def test_role_key() -> None:
+    from jobradar.pipeline.dedupe import role_key
+
+    assert role_key("Accenture Pvt Ltd", "Custom Software Engineer!") == (
+        "accenture|custom software engineer"
+    )
+    assert role_key("Accenture", "Custom  software-engineer") == role_key(
+        "accenture", "custom software engineer"
+    )
+    assert role_key(None, "Engineer") is None and role_key("Acme", "") is None
+
+
+async def test_earlier_jobs_get_their_role_key(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    from jobradar.pipeline.extract import backfill_role_keys
+
+    first = seed_role(repo, clock, 1, post("Accenture", "Custom Software Engineer", "Pune", 1))
+    await extract_all(repo, queue, clock, first)
+    with repo._tx() as c:  # as if extracted before role keys existed
+        c.execute(text("UPDATE job SET fingerprint = NULL"))
+    assert backfill_role_keys(repo) == 1
+    assert backfill_role_keys(repo) == 0
+    second = seed_role(repo, clock, 2, post("Accenture", "Custom Software Engineer", "Pune", 2))
+    await extract_all(repo, queue, clock, second)
+    job = repo.get_job(second)
+    assert job is not None and job.status == JobStatus.HIDDEN.value

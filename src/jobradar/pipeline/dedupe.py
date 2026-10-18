@@ -1,4 +1,5 @@
-"""Job identity: canonical-URL hash, and a company|role|location fingerprint (used from v0.2)."""
+"""Job identity: a canonical-URL hash, and a company|role key that joins one role posted for
+several cities (or on several boards) into one job."""
 
 from __future__ import annotations
 
@@ -32,3 +33,12 @@ def fingerprint(company: str | None, role: str | None, location: str | None) -> 
     if not c or not r:
         return None
     return f"{c}|{r}|{norm(location)}"
+
+
+def role_key(company: str | None, role: str | None) -> str | None:
+    """norm(company)|norm(role), the location left out: one role posted for ten cities is one
+    job (freehire's jobdedup does the same). None unless both company and role are known."""
+    c, r = norm(company), norm(role)
+    if not c or not r:
+        return None
+    return f"{c}|{r}"

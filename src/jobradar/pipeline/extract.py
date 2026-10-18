@@ -15,10 +15,11 @@ import logging
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
-from jobradar.clock import Clock, from_iso, utcnow
+from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.db.models import FetchedPage, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.llm import SchemaError, load_prompt
+from jobradar.pipeline.dedupe import role_key
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.post_labels import from_post
 from jobradar.pipeline.schemas import JobPosting
@@ -38,6 +39,8 @@ _SKIP = (JobStatus.HIDDEN, JobStatus.DISCARDED)
 _NOT_LIVE = (JobStatus.HIDDEN.value, JobStatus.DISCARDED.value)
 _KEY = ("role", "company")
 PAGE_DEADLINE_DAYS = 45  # page deadlines further out than this are usually boilerplate
+SAME_ROLE_DAYS = 30  # a role seen again within this many days is the same opening
+SAME_ROLE = "same role as an earlier job"
 
 ExtractMode = Literal["fallback", "always"]
 
@@ -70,6 +73,18 @@ def free_fields(
             if name not in fields:
                 fields[name], sources[name] = value, layer
     return fields, sources
+
+
+def backfill_role_keys(repo: Repo) -> int:
+    """Give jobs extracted before role keys existed theirs, so a later posting of the same
+    role in another city can join them. Returns how many were filled."""
+    keys = {
+        job_id: key
+        for job_id, company, role in repo.jobs_without_fingerprint()
+        if (key := role_key(company, role))
+    }
+    repo.set_fingerprints(keys)
+    return len(keys)
 
 
 def own_post(repo: Repo, job_id: str) -> str | None:
@@ -200,6 +215,37 @@ class Extractor:
             log.warning("extraction output unusable", extra={"job_id": job_id[:10]})
             return f"extraction failed: {e}"
 
+    def _same_role(self, job_id: str, key: str) -> str | None:
+        since = to_iso(self.clock() - timedelta(days=SAME_ROLE_DAYS))
+        try:
+            return self.repo.same_role_main(job_id, key, since)
+        except Exception:  # dedupe is an improvement, never a reason to lose a job
+            log.exception("same-role lookup failed; keeping the job separate")
+            return None
+
+    def _merge(self, job_id: str, main_id: str, posting: JobPosting) -> bool:
+        """Join this job to `main_id`, the earlier posting of the same role: its cities and
+        sightings go to the main job, and this one is hidden, unmatched (no second alert).
+        False, and nothing changed, if the main job can't be read."""
+        main = self.repo.get_job(main_id)
+        if main is None or not main.data_json:
+            return False
+        data = json.loads(main.data_json)
+        cities = list(data.get("locations") or [])
+        added = [c for c in posting.locations if c.casefold() not in {x.casefold() for x in cities}]
+        if added:
+            data["locations"] = cities + added
+            self.repo.set_job_data(main_id, json.dumps(data, ensure_ascii=False))
+        self.repo.copy_sightings(job_id, main_id)
+        why = f"{SAME_ROLE}: {posting.company} · {posting.role}"
+        self.repo.set_job_status(job_id, JobStatus.HIDDEN, why)
+        about = {"job_id": job_id[:10], "main": main_id[:10], "cities_added": added}
+        log.info("same role as an earlier job; joined to it", extra=about)
+        self.queue.enqueue(NOTION_UPSERT, job_id)
+        self.queue.enqueue(NOTION_UPSERT, main_id)
+        self.queue.enqueue(NOTION_BODY, main_id)
+        return True
+
     def _save(
         self,
         job_id: str,
@@ -211,6 +257,7 @@ class Extractor:
     ) -> None:
         status = JobStatus.EXTRACTED if is_job else JobStatus.DISCARDED
         data = posting.model_dump(mode="json") | {"_sources": sources}
+        key = role_key(posting.company, posting.role) if is_job else None
         self.repo.save_extraction(
             job_id,
             json.dumps(data, ensure_ascii=False),
@@ -219,7 +266,10 @@ class Extractor:
             posting.deadline.isoformat() if posting.deadline else None,
             version,
             status,
+            key,
         )
+        if key and (main := self._same_role(job_id, key)) and self._merge(job_id, main, posting):
+            return
         log.info(
             "job extracted" if is_job else "not a job posting",
             extra={
