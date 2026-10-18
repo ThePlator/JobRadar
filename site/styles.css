@@ -192,7 +192,7 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .own textarea { resize: vertical; font: 400 14px/1.45 var(--body); color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .own button { justify-self: start; font: 600 15px var(--body); background: var(--ink); color: var(--on-ink); border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; }
 .samples button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
-.desk { position: relative; padding-top: 58px; min-width: 0; }
+.postdesk { position: relative; padding-top: 58px; min-width: 0; }
 .blip.peek { position: absolute; top: 0; right: 34px; width: 92px; z-index: 2; clip-path: inset(0 0 38% 0); }
 .tgpost { position: relative; z-index: 1; background: var(--tg); border: 1px solid var(--line); border-radius: 18px 18px 18px 6px; box-shadow: var(--shadow); padding: 16px 20px 18px; }
 .fwd { margin: 0 0 10px; font-size: 13.5px; font-weight: 600; color: var(--accent); }
@@ -228,18 +228,40 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 /* the red pen */
 .pen { display: grid; grid-template-columns: .85fr 1.15fr; gap: 64px; align-items: center; }
 .pen-copy p { color: var(--muted); max-width: 46ch; }
-.sheet { background: var(--card) repeating-linear-gradient(transparent 0 35px, color-mix(in srgb, var(--accent) 16%, transparent) 35px 36px); background-color: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 30px 34px 34px 64px; position: relative; box-shadow: 0 20px 44px rgba(0, 0, 0, .08); }
-.sheet::before { content: ""; position: absolute; left: 44px; top: 0; bottom: 0; border-left: 2px solid color-mix(in srgb, var(--strike) 40%, transparent); }
-.mine { font-size: 19px; font-weight: 600; line-height: 36px; margin: 0 0 22px; }
-.stickies { display: flex; flex-wrap: wrap; gap: 14px; }
-.stickies button { width: 190px; min-height: 120px; text-align: left; font: 600 15px/1.35 var(--body); color: var(--sticky-ink); background: var(--sticky); border: 0; padding: 14px; cursor: pointer; box-shadow: 0 6px 14px rgba(0, 0, 0, .12); transition: transform .2s cubic-bezier(.34, 1.56, .64, 1); }
-.stickies button:nth-child(1) { transform: rotate(-2deg); } .stickies button:nth-child(2) { transform: rotate(1.5deg); } .stickies button:nth-child(3) { transform: rotate(-1deg); }
-.stickies button:hover, .stickies button[aria-pressed="true"] { transform: rotate(0) translateY(-6px) scale(1.03); }
-.verdict { margin: 26px 0 0; min-height: 70px; font: 700 27px/1.15 "Caveat", cursive; color: var(--hand); }
-.verdict .ok { color: var(--accent); }
-.verdict .no { color: var(--strike); }
-.verdict s { text-decoration: line-through 2px var(--strike); color: var(--muted); font-family: var(--body); font-size: 16px; font-weight: 500; display: block; margin: 6px 0; }
-.verdict small { display: block; font-size: 22px; color: var(--hand); }
+/* The red pen: proofreading marks on a piece of a resume. */
+.drafts { display: grid; gap: 10px; margin-top: 24px; max-width: 460px; }
+.drafts button { position: relative; text-align: left; font: 500 15px/1.45 var(--body); color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 12px 40px; cursor: pointer; }
+.drafts button::before { content: ""; position: absolute; left: 14px; top: 16px; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.drafts button[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.drafts button[aria-pressed="true"]::before { border-color: var(--ink); background: radial-gradient(var(--ink) 0 3.5px, transparent 4px); }
+.proof { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 170px; column-gap: 22px; align-items: start; min-width: 0; }
+.paper { --serif: "Source Serif 4", Georgia, serif; font-family: var(--serif); background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 26px 28px 22px; box-shadow: var(--shadow); }
+.pr-name { margin: 0; text-align: center; font-size: 26px; font-weight: 700; }
+.pr-contact { margin: 2px 0 14px; text-align: center; font-size: 13px; color: var(--muted); }
+.pr-sec { margin: 0 0 6px; font-size: 15px; font-weight: 700; font-variant: small-caps; letter-spacing: .03em; border-bottom: 1px solid var(--ink); padding-bottom: 2px; }
+.pr-role { margin: 0 0 4px; font-size: 15px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pr-role i { color: var(--muted); }
+.pr-list { margin: 0; padding-left: 18px; font-size: 14.5px; line-height: 1.55; }
+.pr-list li { margin: 3px 0; }
+.pr-dim { color: var(--muted); }
+.pr-target { padding: 4px 0; }
+.draft { background: linear-gradient(var(--strike), var(--strike)) no-repeat 0 55% / 0% 2px; transition: background-size .5s ease-in-out, color .4s; }
+.sent-back .draft { background-size: 100% 2px; color: var(--muted); }
+.orig { display: block; max-height: 0; overflow: hidden; opacity: 0; transition: max-height .5s .45s, opacity .4s .55s; }
+.orig::before { content: "^ your words: "; font: 700 18px "Caveat", cursive; color: var(--strike); }
+.sent-back .orig { max-height: 120px; opacity: 1; }
+.ring { position: relative; white-space: nowrap; }
+.ring svg { position: absolute; left: -9px; right: -9px; top: -7px; bottom: -7px; width: calc(100% + 18px); height: calc(100% + 14px); overflow: visible; fill: none; stroke: var(--strike); stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; vector-effect: non-scaling-stroke; }
+.go .ring svg { animation: draw .45s ease-out var(--d, 0ms) forwards; }
+.marks { list-style: none; margin: 0; padding: 92px 0 0; display: grid; gap: 10px; font: 700 21px/1.1 "Caveat", cursive; color: var(--strike); }
+.marks li.ok { color: #2da44e; }
+.marks li { opacity: 0; transform: rotate(-2deg) translateX(-6px); }
+.go .marks li { animation: noteIn .3s ease-out var(--d, 0ms) forwards; }
+.verdict { grid-column: 1 / -1; margin: 18px 4px 0; min-height: 34px; font: 700 27px/1.15 "Caveat", cursive; color: var(--hand); opacity: 0; transition: opacity .3s; }
+.judged .verdict { opacity: 1; }
+.kept .verdict { color: #2da44e; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes noteIn { to { opacity: 1; transform: rotate(-2deg); } }
 
 /* facts: one paragraph, not a stats grid */
 .facts { padding-top: 40px !important; }
@@ -285,8 +307,9 @@ footer p { margin: 0; }
   .mailbox iframe { transform: scale(.52); }
   .paper-wrap { width: 100%; }
   .bubble { left: auto; right: 0; top: -6px; }
-  .stickies button { width: 100%; min-height: 0; }
-  .sheet { padding-left: 44px; } .sheet::before { left: 26px; }
+  .proof { grid-template-columns: minmax(0, 1fr); }
+  .marks { padding: 12px 4px 0; }
+  .paper { padding: 20px 18px 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

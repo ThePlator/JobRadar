@@ -207,7 +207,7 @@
   }
   const NAMES = { hiring: "company, role", company: "company", role: "role", location: "place", batch: "batch", eligibility: "eligibility",
     experience: "experience", salary: "pay", deadline: "last date", link: "apply link" };
-  const lines = $("#chatLog"), ta = $("#postText"), readout = $("#readout"), desk = $(".desk"), peek = $(".blip.peek");
+  const lines = $("#chatLog"), ta = $("#postText"), readout = $("#readout"), desk = $(".postdesk"), peek = $(".blip.peek");
   let current = SAMPLES[0], run = 0;
   function show(text) {
     current = text;
@@ -269,32 +269,54 @@
   new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); show(current); } }, { threshold: .15 }).observe(desk);
 
   // ---- the red pen (the rules in resume/validate.py, simplified) ------------------------------
-  const ORIGINAL = $(".mine").textContent;
+  const ORIGINAL = $("#orig").textContent;
   const BANNED = ["expert", "world-class", "guru", "ninja", "rockstar", "cutting-edge", "passionate"];
   const SIZE = /\b(doubl\w*|tripl\w*|halv\w*|\d+(\.\d+)?\s?x)\b/gi;
   const nums = (s) => new Set((s.match(/\d[\d,]*(?:\.\d+)?\+?%?/g) || []).map((x) => x.replace(/,/g, "")));
   const techIn = (s) => new Set(TECH.filter((t) => new RegExp(`(^|[^A-Za-z0-9+#.])${t.replace(/[+.#]/g, "\\$&")}(?![A-Za-z0-9+#])`, "i").test(s)).map((t) => t));
+  // Each flag is the words to circle and Blip's note in the margin.
   function check(text) {
-    const why = [];
-    const n0 = nums(ORIGINAL), extraN = [...nums(text)].filter((x) => !n0.has(x));
-    if (extraN.length) why.push(`a number that isn't in your bullet: ${extraN.join(", ")}`);
+    const flags = [], low = ORIGINAL.toLowerCase();
     const s0 = new Set((ORIGINAL.match(SIZE) || []).map((x) => x.toLowerCase()));
-    const extraS = (text.match(SIZE) || []).filter((x) => !s0.has(x.toLowerCase()));
-    if (extraS.length) why.push(`a size word you didn't use: ${extraS.join(", ")}`);
-    const t0 = techIn(ORIGINAL), extraT = [...techIn(text)].filter((x) => !t0.has(x));
-    if (extraT.length) why.push(`a technology your bullet doesn't mention: ${extraT.join(", ")}`);
-    const ban = BANNED.filter((b) => text.toLowerCase().includes(b) && !ORIGINAL.toLowerCase().includes(b));
-    if (ban.length) why.push(`a banned word: ${ban.join(", ")}`);
-    return why;
+    for (const x of text.match(SIZE) || []) if (!s0.has(x.toLowerCase())) flags.push({ t: x, note: `${x}? You never measured that.` });
+    const n0 = nums(ORIGINAL);
+    for (const x of nums(text)) if (!n0.has(x) && !flags.some((f) => f.t.includes(x))) flags.push({ t: x, note: `${x}? Not in your bullet.` });
+    const t0 = techIn(ORIGINAL);
+    for (const x of techIn(text)) if (!t0.has(x)) flags.push({ t: x, note: `${x}? You never used it here.` });
+    for (const b of BANNED) {
+      const m = text.match(new RegExp(`\\b${b}\\b`, "i"));
+      if (m && !low.includes(b)) flags.push({ t: m[0], note: `"${m[0]}" is a brag word.` });
+    }
+    return flags;
   }
-  const verdict = $("#verdict");
-  $$(".stickies button").forEach((b, _, all) => b.addEventListener("click", () => {
-    all.forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    const why = check(b.textContent);
-    verdict.innerHTML = why.length
-      ? `<span class="no">Nope, your sentence goes back in.</span><s>${esc(b.textContent)}</s>${why.map((w) => `<small>It adds ${esc(w)}.</small>`).join("")}`
-      : `<span class="ok">Fine by me. Same facts, same 15%.</span>`;
-  }));
+  const ring = (t) => `<span class="ring">${t}<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M8 24 C2 8 60 1 94 12 C102 22 70 39 30 36 C12 34 6 26 14 16"/></svg></span>`;
+  const draft = $("#draft"), marks = $("#marks"), verdict = $("#verdict"), proof = $(".proof");
+  let penRun = 0;
+  function proofread(i) {
+    const text = $$(".drafts button")[i].textContent, flags = check(text), me = ++penRun;
+    $$(".drafts button").forEach((b, j) => b.setAttribute("aria-pressed", String(j === i)));
+    let h = esc(text);
+    for (const f of flags) h = h.replace(new RegExp(`(^|[^A-Za-z0-9.])(${f.t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![A-Za-z0-9])`, "i"), (_, pre, w) => pre + ring(w));
+    draft.innerHTML = h;
+    marks.innerHTML = flags.length ? flags.map((f) => `<li>${esc(f.note)}</li>`).join("") : '<li class="ok">✓ Same 9 s and 1.2 s.</li>';
+    // Notes start level with the bullet they are about (stacked under it on phones).
+    marks.style.paddingTop = matchMedia("(max-width: 520px)").matches ? "" : `${$(".pr-target").offsetTop - 4}px`;
+    proof.classList.remove("judged", "kept", "sent-back", "go");
+    verdict.textContent = "";
+    void proof.offsetWidth;
+    proof.classList.add("go");
+    // Circles first, then the notes, then the verdict.
+    $$(".ring", draft).forEach((r, k) => r.style.setProperty("--d", `${300 + k * 450}ms`));
+    $$("li", marks).forEach((r, k) => r.style.setProperty("--d", `${550 + k * 450}ms`));
+    setTimeout(() => {
+      if (me !== penRun) return;
+      proof.classList.add("judged", flags.length ? "sent-back" : "kept");
+      verdict.innerHTML = flags.length ? "Struck out. Your own sentence goes back in." : "Same facts, new words. Kept.";
+    }, still ? 0 : 600 + flags.length * 450);
+  }
+  $$(".drafts button").forEach((b, i) => b.addEventListener("click", () => proofread(i)));
+  proofread(1);
+  new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); proofread(1); } }, { threshold: .15 }).observe(proof);
 
   // ---- copy buttons ------------------------------------------------------------------------------
   $$(".copy").forEach((btn) => btn.addEventListener("click", async () => {

@@ -10,7 +10,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='17' fill='white' stroke='%231f2328' stroke-width='3'/%3E%3Cline x1='20' y1='20' x2='33' y2='11' stroke='%231a56db' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='20' cy='20' r='3.5' fill='%231a56db'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script>try{var t=localStorage.getItem("jr-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
 <meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="styles.css">
@@ -208,7 +208,7 @@
       <button type="submit">Let Blip read it</button>
     </form>
   </div>
-  <div class="desk">
+  <div class="postdesk">
     <svg class="blip peek" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
     <article class="tgpost" aria-labelledby="fwdFrom">
       <p class="fwd" id="fwdFrom">Forwarded from a jobs channel</p>
@@ -224,16 +224,27 @@
 <section class="pen" id="pen">
   <div class="pen-copy">
     <h2>Blip's red pen</h2>
-    <p>When an AI rewrites one of your resume bullets, Blip checks it against the bullet it came from. A new number, a "doubled", a tool you never mentioned, or a word like "expert", and your own sentence goes back in. Pick a rewrite.</p>
-  </div>
-  <div class="sheet">
-    <p class="mine">Cut page load time by 15% through code-splitting and performance-focused component design.</p>
-    <div class="stickies" role="group" aria-label="AI rewrites">
-      <button type="button" data-rw="0">Reduced page load time by 15% with code-splitting.</button>
-      <button type="button" data-rw="1">Cut page load time by 40% with code-splitting.</button>
-      <button type="button" data-rw="2">Expert in React and Kubernetes; cut load time by 15%.</button>
+    <p>Before a tailored resume is built, Blip checks every AI rewrite against the bullet it came from. A new number, a "10x", a tool you never mentioned, or a word like "expert", and your own sentence goes back in.</p>
+    <div class="drafts" role="group" aria-label="AI rewrites of the bullet">
+      <button type="button" data-rw="0" aria-pressed="false">Brought the slowest report query down from 9 s to 1.2 s using composite indexes and a rewritten join.</button>
+      <button type="button" data-rw="1" aria-pressed="true">Made the slowest report query 10x faster with composite indexes.</button>
+      <button type="button" data-rw="2" aria-pressed="false">Expert at query tuning with Redis caching; cut the slowest report from 9 s to 1.2 s.</button>
     </div>
-    <p class="verdict" id="verdict" role="status">Pick a rewrite.</p>
+  </div>
+  <div class="proof">
+    <div class="paper" aria-label="Part of an example resume">
+      <p class="pr-name">Your Name</p>
+      <p class="pr-contact">Bengaluru | you@example.com | github.com/you</p>
+      <p class="pr-sec">Experience</p>
+      <p class="pr-role"><span><b>Backend Intern</b>, Example Labs</span><i>Jan 2026 to Apr 2026</i></p>
+      <ul class="pr-list">
+        <li class="pr-dim">Built a REST API in FastAPI and PostgreSQL for the internal billing team, serving 12 internal tools.</li>
+        <li class="pr-target"><span class="draft" id="draft"></span><span class="orig" id="orig">Cut the slowest report query from 9 s to 1.2 s with composite indexes and a rewritten join.</span></li>
+        <li class="pr-dim">Added integration tests with pytest and Testcontainers, raising coverage from 55% to 85%.</li>
+      </ul>
+    </div>
+    <ol class="marks" id="marks" aria-label="Blip's notes"></ol>
+    <p class="verdict" id="verdict" role="status"></p>
   </div>
 </section>
 
