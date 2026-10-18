@@ -7,13 +7,20 @@ import pytest
 import respx
 
 from jobradar.config import BoardRef, BoardsConfig, board_from_link
+from jobradar.db.models import JobStatus
+from jobradar.db.repo import Repo
 from jobradar.pipeline import fetch as fetch_mod
 from jobradar.pipeline import oracle
+from jobradar.pipeline.dedupe import job_id_for_url
 from jobradar.pipeline.fetch import Fetcher
 from jobradar.pipeline.liveness import Liveness, LivenessChecker, ats_link
 from jobradar.pipeline.structured import from_job_posting
+from jobradar.queue.tasks import TaskQueue
+from jobradar.sources.base import IncomingMessage
 from jobradar.sources.boards import readers
 from jobradar.sources.boards.base import BoardGone, BoardUnavailable, Partial
+from jobradar.sources.boards.watcher import TOP_ONLY, BoardWatcher
+from tests.conftest import FakeClock
 
 HOST = "fa-etvl-saasfaprod1.fa.ocs.oraclecloud.com"
 SITE = "CX_1"
@@ -174,6 +181,43 @@ async def test_page_cap_and_errors(monkeypatch: pytest.MonkeyPatch) -> None:
         route.respond(404)
         with pytest.raises(BoardGone):
             await readers.oracle_board(client, BOARD)
+
+
+@respx.mock
+async def test_capped_boards_still_pass_on_new_postings_at_the_top(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Kotak and EXL (2026-10-18): over 1,000 India postings, more than one read takes. Oracle
+    # lists newest first, so a new posting is at the top of a capped read.
+    monkeypatch.setattr(readers, "OR_MAX_PAGES", 1)
+    readers._OR_INDIA[BOARD] = INDIA
+    clock.now = clock.now.replace(day=18)
+    got: list[IncomingMessage] = []
+
+    async def inbox(msg: IncomingMessage) -> None:
+        got.append(msg)
+
+    zensar = BoardRef(ats="oracle", company=BOARD, name="Zensar")
+    w = BoardWatcher(BoardsConfig(companies=[zensar], every_minutes=30), repo, queue, inbox,
+                     httpx.AsyncClient(), clock=clock)  # fmt: skip
+    old = [req(n, PostedDate="2026-09-01") for n in range(1000, 1100)]
+    route = respx.get(LIST)
+    route.respond(json=answer(old, total=1500))
+    await w.check_board(zensar)  # the baseline
+
+    known = oracle.job_page(HOST, SITE, "1099")  # pushed below the cap: not closed
+    repo.get_or_create_job(job_id_for_url(known), known)
+    new = req(1, "Software Engineer, Graduate")
+    came_into_view = req(2, "Backend Developer", PostedDate="2026-09-01")
+    route.respond(json=answer([new, came_into_view, *old[:98]], total=1501))
+    await w.check_board(zensar)
+    assert [m.message_id for m in got] == ["1"]
+    job = repo.get_job(job_id_for_url(known))
+    assert job is not None and job.status != JobStatus.HIDDEN
+    assert repo.get_board(zensar.key).last_error == TOP_ONLY
+
+    await w.check_board(zensar)  # the same read again: nothing new
+    assert len(got) == 1
 
 
 # ---- job pages and the still-open check -------------------------------------------------------
