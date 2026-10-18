@@ -366,6 +366,23 @@
   $("#squares").innerHTML = Array.from({ length: 181 }, (_, i) => `<i${i < 138 ? ' class="on"' : ""}></i>`).join("");
   $("#pyDots").textContent = ".".repeat(96);
 
+  // ---- on Blip's workbench: pick a box, read its packing slip ----------------------------------
+  (function workbench() {
+    const worker = $(".worker"), boxes = $$("#coming .box"), stage = $("#slipStage");
+    const belt = $("#coming .belt"), list = $("#coming .boxes");
+    const fit = () => belt.style.setProperty("--belt-w", `${list.scrollWidth}px`);
+    fit(); addEventListener("resize", fit, { passive: true });
+    boxes.forEach((box) => box.addEventListener("click", () => {
+      boxes.forEach((b) => b.setAttribute("aria-pressed", String(b === box)));
+      const kind = ["next", "soon", "later"].find((k) => box.classList.contains(k));
+      stage.className = `stamp ${kind}`; stage.textContent = kind;
+      $("#slipTitle").textContent = box.dataset.title;
+      $("#slipText").textContent = box.dataset.text;
+      $("#slipNote").textContent = box.dataset.note;
+      mood(worker, "happy");
+    }));
+  })();
+
   // ---- wake up your own Blip: each step shows its first-run output ------------------------------
   const bedBlip = $(".bed-blip"), steps = $$(".step");
   steps.forEach((st, i) => $(".open", st).addEventListener("click", (e) => {
