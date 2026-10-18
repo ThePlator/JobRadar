@@ -62,6 +62,8 @@ def where_posted(chat: str | None, platform: str = "telegram") -> str:
     """'in Freshershunt', or 'on Stripe's Greenhouse board' for a company board."""
     if not chat:
         return ""
+    if platform == "board" and chat.startswith("freehire · "):
+        return f"via freehire ({chat.split(' · ', 1)[1]})"
     if platform == "board" and " · " in chat:
         ats, company = chat.split(" · ", 1)
         return f"on {company}'s {ats} board"

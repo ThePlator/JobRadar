@@ -72,6 +72,8 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar boards --check` | Read every board now (the first read only records a baseline) |
 | `jobradar boards add <link>` | Add a board to config.yaml after checking it exists, e.g. `jobradar boards add https://jobs.lever.co/meesho --name Meesho`, `jobradar boards add greenhouse stripe --name Stripe`, or a Workday careers link (`jobradar boards add https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite --name NVIDIA`; it must have an India location filter). Shows how many postings pass your filters now. Restart to start watching it |
 | `jobradar boards remove <name>` | Remove a board from config.yaml by its name, board name or link (`--ats lever` if the name is in several sections). Restart to stop reading it |
+| `jobradar freehire` | freehire.me's job search (`sources.freehire`): on or off, last read, postings in the search, how many were passed on, the newest one and why it passed or was skipped |
+| `jobradar freehire --check` | Read the search now (the first read only records a baseline) |
 | `jobradar pages` | Pages you watch for announcements (hiring-drive pages): posts made, last read, last change, state (watching, backing off, paused, blocked) and the last problem |
 | `jobradar pages --check` | Read every page now (the first read only records a baseline) |
 | `jobradar pages add <name> <url>` | Watch a page, e.g. a company's hiring-drive page: reads it once (robots.txt obeyed) and adds it to `sources.pages.watch` in config.yaml. Pick the page that lists the drives, not the careers home page. Restart to start watching it |
@@ -150,6 +152,7 @@ Everything JobRadar does is written to `data/run.log`.
 | Follow the log live (`Ctrl+c` stops watching only) | `tail -f data/run.log` |
 | Follow only the important lines | `tail -f data/run.log \| grep --line-buffered -E "new job\|job extracted\|job matched\|job hidden\|alert email\|would have emailed\|digest\|budget\|ERROR\|Traceback"` |
 | What the company boards found, and why each posting was skipped | `grep -E "board posting (passed\|skipped)" data/run.log \| tail -20 \| cut -c1-200` |
+| What freehire found, and why each posting was skipped | `grep -E "freehire posting (passed\|skipped)" data/run.log \| tail -20 \| cut -c1-200` |
 | What the watched pages did | `grep -E "page (baseline\|changed\|refused\|redesigned\|unavailable\|not usable)" data/run.log \| tail -20 \| cut -c1-200` |
 | Watch for alerts | `tail -f data/run.log \| grep --line-buffered -E "new job\|decision=alert\|alert skipped\|alert email sent\|could not send"` |
 | Jobs hidden because their posting had already closed | `grep "posting closed on the hiring site" data/run.log \| tail -20 \| cut -c1-160` |

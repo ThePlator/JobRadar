@@ -254,12 +254,12 @@ Goal: JobRadar knows what you did with each job, and sees jobs on company boards
 
 freehire crawls 92 hiring systems (Workday, Oracle, iCIMS, Taleo, Phenom, SuccessFactors…) and serves them through a public API with no key (600 requests a minute). Checked 2026-10-18: about 4,900 new India postings a day.
 
-- [ ] `sources/boards/readers.py` `freehire` reader: `GET https://freehire.me/api/v1/jobs/search` with `countries=IN`, `seniority=intern,junior`, `open_within_days=1`, `sort=created_at`, 100 per page, at most 10 pages per read, every 30 min; each posting keeps the company's own job link (the `utm_source=freehire` tag is stripped by link cleaning, so a job also on a watched board stays one job)
-- [ ] Config `sources.freehire` (`enabled`, `every_minutes`, `seniority`, optional `q` and `category`); off by default; Notion Source "freehire · <original source>"
-- [ ] Their `countries=IN` also matches Indiana, USA ("Tell City, IN"): JobRadar's own India filter must still run on every posting (it matches whole words, so "Indiana" is already rejected)
-- [ ] Their category tags are thin (1 backend intern/junior job in a day): fetch broadly and let JobRadar's title filter and matching decide
-- [ ] It's a third-party service: errors and 429s are "unavailable" (never "no jobs"), honour `x-ratelimit-*` headers, honest user agent; if the API changes, only this source stops
-- [ ] Tests (recorded responses): a normal page, the 10,000 offset limit, `meta.ignored_params` present (a dropped filter must fail loudly, not return the whole catalogue), 429, an Indiana posting rejected
+- [x] `sources/boards/freehire.py` (its own watcher: a search result that ages out isn't a closed job, so nothing is ever closed): `GET https://freehire.me/api/v1/jobs/search` with `countries=IN`, `seniority=intern,junior`, `open_within_days=2` (reads overlap, nothing missed), `reality_exclude=likely-evergreen`, `sort=created_at`, 100 per page, at most 5 pages per read, every 30 min; at most 20 new per read; each posting keeps the company's own job link (the `utm_source=freehire` tag is stripped by link cleaning, so a job also on a watched board stays one job)
+- [x] Config `sources.freehire` (`enabled`, `every_minutes` ≥ 15, `countries`, `seniority`, `categories`, `max_pages`); off by default; Notion Source "freehire · <original source>"; `jobradar freehire` (`--check`); the still-open check runs on freehire jobs (second-hand, unlike a board read)
+- [x] Their `countries=IN` also matches Indiana, USA ("Tell City, IN"): JobRadar's own India filter must still run on every posting (it matches whole words, so "Indiana" is already rejected)
+- [x] Their category tags are thin (1 backend intern/junior job in a day): fetch broadly and let JobRadar's title filter and matching decide
+- [x] It's a third-party service: errors and 429s are "unavailable" (never "no jobs"), honour `x-ratelimit-*` headers, honest user agent; if the API changes, only this source stops
+- [x] Tests (recorded responses): a normal page, paging and `max_pages` (well under the 10,000 offset limit), `meta.ignored_params` present (a dropped filter must fail loudly, not return the whole catalogue), 429, an Indiana posting rejected
 
 **One role across cities = one job** (freehire's `jobdedup`: the role fingerprint leaves the location out)
 

@@ -21,6 +21,12 @@ sources:
       Bosch:     BoschGroup
     workday:                # India postings only; read at most every 30 min (unofficial API)
       NVIDIA:    nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite   # or the careers link
+  freehire:                 # freehire.me's job search: ~90 hiring systems in one public API
+    enabled: false
+    every_minutes: 30       # at least 15: someone else's free service
+    countries: [IN]
+    seniority: [intern, junior]
+    categories: []          # e.g. [backend, fullstack, data_engineering]; empty: all
   pages:                    # pages that announce hiring drives instead of listing jobs
     enabled: true
     every_hours: 2          # 1 to 6; robots.txt is obeyed and no page is ever logged into

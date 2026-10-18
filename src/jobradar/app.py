@@ -24,6 +24,7 @@ from jobradar.pipeline.task_types import (
     DIGEST,
     EXTRACT,
     FETCH,
+    FREEHIRE_CHECK,
     MATCH,
     NOTION_BODY,
     NOTION_POLL,
@@ -45,6 +46,7 @@ from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
 from jobradar.sinks.notion_sync import StatusSync
 from jobradar.sinks.reminders import ClosingReminder
+from jobradar.sources.boards.freehire import FreehireWatcher
 from jobradar.sources.boards.watcher import BoardWatcher
 from jobradar.sources.pages.watcher import PageWatcher
 from jobradar.sources.telegram import TelegramSource
@@ -205,6 +207,12 @@ class Pipeline:
             # The shared fetcher: one robots.txt cache and one per-site pace for everything.
             self.pages = PageWatcher(pages, repo, queue, make_emit(repo, queue), self.fetcher)
             handlers[PAGES_TICK], handlers[PAGE_CHECK] = self.pages.tick, self.pages.check
+        self.freehire: FreehireWatcher | None = None
+        if settings.config.sources.freehire.enabled:
+            self.freehire = FreehireWatcher(
+                settings.config.sources.freehire, repo, queue, make_emit(repo, queue)
+            )
+            handlers[FREEHIRE_CHECK] = self.freehire.tick
         self.digest = make_digest(settings, repo, queue)
         if self.digest is not None:
             handlers[DIGEST] = self.digest.send
@@ -216,6 +224,8 @@ class Pipeline:
     async def aclose(self) -> None:
         if self.boards is not None:
             await self.boards.aclose()
+        if self.freehire is not None:
+            await self.freehire.aclose()
         await self.expander.aclose()
         await self.fetcher.aclose()
         await self.liveness.aclose()
@@ -248,6 +258,9 @@ async def run(settings: Settings) -> None:
     if pipeline.pages is not None:
         pipeline.pages.schedule()  # then every 5 minutes: read the pages that are due
         log.info("watching pages", extra={"pages": len(pipeline.pages.pages)})
+    if pipeline.freehire is not None:
+        pipeline.freehire.schedule()  # then every sources.freehire.every_minutes
+        log.info("reading freehire's job search")
     if pipeline.reminders is not None:
         pipeline.reminders.schedule()  # then every hour
     if pipeline.digest is not None:

@@ -680,6 +680,57 @@ def pages_resume(name: Annotated[str, typer.Argument(help="Its name or address."
 
 
 @app.command()
+def freehire(
+    check: Annotated[
+        bool,
+        typer.Option(
+            "--check", help="Read the search once now (the first time records a baseline)."
+        ),
+    ] = False,
+) -> None:
+    """freehire.me's job search (sources.freehire): how it's doing."""
+    import json
+
+    from jobradar import app as application
+    from jobradar.pipeline.ingest import make_emit
+    from jobradar.sources.boards.freehire import KEY, FreehireWatcher
+
+    settings = _settings()
+    config = settings.config.sources.freehire
+    repo, queue = application.open_store()
+    if check:
+        watcher = FreehireWatcher(config, repo, queue, make_emit(repo, queue))
+
+        async def read() -> None:
+            try:
+                passed = await watcher.check()
+            finally:
+                await watcher.aclose()
+            typer.echo(f"Read the search; {passed} new posting(s) queued for `jobradar run`.\n")
+
+        _run(read())
+    board = repo.get_board(KEY)
+    where = ", ".join(config.countries)
+    typer.echo(
+        f"freehire: {'on' if config.enabled else 'off (sources.freehire.enabled)'} · "
+        f"{where} · {', '.join(config.seniority)} · every {config.every_minutes} min"
+    )
+    if board.seen_json is None:
+        typer.echo("  not read yet")
+        return
+    last = (board.last_ok or "")[:16].replace("T", " ")
+    typer.echo(f"  last read (UTC) {last} · {board.jobs_on_board} in the search · "
+               f"{board.new_total} passed on so far")  # fmt: skip
+    if board.last_error:
+        typer.secho(f"  {board.last_error[:100]}", fg="yellow")
+    if board.latest_json:
+        newest = json.loads(board.latest_json)
+        mark = "✓ passed" if newest["verdict"] == "passed" else f"skipped: {newest['verdict']}"
+        line = f"  latest: {newest['title'][:60]} · {newest['where'][:30]}  ({mark})"
+        typer.secho(line, dim=True)
+
+
+@app.command()
 def alerts(
     test: Annotated[
         bool, typer.Option("--test", help="Send yourself one test email, even in dry run.")

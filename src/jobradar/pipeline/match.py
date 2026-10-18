@@ -170,8 +170,9 @@ class Matcher:
         SmartRecruiters links only). A closed one is hidden before any provider call."""
         if self.liveness is None or job.user_status_at is not None:
             return False
-        if any(s.platform == "board" for s in self.repo.job_sightings(job.id)):
-            return False  # just read off the company's board: open
+        sightings = self.repo.job_sightings(job.id)
+        if any(s.platform == "board" and not s.chat_id.startswith("freehire:") for s in sightings):
+            return False  # just read off the company's board: open (freehire is second-hand)
         for url in dict.fromkeys(u for u in (posting.apply_url, job.canonical_url) if u):
             state = await self.liveness.check(url)
             if state == Liveness.UNKNOWN:

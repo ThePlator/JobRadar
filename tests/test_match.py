@@ -389,3 +389,38 @@ async def test_unread_jobs_never_alert(repo: Repo, queue: TaskQueue) -> None:
     assert alerts.queued == ["described"]
     bare = repo.get_job("bare")
     assert bare is not None and bare.status == JobStatus.NEW and bare.score == 100
+
+
+@pytest.mark.parametrize(
+    ("chat_id", "asked"), [("greenhouse:acme", False), ("freehire:greenhouse", True)]
+)
+async def test_still_open_check_skips_only_first_hand_board_jobs(
+    repo: Repo, queue: TaskQueue, chat_id: str, asked: bool
+) -> None:
+    from jobradar.pipeline.liveness import Liveness
+
+    class Liveness404:
+        calls = 0
+
+        async def check(self, url: str | None) -> Liveness:
+            self.calls += 1
+            return Liveness.CLOSED
+
+    src = repo.upsert_source(Platform.BOARD, chat_id, "Greenhouse · Acme")
+    assert src.id is not None
+    raw_id, _ = repo.save_raw_message(src.id, "1", "2026-10-07T08:00:00.000000Z", "post")
+    url = "https://job-boards.greenhouse.io/acme/jobs/123"
+    repo.get_or_create_job("gh", url)
+    repo.add_job_source("gh", raw_id)
+    repo.save_extraction("gh", posting(skills_required=["Python"]).model_dump_json(), "Acme",
+                         "Backend Intern", None, "rules-v1", JobStatus.EXTRACTED)  # fmt: skip
+    liveness = Liveness404()
+    m = Matcher(repo, queue, [FakeProvider("llm", GOOD)], PROFILE, "v1", MatchingConfig(),
+                FILTERS, clock=CLOCK, liveness=liveness)  # type: ignore[arg-type]  # fmt: skip
+    queue.enqueue(MATCH, "gh")
+    await run(queue, m)
+    job = repo.get_job("gh")
+    assert job is not None
+    # Read off the company's own board: open. Via freehire: second-hand, so ask.
+    assert liveness.calls == (1 if asked else 0)
+    assert (job.status == JobStatus.HIDDEN) is asked

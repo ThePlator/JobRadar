@@ -14,6 +14,7 @@ BOARDS_TICK = "boards_tick"  # every minute: queue a board_check for each board 
 BOARD_CHECK = "board_check"  # read one company job board (key: "greenhouse:stripe")
 PAGES_TICK = "pages_tick"  # every 5 minutes: queue a page_check for each page that is due
 PAGE_CHECK = "page_check"  # read one watched page (key: its URL)
+FREEHIRE_CHECK = "freehire_check"  # every sources.freehire.every_minutes: read the search
 CLOSING_CHECK = "closing_check"  # hourly: remind you of shortlisted jobs that close soon
 DIGEST = "digest"  # summary email at each notify.digest_times slot (key: local slot time)
 BUILD_RESUME = (
