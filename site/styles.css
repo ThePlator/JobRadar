@@ -373,10 +373,39 @@ footer p { margin: 0; }
 .slip h3 { margin: 10px 0 6px; font: 700 22px/1.2 var(--display); }
 .slip p:not(.slip-head):not(.slip-note) { margin: 0; color: #3b4048; font-size: 16px; line-height: 1.55; }
 .slip-note { margin: 0; font: 700 26px/1.15 "Caveat", cursive; color: #3b4048; transform: rotate(-2deg); }
+.box .detail { display: none; }
 @media (max-width: 760px) {
-  .bench { width: 92px; } .worker { width: 70px; } .table { width: 92px; height: 36px; }
   .slip { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }
+/* Phones: the belt turns vertical and runs up to Blip; the picked box opens in place. */
+@media (max-width: 600px) {
+  .factory { flex-direction: column; align-items: center; gap: 0; margin-top: 32px; }
+  .bench { width: 120px; } .worker { width: 78px; } .table { width: 120px; height: 34px; }
+  .table::before, .table::after { display: none; }
+  .line { width: 100%; overflow: visible; padding: 14px 0 0 40px; position: relative; }
+  .boxes { flex-direction: column; align-items: stretch; width: auto; padding: 0; gap: 12px; }
+  .boxes > li { display: flex; flex-direction: column; }
+  .pile { gap: 0; align-items: stretch; }
+  .pile .box + .box { margin: -4px 0 0; transform: rotate(-1.2deg); }
+  .box { width: auto; height: auto; flex-direction: row; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 14px 14px 44px; text-align: left; }
+  .box.soon { margin-right: 4%; } .box.later { margin-right: 8%; }
+  .box .tape { left: 14px; width: 18px; transform: none; }
+  .box .label { width: auto; flex: 1; text-align: left; font-size: 15px; }
+  .box.later .label { font-size: 14px; }
+  .box .stamp { margin: 0; flex: none; }
+  .box .detail { display: none; flex-basis: 100%; background: #fffdf7; color: #3b4048; border-radius: 3px; padding: 10px 12px; font-size: 14.5px; line-height: 1.5; text-align: left; }
+  .box .detail em { display: block; margin-top: 6px; font: 700 21px/1.1 "Caveat", cursive; font-style: normal; color: #3b4048; }
+  .box[aria-pressed="true"] .detail { display: block; }
+  .box:hover, .box:focus-visible, .box[aria-pressed="true"],
+  .pile .box + .box:hover, .pile .box + .box:focus-visible, .pile .box + .box[aria-pressed="true"] { transform: none; }
+  .box[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), 0 8px 18px rgba(0, 0, 0, .16); }
+  .belt { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; height: auto; margin: 0; border-radius: 13px; }
+  .tread { inset: 0 auto 0 4px; width: 6px; height: auto; background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .22) 0 14px, transparent 14px 30px); animation-name: tread-up; }
+  .rollers { inset: 10px 3px 10px 11px; flex-direction: column; }
+  .rollers i { width: 10px; height: 10px; border-width: 1.5px; }
+  .slip { display: none; }
+}
+@keyframes tread-up { to { background-position: 0 -30px; } }
 
 @media (max-width: 960px) {
   .hero, .chat-sec, .pen, .run { grid-template-columns: minmax(0, 1fr); gap: 40px; }
