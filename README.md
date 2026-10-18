@@ -2,7 +2,7 @@
 
 **One inbox for every job posted in the groups you follow — deduplicated, ranked, and ready to apply.**
 
-**Website:** [theplator.github.io/JobRadar](https://theplator.github.io/JobRadar/), see how it works and try the post reader in your browser.
+**Website:** [jobradar.theplator.dev](https://jobradar.theplator.dev/), see how it works and try the post reader in your browser.
 
 JobRadar is an open-source, self-hosted agent that watches your Telegram job channels, pulls out each job's details (free rules first, an LLM only when needed), judges how well every job fits your profile with **[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)**, emails you only about strong and certain matches, builds a tailored one-page LaTeX resume, and lays everything out in a Notion dashboard. You review and click Submit; JobRadar never applies for you.
 

@@ -3,11 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JobRadar: Blip reads the job channels for you</title>
-<meta name="description" content="JobRadar reads Telegram job channels and company job boards, scores every posting against your profile, emails you strong matches in about a minute, and writes a one-page resume that never makes things up. Self-hosted, open source.">
-<meta property="og:title" content="JobRadar">
-<meta property="og:description" content="A self-hosted job agent: strong matches in your inbox in about a minute, and a one-page resume that never makes things up.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='17' fill='white' stroke='%231f2328' stroke-width='3'/%3E%3Cline x1='20' y1='20' x2='33' y2='11' stroke='%231a56db' stroke-width='4' stroke-linecap='round'/%3E%3Ccircle cx='20' cy='20' r='3.5' fill='%231a56db'/%3E%3C/svg%3E">
+<title>JobRadar: job alerts from Telegram channels and company boards</title>
+<meta name="description" content="JobRadar is a free, open-source job agent you run yourself. It reads Telegram job channels and company job boards, scores each job for you and emails the strong matches.">
+<link rel="canonical" href="https://jobradar.theplator.dev/">
+<meta name="robots" content="index, follow">
+<meta name="author" content="Sameer">
+<meta name="theme-color" content="#f1f3f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#10151d" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="JobRadar">
+<meta property="og:url" content="https://jobradar.theplator.dev/">
+<meta property="og:title" content="JobRadar: Blip reads the job channels, so you don't have to">
+<meta property="og:description" content="A self-hosted, open-source job agent: it watches Telegram job channels and company boards, emails you strong matches, and writes a one-page resume that only says true things.">
+<meta property="og:image" content="https://jobradar.theplator.dev/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="JobRadar's mascot Blip next to a live log of jobs being read, matched and emailed">
+<meta property="og:locale" content="en_IN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="JobRadar: Blip reads the job channels, so you don't have to">
+<meta name="twitter:description" content="A self-hosted, open-source job agent for Telegram job channels and company boards.">
+<meta name="twitter:image" content="https://jobradar.theplator.dev/assets/og.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"JobRadar","url":"https://jobradar.theplator.dev/","description":"JobRadar is a free, open-source job agent you run yourself. It reads Telegram job channels and company job boards, scores each job for you and emails the strong matches.","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows (Python 3.11+)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"license":"https://opensource.org/licenses/MIT","codeRepository":"https://github.com/ThePlator/JobRadar","image":"https://jobradar.theplator.dev/assets/og.png","author":{"@type":"Person","name":"Sameer","url":"https://theplator.dev"}}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Caveat:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -179,7 +198,7 @@
     <li class="entry later">
       <time>When you shortlist</time>
       <div class="thing">
-        <a class="paper-wrap" href="assets/example-resume.pdf" target="_blank" rel="noopener"><img src="assets/example-resume.png" alt="A full one-page example resume built by JobRadar: summary, skills, two internships, three projects and education"></a>
+        <a class="paper-wrap" href="assets/example-resume.pdf" target="_blank" rel="noopener"><img src="assets/example-resume.png" width="1075" height="1258" alt="A full one-page example resume built by JobRadar: summary, skills, two internships, three projects and education"></a>
         <a class="pdf-link" href="assets/example-resume.pdf" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>Open the full PDF</a>
       </div>
       <p class="note"><svg class="arrow" viewBox="0 0 64 28" aria-hidden="true"><path d="M60 16 C46 6 26 6 6 15"/><path d="M6 15 L16 7"/><path d="M6 15 L17 20"/></svg>Set a job to Shortlisted in Notion and I write a one-page resume for it, in your own LaTeX layout. This one belongs to a made-up fresher.</p>
