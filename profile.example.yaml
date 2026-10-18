@@ -4,50 +4,129 @@
 
 basics:
   name: Your Name
+  headline: Software Engineer | Backend & Full-Stack
   email: you@example.com
   phone: "+91-90000-00000"
-  location: Patna, Bihar
+  location: Pune, India
   links:
     github: https://github.com/yourname
     linkedin: https://www.linkedin.com/in/yourname
     portfolio: https://yourname.dev
 
+# An example fresher. Everything below is made up: replace it with your own true facts.
+summary: >-
+  Final-year computer science student who has shipped backend services used by real teams.
+  Built REST APIs and data pipelines during two internships, and maintains an open-source
+  job agent. Strengths in Python and Java backends, SQL and API design, testing, and
+  containerised deployment. B.Tech, 2026.
+
 education:
-  - degree: B.Tech, Computer Science
+  - degree: B.Tech
+    branch: Computer Science and Engineering
     school: Example Institute of Technology
-    years: 2022-2026
+    location: Pune, India
+    years: Aug 2022 - Jun 2026
+    graduation_year: 2026
     cgpa: 8.1
 
 skills:
-  languages: [Python, Java, JavaScript, SQL]
-  frameworks: [FastAPI, React]
-  tools: [Git, Docker, Linux]
+  languages: [Python, Java, JavaScript, TypeScript, SQL]
+  backend: [FastAPI, Spring Boot, Node.js, REST API design, authentication & authorization]
+  frontend: [React, Next.js, HTML/CSS, TailwindCSS]
+  data: [PostgreSQL, MySQL, Redis, schema design, indexing]
+  infrastructure: [Docker, Git/GitHub, GitHub Actions, Linux, AWS EC2]
 
 experience:
-  - id: intern-acme
-    title: Software Intern
-    company: Acme
+  - id: intern-example-labs
+    title: Software Engineering Intern
+    company: Example Labs
+    location: Bengaluru (hybrid)
+    dates: Jan 2026 - Apr 2026
+    bullets:
+      - id: el-1
+        text: Built a **REST API** in **FastAPI** and **PostgreSQL** for the internal billing team, serving 12 internal tools.
+        tags: [python, fastapi, postgresql, backend, rest-api]
+      - id: el-2
+        text: Cut the slowest report query from 9 s to 1.2 s with **composite indexes** and a rewritten join.
+        tags: [postgresql, sql, performance, indexing]
+      - id: el-3
+        text: Added **integration tests** with pytest and Testcontainers, raising coverage from 55% to 85%.
+        tags: [python, testing, pytest, docker]
+      - id: el-4
+        text: Moved the service to **Docker** with a **GitHub Actions** pipeline that deploys on every merge.
+        tags: [docker, ci-cd, github-actions, devops]
+
+  - id: intern-northwind
+    title: Backend Developer Intern
+    company: Northwind Retail
+    location: Remote
     dates: May 2025 - Jul 2025
     bullets:
-      - id: b1
-        text: Built a REST API with FastAPI and PostgreSQL, cutting response time by 40%
-        tags: [python, fastapi, backend]
-      - id: b2
-        text: Wrote integration tests that raised coverage from 55% to 85%
-        tags: [python, testing]
+      - id: nw-1
+        text: Wrote **Spring Boot** endpoints for order tracking used by the support team's dashboard.
+        tags: [java, spring-boot, backend, rest-api]
+      - id: nw-2
+        text: Replaced a nightly CSV export with a **Redis**-cached API, so support saw orders within a minute.
+        tags: [redis, caching, backend, performance]
+      - id: nw-3
+        text: Documented the API with **OpenAPI** and reviewed pull requests with the core team.
+        tags: [documentation, code-review, teamwork]
+      - id: nw-4
+        text: Fixed a timezone bug in delivery estimates that showed wrong dates for late-night orders.
+        tags: [java, debugging]
 
 projects:
   - id: jobradar
-    name: JobRadar
+    name: "JobRadar: Self-hosted Job Agent"
     url: https://github.com/ThePlator/JobRadar
     dates: Oct 2026 - Present
-    stack: Python, asyncio, SQLite      # printed under the name
+    stack: Python, asyncio, SQLite, Notion API      # printed under the name
+    context: Open source (MIT)
     primary: true                       # always shown first, with 3+ bullets
+    tags: [python, asyncio, sqlite, llm, automation, open-source]
     bullets:
       - id: p1
-        text: Self-hosted agent that ranks Telegram job posts and builds tailored LaTeX resumes
-        tags: [python, llm, automation]
-    tags: [python, llm, automation]
+        text: Built an **asynchronous agent** that reads Telegram job channels and company job boards and syncs a **Notion** inbox.
+        tags: [python, asyncio, notion-api, backend]
+      - id: p2
+        text: Designed a **durable SQLite task queue** with retries and crash recovery, so no post is lost on restart.
+        tags: [sqlite, task-queue, reliability]
+      - id: p3
+        text: Generated **one-page LaTeX resumes** per job, with a checker that rejects any invented number or skill.
+        tags: [llm, latex, validation]
+      - id: p4
+        text: Asks the **Greenhouse, Lever and Ashby APIs** whether a posting is still open before scoring it.
+        tags: [rest-api, api-integration]
+
+  - id: campus-events
+    name: Campus Events App
+    url: https://github.com/yourname/campus-events
+    dates: Aug 2024 - Nov 2024
+    stack: Next.js, Node.js, MongoDB
+    context: College project
+    tags: [nextjs, nodejs, mongodb, full-stack]
+    bullets:
+      - id: ce-1
+        text: Built a **Next.js** app for club events with sign-ups and QR check-in, used by 3 college clubs.
+        tags: [nextjs, react, full-stack]
+      - id: ce-2
+        text: Added **role-based access** so club admins manage only their own events.
+        tags: [authentication, authorization, backend]
+
+  - id: split-cli
+    name: Split, an expense-sharing CLI
+    url: https://github.com/yourname/split
+    dates: Jan 2024 - Mar 2024
+    stack: Python, SQLite, Typer
+    context: Personal project
+    tags: [python, sqlite, cli]
+    bullets:
+      - id: sp-1
+        text: Built a **command-line app** that settles group expenses in the fewest payments.
+        tags: [python, algorithms]
+      - id: sp-2
+        text: Stored trips in **SQLite** with migrations, and published it on PyPI.
+        tags: [sqlite, packaging]
 
 answers:                  # reused for application forms
   notice_period: Immediate

@@ -150,13 +150,14 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .night-head p { color: var(--muted); }
 .log { list-style: none; margin: 56px 0 0; padding: 0; position: relative; }
 .log::before { content: ""; position: absolute; left: 118px; top: 8px; bottom: 8px; border-left: 2px dashed var(--line); }
-.entry { display: grid; grid-template-columns: 140px minmax(0, 560px) minmax(0, 300px); gap: 36px; align-items: start; padding: 26px 0; position: relative; }
+.entry { display: grid; grid-template-columns: 130px max-content minmax(200px, 270px); column-gap: 76px; row-gap: 10px; align-items: start; padding: 26px 0; position: relative; }
 .entry time { font: 500 14px var(--mono); color: var(--muted); padding-top: 6px; position: relative; text-align: left; }
 .entry time::after { content: ""; position: absolute; left: 112px; top: 10px; width: 14px; height: 14px; border-radius: 50%; background: var(--page); border: 3px solid var(--accent); }
 .entry.later time::after { border-color: var(--line); }
-.thing { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
-.note { margin: 0; font: 700 25px/1.2 "Caveat", cursive; color: var(--hand); position: relative; padding-top: 4px; transform: rotate(-1.2deg); }
-.arrow { display: block; width: 72px; height: 36px; margin: 0 0 4px -6px; fill: none; stroke: var(--hand); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.thing { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; max-width: 560px; }
+.thing > * { max-width: 100%; }
+.note { margin: 0; font: 700 25px/1.2 "Caveat", cursive; color: var(--hand); position: relative; padding-top: 2px; transform: rotate(-1deg); }
+.arrow { position: absolute; left: -66px; top: 4px; width: 60px; height: 26px; fill: none; stroke: var(--hand); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .tg { background: var(--tg); border-radius: 18px 18px 18px 6px; padding: 12px 16px 12px; max-width: 470px; box-shadow: 0 1px 1px rgba(0, 0, 0, .08); font-size: 16px; line-height: 1.5; }
 .tg p { margin: 0; }
 .tg-who { font-weight: 700; color: var(--accent); font-size: 14px; margin-bottom: 2px; }
@@ -178,7 +179,9 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .mailbox iframe { border: 0; width: 640px; height: 560px; transform: scale(.73); transform-origin: 0 0; pointer-events: none; }
 .wait { display: inline-flex; align-items: center; gap: 8px; font: 500 13px var(--mono); color: var(--muted); }
 .skips { margin: 0; width: 100%; background: var(--code-bg); color: #8b949e; border-radius: 12px; padding: 14px 16px; font: 400 12.5px/1.75 var(--mono); overflow-x: auto; }
-.paper-wrap { width: 280px; transform: rotate(-2.5deg); box-shadow: 0 18px 40px rgba(0, 0, 0, .14); border-radius: 4px; overflow: hidden; }
+.paper-wrap { display: block; width: 520px; transform: rotate(-1.2deg); box-shadow: 0 22px 50px rgba(0, 0, 0, .16); border-radius: 4px; overflow: hidden; transition: transform .25s ease; }
+.paper-wrap:hover { transform: rotate(0) translateY(-4px); }
+.pdf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-top: 8px; }
 .paper-wrap img { display: block; width: 100%; }
 
 /* forward a post: a little phone */
@@ -256,11 +259,16 @@ footer p { margin: 0; }
   .log::before { left: 7px; }
   .entry { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 22px 0 22px 30px; }
   .entry time::after { left: -30px; top: 3px; }
-  .arrow { transform: rotate(80deg) scale(.7); margin: -6px 0 0 -8px; }
+  .entry { column-gap: 0; }
+  .thing { margin-right: 0; }
+  .arrow { position: static; display: block; transform: rotate(75deg); width: 40px; height: 20px; margin: 0 0 6px 6px; }
   .note { font-size: 23px; }
   main > section { padding: 80px 20px; }
 }
 @media (max-width: 520px) {
+  .mailbox { height: 210px; }
+  .mailbox iframe { transform: scale(.52); }
+  .paper-wrap { width: 100%; }
   .bubble { left: auto; right: 0; top: -6px; }
   .stickies button { width: 100%; min-height: 0; }
   .sheet { padding-left: 44px; } .sheet::before { left: 26px; }
