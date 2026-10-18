@@ -331,6 +331,21 @@ footer p { margin: 0; }
 @keyframes zz { 0% { opacity: 0; transform: translate(0, 6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -10px); } }
 @keyframes heart { 0% { opacity: 0; transform: translate(0, 0) scale(.4); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--dx), -110px) scale(1.1) rotate(var(--rot)); } }
 
+/* What's coming: a board of notes. Next = sticky notes, Soon = cards, Later = dashed. */
+.coming-head p { color: var(--muted); max-width: 60ch; }
+.board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; margin-top: 44px; align-items: start; }
+.lane h3 { margin: 0 0 16px; font: 700 30px/1 "Caveat", cursive; color: var(--hand); }
+.lane { display: grid; gap: 18px; }
+.card-note { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.card-note h4 { margin: 0 0 8px; font: 700 18px/1.25 var(--display); color: var(--ink); }
+.card-note p { margin: 0; color: var(--muted); font-size: 15.5px; line-height: 1.5; }
+.card-note.sticky { background: var(--sticky); border-color: transparent; border-radius: 3px; box-shadow: var(--shadow); transform: rotate(-.8deg); }
+.card-note.sticky:nth-child(odd) { transform: rotate(.7deg); }
+.card-note.sticky h4, .card-note.sticky p { color: var(--sticky-ink); }
+.card-note .aside { margin-top: 10px; font: 700 22px/1.1 "Caveat", cursive; }
+.card-note.maybe { background: transparent; border-style: dashed; }
+@media (max-width: 960px) { .board { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
+
 @media (max-width: 960px) {
   .hero, .chat-sec, .pen, .run { grid-template-columns: minmax(0, 1fr); gap: 40px; }
   .log::before { left: 7px; }
