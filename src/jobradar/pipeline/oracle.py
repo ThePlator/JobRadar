@@ -8,7 +8,9 @@ pages are JavaScript-only, but two public JSON addresses on the same host serve 
   offset must sit INSIDE that clause next to `limit`: Oracle ignores a top-level `offset`
   and silently re-reads page 1 (noted in freehire's oracle.go);
 - one job's detail (`recruitingCEJobRequisitionDetails`): title, description, posting
-  date. A job that isn't posted any more answers 200 with no items.
+  date. A job that isn't posted any more answers 200 with no items. Years of experience
+  often sit only in the company's own fields ("Minimum Experience (In Years)": 4), not in
+  the description, so those are read too.
 
 Links found in posts are only recognised on `*.oraclecloud.com`, with a numeric job id and a
 strict site name, so a crafted link can't point a request anywhere else. A site you add to
@@ -20,6 +22,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -128,12 +131,49 @@ def description(item: dict[str, Any]) -> str:
     ).strip()
 
 
+_MIN = re.compile(r"\b(?:min|minimum)\b.*\bexperience\b", re.IGNORECASE)
+_MAX = re.compile(r"\b(?:max|maximum)\b.*\bexperience\b", re.IGNORECASE)
+
+
+def _years(raw: Any) -> float | None:
+    try:
+        years = float(str(raw).strip())
+    except ValueError:
+        return None
+    return years if 0 <= years <= 50 else None
+
+
+def experience(item: dict[str, Any]) -> str:
+    """The years asked for, as text ("4-7 years"), or "". From the company's own fields
+    first, then an "Experience" line in the short description ("Experience / 3-8 Years")."""
+    lo = hi = None
+    flex = item.get("requisitionFlexFields")
+    for field in flex if isinstance(flex, list) else []:
+        if isinstance(field, dict) and (years := _years(field.get("Value"))) is not None:
+            prompt = str(field.get("Prompt") or "")
+            if _MIN.search(prompt):
+                lo = years
+            elif _MAX.search(prompt):
+                hi = years
+    if lo is not None:
+        return f"{lo:g}-{hi:g} years" if hi is not None and hi >= lo else f"{lo:g}+ years"
+    if hi is not None:
+        return f"0-{hi:g} years"
+    lines = _plain(item.get("ShortDescriptionStr")).splitlines()
+    for label, value in pairwise(lines):
+        if label.strip(" :").casefold() == "experience" and re.search(r"\d", value):
+            return value
+    return ""
+
+
 def as_job_posting(item: dict[str, Any]) -> dict[str, Any]:
     """The detail as schema.org JobPosting data, so the free extraction layer reads it like
     any job page's own data (title, location, published date, experience in the text)."""
     posting: dict[str, Any] = {"@type": "JobPosting", "title": item.get("Title") or ""}
     if text := description(item):
         posting["description"] = text
+    if years := experience(item):
+        posting["experienceRequirements"] = years
     if posted := item.get("ExternalPostedStartDate") or item.get("PostedDate"):
         posting["datePosted"] = str(posted)
     if where := item.get("PrimaryLocation"):

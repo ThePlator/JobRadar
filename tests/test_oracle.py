@@ -253,6 +253,35 @@ async def test_job_page_reads_the_detail_address(monkeypatch: pytest.MonkeyPatch
     assert gone.text is None and gone.note == "no longer posted"
 
 
+def flex(prompt: str, value: str) -> dict[str, Any]:
+    return {"Prompt": prompt, "Value": value, "ControlType": "Decimal"}
+
+
+@pytest.mark.parametrize(
+    ("extra", "years", "expected"),
+    [
+        # Zensar's Java Developer, 2026-10-19: the years were only in these fields.
+        ({"requisitionFlexFields": [flex("Work from Anywhere", "No"),
+                                    flex("Minimum Experience (In Years)", "4"),
+                                    flex("Maximum Experience (In Years)", "7")]},
+         "4-7 years", (4.0, 7.0)),
+        ({"requisitionFlexFields": [flex("Min Experience", "0")]}, "0+ years", (0.0, None)),
+        ({"ShortDescriptionStr": "<p>Job Title</p><p>Java Developer</p><p>Experience</p>"
+                                 "<p>3-8 Years</p><p>Location</p><p>Pune</p>"},
+         "3-8 Years", (3.0, 8.0)),
+        ({"requisitionFlexFields": [flex("Minimum Experience", "n/a")]}, "", (None, None)),
+        ({}, "", (None, None)),
+    ],
+)  # fmt: skip
+def test_experience_from_the_companys_own_fields(
+    extra: dict[str, Any], years: str, expected: tuple[float | None, float | None]
+) -> None:
+    item = {**ITEM, "ExternalDescriptionStr": "<p>Build services in Java.</p>", **extra}
+    assert oracle.experience(item) == years
+    fields = from_job_posting(oracle.as_job_posting(item))
+    assert (fields.get("experience_min"), fields.get("experience_max")) == expected
+
+
 def test_description_falls_back_to_corporate_fields() -> None:
     item = {"ExternalDescriptionStr": "<br>", "CorporateDescriptionStr": "<p>Campus role.</p>"}
     assert oracle.description(item) == "Campus role."
