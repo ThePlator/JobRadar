@@ -362,7 +362,7 @@ Goal: from a shortlisted job to a submitted form in under 5 minutes.
 
 JobRadar stops at the alert today. These use data it already keeps: your dated Notion status history and each job's matched and missing skills.
 
-- [ ] Follow-up reminder: a job set to Applied with no later status for `followup.after_days` (default 10) gets one email with a short follow-up draft to the recruiter. The draft uses only claims from the resume built for that job (no new skills or numbers, checked by the grounding validator), at most 2 follow-ups per job, never sent by JobRadar. Mark it sent by setting Notion's new **Followed Up** date; the next reminder counts from that date
+- [x] Follow-up reminder (`sinks/followups.py`, hourly, 08:00-22:00): a job set to Applied with no later status for `notify.followup_after_days` (default 10) gets an email with a short follow-up draft to the recruiter, several due jobs in one email. The draft is written from JobRadar's own data, not by an AI (role, company, the day you applied, up to 3 of the job's skills that are on the resume built for it, else in your profile), so it can't claim anything new; at most 2 per job; never sent by JobRadar. Notion's new **Followed Up** date column (yours; JobRadar only reads it) restarts the wait; applications quiet for 60+ days are left alone. `jobradar followups` lists each Applied job and when its draft is due (`--now` sends due ones)
 - [ ] Quiet sweep: Applied for 60+ days with no reply and 2 follow-ups → the digest suggests marking it "No response" (you decide; nothing changes on its own)
 - [ ] Skills you keep missing: once a week the digest lists the skills good matches (score ≥ `alert_above`) asked for that your profile lacks, with counts, e.g. "Docker in 14 good matches, AWS in 9". Missing skills come from the skills rule already stored per job; no LLM call
 - [ ] Replies from companies: read the existing `email_forward` mailbox (or a second folder you choose) for mail from the domains of companies you applied to; an interview invite, test link or rejection becomes a **suggested** status in Notion with the email's subject quoted. Never changes Status itself; offers are never guessed
@@ -370,7 +370,7 @@ JobRadar stops at the alert today. These use data it already keeps: your dated N
 
 **Tests**
 
-- [ ] Follow-up due exactly at 10 days, not before; none after 2; a later status (Interview, Rejected) stops them; a follow-up draft with a new claim is rejected
+- [x] Follow-up due exactly at 10 days, not before; none after 2; a later status (Interview, Rejected) stops them; your Followed Up date restarts the wait; the draft names only skills from the resume or profile
 - [ ] Skill-gap counts only from jobs at or above `alert_above`, deduplicated per job
 - [ ] Reply detection: invite, test, rejection, and an unrelated newsletter from the same domain (no suggestion)
 

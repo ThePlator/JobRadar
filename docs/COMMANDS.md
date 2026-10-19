@@ -81,6 +81,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar pages resume <name>` | Read a paused page (refused 3 times, or needs a login) or a robots.txt-blocked page again from its next turn |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
+| `jobradar followups` | Jobs you set to Applied: days without a reply and when a follow-up draft is due (`--now` emails the due ones) |
 | `jobradar resume <job_id>` | *Not built yet (v0.3)*: rebuild a tailored resume |
 | `jobradar doctor` | *Not built yet*: check keys, tools and access |
 
@@ -130,6 +131,13 @@ A report for the last N days: posts received, posts without a job link, jobs cre
 uv run jobradar retry --failed
 ```
 A task fails after 5 attempts (e.g. a site down for hours). This puts them back; they run the next time JobRadar is running.
+
+### `jobradar followups`
+
+```bash
+uv run jobradar followups
+```
+Lists each job whose Status you set to Applied in Notion, the day you applied and when its follow-up draft is due ("next draft 29 Oct", "due now", "done: 2 follow-ups sent"). While `jobradar run` is running, JobRadar emails you a short follow-up draft 10 days after Applied with no reply (`notify.followup_after_days`), at most twice per job, between 08:00 and 22:00. The draft uses only your role, company, applied date and skills already on your resume. JobRadar never sends it: you send it to the recruiter, then set the **Followed Up** date in Notion, which restarts the 10 days. Setting Interview, Rejected or any other Status stops the reminders. `--now` emails the ones that are due right away.
 
 ### `jobradar alerts --test` and `jobradar digest --now`
 

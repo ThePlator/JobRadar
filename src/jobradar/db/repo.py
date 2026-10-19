@@ -895,6 +895,19 @@ class Repo:
             query = select(Job).where(col(Job.created_at) >= since)
             return list(s.exec(query))
 
+    def jobs_applied(self) -> list[Job]:
+        """Jobs whose Status you set to Applied (and nothing since), oldest first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(
+                    col(Job.status) == JobStatus.APPLIED.value,
+                    col(Job.user_status_at).is_not(None),
+                )
+                .order_by(col(Job.user_status_at))
+            )
+            return list(s.exec(query))
+
     def jobs_closing(self, first_day: str, last_day: str) -> list[Job]:
         """Jobs you may still apply to whose deadline falls in these days (inclusive)."""
         open_ = [JobStatus.NEW.value, JobStatus.SHORTLISTED.value, JobStatus.RESUME_READY.value]

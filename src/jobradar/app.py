@@ -25,6 +25,7 @@ from jobradar.pipeline.task_types import (
     DIGEST,
     EXTRACT,
     FETCH,
+    FOLLOWUP_CHECK,
     FREEHIRE_CHECK,
     MATCH,
     NOTION_BODY,
@@ -45,6 +46,7 @@ from jobradar.resume.build import ResumeBuilder
 from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_notify import AlertSender
+from jobradar.sinks.followups import FollowUpReminder
 from jobradar.sinks.notion_sync import StatusSync
 from jobradar.sinks.reminders import ClosingReminder
 from jobradar.sources.boards.freehire import FreehireWatcher
@@ -114,6 +116,17 @@ def make_reminders(
         log.warning("closing reminders are off: add to .env " + ", ".join(missing))
         return None
     return ClosingReminder(settings, repo, queue, liveness)
+
+
+def make_followups(settings: Settings, repo: Repo, queue: TaskQueue) -> FollowUpReminder | None:
+    """Follow-up reminders, or None when they are off or email isn't set up."""
+    notify = settings.config.notify
+    if not notify.followups:
+        return None
+    if not notify.dry_run and (missing := settings.missing("email")):
+        log.warning("follow-up reminders are off: add to .env " + ", ".join(missing))
+        return None
+    return FollowUpReminder(settings, repo, queue)
 
 
 def make_matcher(
@@ -221,6 +234,9 @@ class Pipeline:
         self.reminders = make_reminders(settings, repo, queue, self.liveness)
         if self.reminders is not None:
             handlers[CLOSING_CHECK] = self.reminders.tick
+        self.followups = make_followups(settings, repo, queue)
+        if self.followups is not None:
+            handlers[FOLLOWUP_CHECK] = self.followups.tick
         self.worker = Worker(queue, handlers, concurrency=4)
 
     async def aclose(self) -> None:
@@ -253,7 +269,7 @@ async def run(settings: Settings) -> None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
-    if sink.added:  # columns JobRadar just added (Source, Posted On): fill them on old pages
+    if sink.added - notion.USER_COLUMNS:  # columns JobRadar just added: fill them on old pages
         for job_id in (pages := repo.jobs_in_notion()):
             queue.enqueue(NOTION_UPSERT, job_id)
         log.info("filling new Notion columns", extra={"columns": ", ".join(sorted(sink.added)),
@@ -270,6 +286,8 @@ async def run(settings: Settings) -> None:
         log.info("reading freehire's job search")
     if pipeline.reminders is not None:
         pipeline.reminders.schedule()  # then every hour
+    if pipeline.followups is not None:
+        pipeline.followups.schedule(60)  # then every hour; after the first Notion read
     if pipeline.digest is not None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})

@@ -94,3 +94,20 @@ async def test_poll_task_reschedules_itself(repo: Repo, queue: TaskQueue, clock:
     assert third is not None and third.key == task.key  # the two keys take turns
     s.schedule()  # a restart while a poll is queued doesn't start a second chain
     queue.complete(third)
+
+
+async def test_followed_up_date_is_kept_per_job(
+    repo: Repo, queue: TaskQueue, clock: FakeClock
+) -> None:
+    from jobradar.sinks.notion_sync import FOLLOWED_UP
+
+    add(repo, "j1")
+    dated = page("j1", "Applied")
+    dated["properties"]["Followed Up"] = {"type": "date", "date": {"start": "2026-10-19"}}
+    cleared = page("j1", "Applied")
+    cleared["properties"]["Followed Up"] = {"type": "date", "date": None}
+    s = sync(repo, queue, clock, FakeClient([dated], [cleared]))
+    await s.poll_now()
+    assert repo.get_setting(FOLLOWED_UP + "j1") == "2026-10-19"
+    await s.poll_now()
+    assert repo.get_setting(FOLLOWED_UP + "j1") == ""  # you cleared it

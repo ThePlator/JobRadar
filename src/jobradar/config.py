@@ -408,6 +408,10 @@ class NotifyConfig(_Strict):
     digest: bool = True  # a summary email at each digest time
     # An email when a job you shortlisted closes today or tomorrow (checked hourly, 8:00-22:00).
     closing_reminders: bool = True
+    # An email with a follow-up draft when a job you set to Applied has had no reply for this
+    # many days (at most 2 per job; set Notion's Followed Up date when you send one).
+    followups: bool = True
+    followup_after_days: int = Field(default=10, ge=3, le=60)
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 

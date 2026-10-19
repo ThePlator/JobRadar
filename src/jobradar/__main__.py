@@ -803,6 +803,57 @@ def digest(
 
 
 @app.command()
+def followups(
+    now: Annotated[
+        bool, typer.Option("--now", help="Email the follow-ups that are due right away.")
+    ] = False,
+) -> None:
+    """Jobs you set to Applied: days without a reply and when a follow-up draft is due."""
+    from jobradar import app as application
+    from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.sinks.followups import MAX_REMINDERS, QUIET_AFTER, FollowUpReminder
+
+    settings = _settings()
+    notify = settings.config.notify
+    repo, queue = application.open_store()
+    reminder = FollowUpReminder(settings, repo, queue)
+    jobs = repo.jobs_applied()
+    if not jobs:
+        typer.echo("No job has Status Applied in Notion yet (JobRadar reads it every 2 minutes "
+                   "while `jobradar run` is running).")  # fmt: skip
+        return
+    clock = datetime.now(UTC)
+    typer.echo(f"Follow-up drafts come {notify.followup_after_days} days after Applied (or your "
+               f"Followed Up date) with no reply, at most {MAX_REMINDERS} per job.")  # fmt: skip
+    for job in jobs:
+        applied, since, sent = reminder.status(job)
+        quiet = (clock - since).days
+        next_at = since + reminder.after
+        if sent >= MAX_REMINDERS:
+            when = f"done: {sent} follow-ups sent"
+        elif clock - since > QUIET_AFTER:
+            when = f"quiet for {quiet} days: no more reminders"
+        elif next_at <= clock:
+            when = "due now"
+        else:
+            when = f"next draft {next_at.astimezone(notify.tz):%d %b}"
+        role = f"{job.role or 'Role not stated'} @ {job.company or '?'}"
+        typer.echo(f"  {job.id[:8]}  {role[:48]:<48}  applied "
+                   f"{applied.astimezone(notify.tz):%d %b}  {when}")  # fmt: skip
+    if not now:
+        return
+    if not notify.followups:
+        _fail("notify.followups is false in config.yaml.")
+    if not notify.dry_run and (missing := settings.missing("email")):
+        _fail("Add to .env first: " + ", ".join(missing))
+    try:
+        outcome = asyncio.run(reminder.check_now())
+    except (PermanentError, RetryableError) as e:
+        _fail(f"Not sent: {e}")
+    typer.secho(f"✓ {outcome}", fg="green")
+
+
+@app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
     from jobradar import app as application

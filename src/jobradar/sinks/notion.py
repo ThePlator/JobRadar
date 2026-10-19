@@ -55,7 +55,11 @@ ADDED_LATER: dict[str, str] = {
     "Source": "multi_select",
     # When the company's own site says it published the job (page data or its job board).
     "Posted On": "date",
+    # Yours: the day you sent a follow-up. JobRadar only reads it (follow-up reminders).
+    "Followed Up": "date",
 }
+# Added columns that only you fill in: nothing to write on old pages when they're added.
+USER_COLUMNS = {"Followed Up"}
 
 # Agent-side status -> Notion Status option. Written only when the page is created; after
 # that the Status column belongs to the user.
