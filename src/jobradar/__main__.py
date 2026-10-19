@@ -919,6 +919,29 @@ def skills(days: Annotated[int, typer.Option(help="Look back this many days.")] 
 
 
 @app.command()
+def web() -> None:
+    """Your jobs and applications on a page: http://127.0.0.1:8080 (Ctrl+C to stop)."""
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+    except ImportError:
+        _fail(
+            "The dashboard needs the web extra: uv sync --extra web "
+            "(or pip install 'jobradar-agent[web]')"
+        )
+    from jobradar import app as application
+    from jobradar.web.server import NoFreePort, serve
+
+    logs.setup()
+    settings = _settings()
+    repo, _ = application.open_store()
+    try:
+        _run(serve(settings, repo))
+    except NoFreePort as e:
+        _fail(str(e))
+
+
+@app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
     from jobradar import app as application

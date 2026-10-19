@@ -1,0 +1,53 @@
+{% macro ring(n, size='') -%}
+{%- set kind = 'none' if n is none else ('good' if n >= good else ('fair' if n >= fair else 'poor')) -%}
+<svg class="ring {{ kind }} {{ size }}" viewBox="0 0 36 36" role="img" aria-label="Match score {{ 'unknown' if n is none else n }}">
+  <circle class="ring-bg" cx="18" cy="18" r="15.5"/>
+  {% if n is not none %}<circle class="ring-fg" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="{{ n }} 100" transform="rotate(-90 18 18)"/>{% endif %}
+  <text x="18" y="22.5" text-anchor="middle">{{ '–' if n is none else n }}</text>
+</svg>
+{%- endmacro %}
+
+{% macro avatar(c, size='') -%}
+<span class="avatar hue-{{ c.hue }} {{ size }}" aria-hidden="true">{{ c.initials }}</span>
+{%- endmacro %}
+
+{% macro status(c) -%}
+<span class="status s-{{ c.status }}">{{ c.status_label }}</span>
+{%- endmacro %}
+
+{% macro reasons(r) -%}
+{% if r.eligibility or r.place or r.have or r.missing or r.unsure %}
+<ul class="chips">
+  {% if r.eligibility %}<li class="{{ 'ok' if r.eligible else ('no' if r.eligible == false else 'maybe') }}">{{ r.eligibility }}</li>{% endif %}
+  {% if r.place %}<li class="{{ 'ok' if r.place_ok else 'no' }}">{{ r.place }}</li>{% endif %}
+  {% if r.place_ok == false and not r.place %}<li class="no">Location doesn't fit</li>{% endif %}
+  {% for s in r.have %}<li class="have">{{ s }}</li>{% endfor %}
+  {% for s in r.missing %}<li class="missing">missing {{ s }}</li>{% endfor %}
+  {% if r.unsure %}<li class="maybe">score unsure</li>{% endif %}
+</ul>
+{% endif %}
+{%- endmacro %}
+
+{% macro bar(pct, kind='') -%}
+<svg class="bar {{ kind }}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-bg" width="100" height="8"/><rect class="bar-fg" width="{{ [pct, 0]|max }}" height="8"/></svg>
+{%- endmacro %}
+
+{% macro row(c, with_status=false) -%}
+<li class="row" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}">
+  {{ avatar(c) }}
+  <div class="row-main">
+    <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>
+    <p class="meta">
+      {% if c.company %}<b>{{ c.company }}</b>{% endif %}
+      {% if c.place %}<span><svg class="i xs"><use href="#i-pin"/></svg>{{ c.place }}</span>{% endif %}
+      {% if c.closes %}<span class="closes"><svg class="i xs"><use href="#i-clock"/></svg>closes {{ c.closes }}</span>{% endif %}
+      <span class="faint">seen {{ c.seen }}</span>
+    </p>
+    {{ reasons(c.reason) }}
+  </div>
+  <div class="row-end">
+    {% if with_status %}{{ status(c) }}{% endif %}
+    {{ ring(c.score) }}
+  </div>
+</li>
+{%- endmacro %}

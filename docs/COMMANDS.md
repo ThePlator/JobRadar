@@ -61,6 +61,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | Command | What it does |
 |---|---|
 | `jobradar run` | Start everything: Telegram reader, page reading, matching, Notion sync, alerts and digests |
+| `jobradar web` | The dashboard: today's good matches, your applications board, every job and one job's full page, at http://127.0.0.1:8080. Needs `uv sync --extra web` |
 | `jobradar init` | First-time setup (see above) |
 | `jobradar chats` | List Telegram chats with their ids |
 | `jobradar add <url>` | Process one job link by hand and add it to Notion |
@@ -140,6 +141,25 @@ A task fails after 5 attempts (e.g. a site down for hours). This puts them back;
 uv run jobradar skills
 ```
 Counts, across your good matches (score at or above `scoring.alert_above`) from the last 7 days, the technologies they name that your profile doesn't list: "AWS 7, Google Cloud 6, Kubernetes 5…", each counted once per job and shown when two or more jobs name it. A job's skills are its stated skill list plus known technology names in its page and post; words that are also plain English (Go, Spring, Express) count only from stated lists. The first digest of each week shows the same list (`notify.skill_gaps: false` turns that off). If you already know one, add it to `skills:` in profile.yaml so matching counts it. It also warns if a skill in profile.yaml was cut in two at a comma inside brackets.
+
+### `jobradar web`
+
+```bash
+uv sync --extra web
+```
+Installs the dashboard's two extra packages (FastAPI and Uvicorn), once.
+
+```bash
+uv run jobradar web
+```
+Starts the dashboard and prints its address, normally http://127.0.0.1:8080; open it in your browser. Ctrl+C stops it. It reads JobRadar's own database, so it works whether `jobradar run` is running or not. Pages:
+
+- **Today**: good matches (score at or above `scoring.alert_above`) from the last 3 days that you haven't acted on, best first.
+- **Applications**: a board of every job you moved past New: Shortlisted (and Resume ready), Applied, Interview, Offer or rejected.
+- **All jobs**: search by company or role, and show jobs by status (hidden ones and "not a job" are left out unless you pick them).
+- **A job's page**: why it scored what it did, the job's details, where it was posted, your status history, the resumes and letters built for it, and the page text JobRadar read.
+
+It's read-only for now: change a status with the email buttons or in Notion, then reload. Only this computer can open it (`web.host: 127.0.0.1`). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
 
 ### `jobradar replies --check`
 

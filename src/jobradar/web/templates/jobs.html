@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import row %}
+{% block title %}All jobs · JobRadar{% endblock %}
+{% block main %}
+<div class="head">
+  <h1>All jobs</h1>
+  <p class="lede">{{ found.total }} job{{ '' if found.total == 1 else 's' }}{% if found.words %} matching “{{ found.words }}”{% endif %}, newest first.</p>
+</div>
+<form class="filters" method="get" action="/jobs" role="search">
+  <div class="search">
+    <svg class="i"><use href="#i-search"/></svg>
+    <label class="sr" for="q">Company or role</label>
+    <input id="q" name="q" type="search" value="{{ found.words }}" placeholder="Search company or role" maxlength="100">
+    <kbd>/</kbd>
+  </div>
+  <label class="sr" for="show">Show</label>
+  <select id="show" name="show">
+    {% for value, text in choices %}<option value="{{ value }}" {% if value == found.show %}selected{% endif %}>{{ text }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+{% if found.cards %}
+<ul class="rows" data-list>
+{% for c in found.cards %}{{ row(c, with_status=true) }}{% endfor %}
+</ul>
+{% if found.pages > 1 %}
+<nav class="pager" aria-label="Pages of jobs">
+  {% if found.page > 1 %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;page={{ found.page - 1 }}">← Newer</a>{% else %}<span></span>{% endif %}
+  <span>Page {{ found.page }} of {{ found.pages }}</span>
+  {% if found.page < found.pages %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;page={{ found.page + 1 }}">Older →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty"><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p>No jobs match. Try another word, or Show: Everything.</p></div>
+{% endif %}
+{% endblock %}

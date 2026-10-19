@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ring, avatar, status, bar %}
+{% block title %}Applications · JobRadar{% endblock %}
+{% block main %}
+<div class="head">
+  <h1>Applications</h1>
+  <p class="lede">Every job you moved past New, the latest change first.</p>
+</div>
+<section class="panel funnel" aria-label="How far your applications get">
+  <div class="panel-head"><h2>Your funnel</h2><p class="faint">every job JobRadar found, down to offers</p></div>
+  <ol class="steps">
+    {% for st in funnel %}
+    <li><span class="step-name">{{ st.name }}</span><span class="step-n">{{ st.jobs }}</span>{{ bar(st.width, 'step-' ~ loop.index) }}<span class="step-rate faint">{{ st.rate }}</span></li>
+    {% endfor %}
+  </ol>
+</section>
+
+<div class="board">
+{% for col in columns %}
+  <section class="col col-{{ loop.index }}" aria-labelledby="col-{{ loop.index }}">
+    <h2 id="col-{{ loop.index }}"><span>{{ col.title }}</span> <span class="count">{{ col.cards|length }}</span></h2>
+    {% if col.cards %}
+    <ul class="cards">
+    {% for c in col.cards %}
+      <li class="card">
+        <div class="card-top">
+          {{ avatar(c, 'sm') }}
+          <div class="card-names">
+            <a class="card-title" href="/jobs/{{ c.id }}">{{ c.company or c.role }}</a>
+            {% if c.company %}<p class="card-role">{{ c.role }}</p>{% endif %}
+          </div>
+        </div>
+        <p class="card-foot">
+          {{ ring(c.score, 'sm') }}
+          {% if c.status in ('resume_ready', 'offer', 'rejected') %}{{ status(c) }}{% endif %}
+          {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'today' if c.days == 0 else (c.days|string + ' d ago') }}</span>{% endif %}
+          {% if c.status == 'applied' and c.days is not none and c.days >= quiet_after %}<span class="quiet">{{ c.days }} days quiet</span>{% endif %}
+        </p>
+      </li>
+    {% endfor %}
+    </ul>
+    {% else %}
+    <p class="col-empty">Nothing here yet.</p>
+    {% endif %}
+  </section>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}JobRadar{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+<script src="{{ url_for('static', path='app.js') }}"></script>
+</head>
+<body>
+{% include "_sprite.html" %}
+<div class="shell">
+<aside class="side">
+  <a class="brand" href="/">
+    <svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><circle class="lg-face" cx="20" cy="20" r="17"/><circle class="lg-ring" cx="20" cy="20" r="9"/><g class="lg-sweep"><line x1="20" y1="20" x2="33" y2="11"/></g><circle class="lg-dot" cx="20" cy="20" r="3.5"/></svg>
+    <span>JobRadar</span>
+  </a>
+  <nav class="nav" aria-label="Pages">
+    <a href="/" {% if nav == 'today' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-today"/></svg><span>Today</span>{% if ov.today %}<b class="badge hot">{{ ov.today }}</b>{% endif %}</a>
+    <a href="/applications" {% if nav == 'applications' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-board"/></svg><span>Applications</span><b class="badge">{{ ov.active }}</b></a>
+    <a href="/jobs" {% if nav == 'jobs' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-list"/></svg><span>All jobs</span><b class="badge">{{ ov.jobs }}</b></a>
+  </nav>
+  <div class="agent {{ 'awake' if ov.awake else 'asleep' }}">
+    <button class="agent-blip blip-btn" type="button" aria-label="Poke Blip">
+      <svg class="blip{{ '' if ov.awake else ' sleep' }}" viewBox="0 0 200 230"><use href="#blip"/></svg>
+    </button>
+    <div class="agent-text">
+      <p class="agent-state"><i class="dot"></i>{{ 'Blip is watching' if ov.awake else 'Blip is asleep' }}</p>
+      <p class="agent-sub">{% if ov.last_read %}Last read {{ ov.last_read }}{% else %}Hasn't read anything yet{% endif %}{% if not ov.awake %}. Wake it with <code>jobradar run</code>{% endif %}</p>
+    </div>
+  </div>
+  <button class="cmdk" type="button" data-palette-open><svg class="i"><use href="#i-search"/></svg><span>Jump to a job</span><kbd>Ctrl K</kbd></button>
+  <button class="theme" id="theme" type="button" aria-label="Theme: follows your system"><svg class="i"><use href="#i-auto"/></svg><span>System</span></button>
+</aside>
+<div class="content">
+<main>
+{% block main %}{% endblock %}
+</main>
+<footer>Read-only for now: change a status with the buttons in Blip's emails, or in Notion, then reload.
+  <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> go to a page</span></footer>
+<dialog class="palette" id="palette" aria-label="Jump to a job">
+  <form method="dialog" class="palette-box">
+    <div class="palette-input"><svg class="i"><use href="#i-search"/></svg><input id="palette-q" type="search" placeholder="Company or role…" autocomplete="off" aria-controls="palette-list"><kbd>Esc</kbd></div>
+    <ul id="palette-list" class="palette-list" role="listbox"></ul>
+    <p class="palette-hint faint" data-palette-hint>Type a company or role. <kbd>↑</kbd><kbd>↓</kbd> to pick, <kbd>Enter</kbd> to open.</p>
+  </form>
+</dialog>
+</div>
+</div>
+</body>
+</html>

@@ -435,7 +435,7 @@ Config: `web: {enabled: true, host: 127.0.0.1, port: 8080}`. Dependencies `fasta
 
 **Steps** (one PR each)
 
-- [ ] Read-only pages: `jobradar web` starts the server; Today, Applications, All jobs, Job page from the existing database. No buttons yet
+- [x] Read-only pages: `jobradar web` starts the server; Today, Applications, All jobs, Job page from the existing database. No buttons yet
 - [ ] Buttons: `pipeline/status_rules.py` shared with the email buttons; status buttons and Change status menu; page token on every POST and a Host header check; Notion write queued like the email buttons
 - [ ] Inside `jobradar run` (one thing to start); resume and cover letter links with the ATS report (files served by artifact id, never by path); Build resume button; follow-up and company-reply chips
 - [ ] Skills page, full-text search, phone layout, light and dark themes matching the site; alert and digest emails link to the job page too
@@ -445,9 +445,9 @@ Config: `web: {enabled: true, host: 127.0.0.1, port: 8080}`. Dependencies `fasta
 
 **Tests**
 
-- [ ] Every page renders from a seeded database; unknown job → 404
+- [x] Every page renders from a seeded database; unknown job → 404
 - [ ] Status moves follow the shared rules; POST without the token → 403; foreign Host → 400; a move queues `notion_status`
-- [ ] Busy port 8080 → the next free port is used and logged
+- [x] Busy port 8080 → the next free port is used and logged
 - [ ] A file route can't serve anything outside the `artifact` table
 
 **Later: React.** Moves to React when the page needs things htmx makes awkward: a drag-and-drop board, charts of applications over time, offline use on the phone. Then: Vite + React + TypeScript in a top-level `frontend/` folder, reading the `/api/` JSON; CI builds it into `web/static/app/` so the Python package still needs no Node at install time; the htmx pages stay until every page has a React version.

@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, event, text
+from sqlalchemy import Engine, bindparam, event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import CreateTable
-from sqlmodel import Session, SQLModel, col, create_engine, select
+from sqlmodel import Session, SQLModel, col, create_engine, func, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # also registers every table on SQLModel.metadata
@@ -918,6 +918,134 @@ class Repo:
                     col(Job.user_status_at).is_not(None),
                 )
                 .order_by(col(Job.user_status_at))
+            )
+            return list(s.exec(query))
+
+    # ---- the dashboard's reads ------------------------------------------------------------
+
+    def good_new_jobs(self, min_score: int, since: str) -> list[Job]:
+        """New jobs scoring at least `min_score`, first seen since `since`, best first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(
+                    col(Job.status) == JobStatus.NEW.value,
+                    col(Job.score) >= min_score,
+                    col(Job.created_at) >= since,
+                )
+                .order_by(col(Job.score).desc(), col(Job.created_at).desc())
+            )
+            return list(s.exec(query))
+
+    def jobs_in(self, statuses: list[JobStatus]) -> list[Job]:
+        """Jobs in these statuses, the most recently changed first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(col(Job.status).in_([st.value for st in statuses]))
+                .order_by(func.coalesce(Job.user_status_at, Job.updated_at).desc(), col(Job.id))
+            )
+            return list(s.exec(query))
+
+    def search_jobs(
+        self, statuses: list[str] | None, words: str, limit: int, offset: int
+    ) -> tuple[list[Job], int]:
+        """A page of jobs (newest first) in these statuses (None: any) whose company or role
+        contains `words`, and how many match in all."""
+        where: list[Any] = []
+        if statuses is not None:
+            where.append(col(Job.status).in_(statuses))
+        if words := words.strip():
+            like = "%" + words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            where.append(
+                col(Job.company).ilike(like, escape="\\") | col(Job.role).ilike(like, escape="\\")
+            )
+        with Session(self.engine) as s:
+            total = s.exec(select(func.count()).select_from(Job).where(*where)).one()
+            query = (
+                select(Job).where(*where).order_by(col(Job.created_at).desc(), col(Job.id))
+                .limit(limit).offset(offset)
+            )  # fmt: skip
+            return list(s.exec(query)), int(total)
+
+    def last_activity(self) -> str | None:
+        """When JobRadar last read anything: a message received or a board checked."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT max(t) FROM (SELECT max(received_at) AS t FROM raw_message "
+                    "UNION ALL SELECT max(last_checked) FROM feed_board)"
+                )
+            ).one()
+        return str(row[0]) if row[0] else None
+
+    def latest_match(self, job_id: str) -> str | None:
+        """The newest stored match answers (JSON) for this job, or None."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT answers_json FROM match_result WHERE job_id = :job "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"job": job_id},
+            ).first()
+        return str(row[0]) if row else None
+
+    def good_job_sources(self, min_score: int, since: str) -> list[tuple[str, str, int]]:
+        """(platform, chat or board title, jobs) for jobs scoring `min_score`+ first seen since
+        `since`, each job counted once per source."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT s.platform, coalesce(s.title, s.chat_id), count(DISTINCT j.id) "
+                    "FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "JOIN raw_message m ON m.id = js.raw_message_id "
+                    "JOIN source s ON s.id = m.source_id "
+                    "WHERE j.created_at >= :since AND j.score >= :min "
+                    "GROUP BY s.platform, s.id ORDER BY 3 DESC"
+                ),
+                {"since": since, "min": min_score},
+            ).all()
+        return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    def search_good_count(self, min_score: int) -> int:
+        """Jobs that ever scored `min_score` or more (not counting what wasn't a job)."""
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT count(*) FROM job WHERE score >= :min AND status != 'discarded'"),
+                {"min": min_score},
+            ).one()
+        return int(row[0])
+
+    def jobs_ever_in(self, statuses: list[JobStatus]) -> int:
+        """Jobs that are, or once were, in one of these statuses (by your status history)."""
+        query = text(
+            "SELECT count(*) FROM (SELECT id FROM job WHERE status IN :sts "
+            "UNION SELECT job_id FROM status_change WHERE status IN :sts)"
+        ).bindparams(bindparam("sts", expanding=True))
+        with self._tx() as c:
+            row = c.execute(query, {"sts": [st.value for st in statuses]}).one()
+        return int(row[0])
+
+    def status_history(self, job_id: str) -> list[tuple[str, str]]:
+        """(status, when) for every status you set on this job, oldest first."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT status, changed_at FROM status_change WHERE job_id = :job "
+                    "ORDER BY changed_at, id"
+                ),
+                {"job": job_id},
+            ).all()
+        return [(str(r[0]), str(r[1])) for r in rows]
+
+    def artifacts_of(self, job_id: str) -> list[Artifact]:
+        """Every resume and cover letter built for this job, newest first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Artifact)
+                .where(Artifact.job_id == job_id)
+                .order_by(col(Artifact.created_at).desc(), col(Artifact.id).desc())
             )
             return list(s.exec(query))
 
