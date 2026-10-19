@@ -198,11 +198,14 @@ button.mc-pill { cursor: pointer; box-shadow: 0 0 0 3px color-mix(in srgb, var(-
 button.mc-pill[aria-pressed="true"] { background: #e6f4ea; border-color: #137333; color: #137333; box-shadow: none; }
 .sent-line { display: flex; gap: 8px; align-items: center; max-width: 470px; font: 500 12.5px var(--mono); color: var(--muted); opacity: .35; transition: opacity .3s; }
 .sent-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#applyEntry.done .sent-line { opacity: 1; color: var(--ink); }
-#applyEntry.done .n-pill { background: color-mix(in srgb, #137333 18%, transparent); }
+.entry.done .sent-line { opacity: 1; color: var(--ink); }
+.entry.done .n-pill { background: color-mix(in srgb, #137333 18%, transparent); }
 .gap-bars { display: grid; grid-template-columns: max-content minmax(80px, 1fr) max-content; gap: 9px 12px; align-items: center; font-size: 14px; }
 .gap-bars i { height: 8px; border-radius: 99px; background: linear-gradient(90deg, #1a56db var(--w), #e8eefc var(--w)); }
 .gap-bars b { font: 500 12.5px var(--mono); color: #59636e; }
+.mc-kind { color: #1f2328; }
+.mc-quote { font-size: 15px; margin: 2px 0 2px; }
+.mc-from { font-size: 12.5px; color: #59636e; }
 .draft-box { white-space: pre-wrap; margin: 4px 0 0; padding: 12px 14px; border: 1px dashed #d0d7de; border-radius: 8px; font: 14px/1.5 Georgia, serif; color: #1f2328; }
 
 .chat-sec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 64px; align-items: center; }

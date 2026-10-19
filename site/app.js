@@ -398,16 +398,19 @@
   })();
 
   // ---- when you apply: tap "I applied" and watch Notion catch up ------------------------------
-  (function applied() {
-    const entry = $("#applyEntry"), tap = $("#tapApplied"), pill = $("#notionPill");
+  // ...and when a company replies: tap "Yes, set Interview".
+  const tapToFlip = (entryId, buttonId, pillId, before, after) => {
+    const entry = $(entryId), tap = $(buttonId), pill = $(pillId);
     if (!entry || !tap) return;
     tap.addEventListener("click", () => {
       const on = tap.getAttribute("aria-pressed") !== "true";
       tap.setAttribute("aria-pressed", String(on));
       entry.classList.toggle("done", on);
-      pill.textContent = on ? "Applied" : "New";
+      pill.textContent = on ? after : before;
     });
-  })();
+  };
+  tapToFlip("#applyEntry", "#tapApplied", "#notionPill", "New", "Applied");
+  tapToFlip("#replyEntry", "#tapInterview", "#replyPill", "Applied", "Interview");
 
   // ---- wake up your own Blip: each step shows its first-run output ------------------------------
   const bedBlip = $(".bed-blip"), steps = $$(".step");
