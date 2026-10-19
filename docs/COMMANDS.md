@@ -81,6 +81,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar pages resume <name>` | Read a paused page (refused 3 times, or needs a login) or a robots.txt-blocked page again from its next turn |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
+| `jobradar skills` | Skills your good matches named in the last 7 days that your profile doesn't list (`--days 30` for longer) |
 | `jobradar replies --check` | Read the inbox now for "I applied" / "Not interested" / "I followed up" button emails and update the jobs |
 | `jobradar followups` | Jobs you set to Applied: days without a reply and when a follow-up draft is due (`--now` emails the due ones) |
 | `jobradar resume <job_id>` | *Not built yet (v0.3)*: rebuild a tailored resume |
@@ -132,6 +133,13 @@ A report for the last N days: posts received, posts without a job link, jobs cre
 uv run jobradar retry --failed
 ```
 A task fails after 5 attempts (e.g. a site down for hours). This puts them back; they run the next time JobRadar is running.
+
+### `jobradar skills`
+
+```bash
+uv run jobradar skills
+```
+Counts, across your good matches (score at or above `scoring.alert_above`) from the last 7 days, the technologies they name that your profile doesn't list: "AWS 7, Google Cloud 6, Kubernetes 5…", each counted once per job and shown when two or more jobs name it. A job's skills are its stated skill list plus known technology names in its page and post; words that are also plain English (Go, Spring, Express) count only from stated lists. The first digest of each week shows the same list (`notify.skill_gaps: false` turns that off). If you already know one, add it to `skills:` in profile.yaml so matching counts it. It also warns if a skill in profile.yaml was cut in two at a comma inside brackets.
 
 ### `jobradar replies --check`
 

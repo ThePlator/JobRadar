@@ -415,6 +415,9 @@ class NotifyConfig(_Strict):
     # "I applied" / "Not interested" / "I followed up" buttons in emails: you send the ready
     # email they open, JobRadar reads it over IMAP and updates the job and Notion.
     email_actions: bool = True
+    # Once a week, the digest lists the skills your good matches asked for that your profile
+    # doesn't (`jobradar skills` shows them any time).
+    skill_gaps: bool = True
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 

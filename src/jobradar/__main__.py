@@ -7,7 +7,7 @@ import os
 import shutil
 import time
 from collections.abc import Coroutine
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -885,6 +885,32 @@ def replies(
         typer.secho(f"  ✓ {line}", fg="green")
     typer.echo(f"{len(done)} button email(s) acted on. Notion updates when `jobradar run` runs."
                if done else "No new button emails in the last 7 days.")  # fmt: skip
+
+
+@app.command()
+def skills(days: Annotated[int, typer.Option(help="Look back this many days.")] = 7) -> None:
+    """Skills your good matches asked for that your profile doesn't list."""
+    from jobradar import app as application
+    from jobradar.pipeline.skill_gaps import skill_gaps
+    from jobradar.profile import load_profile, skill_warnings
+
+    settings = _settings()
+    profile = load_profile(settings.config.matching.profile_path)
+    for warning in skill_warnings(profile):
+        typer.secho(f"profile.yaml: {warning}", fg="yellow")
+    repo, _ = application.open_store()
+    alert_above = settings.config.scoring.alert_above
+    since = datetime.now(UTC) - timedelta(days=days)
+    gaps, looked_at = skill_gaps(repo, profile, since, alert_above, top=15)
+    typer.echo(f"{looked_at} good matches (score {alert_above}+) in the last {days} days. "
+               "Skills they name that your profile doesn't list:")  # fmt: skip
+    if not gaps:
+        typer.echo("  none named by two or more jobs.")
+        return
+    width = max(len(g.name) for g in gaps)
+    for g in gaps:
+        typer.echo(f"  {g.name:<{width}}  {'█' * min(g.jobs, 40)} {g.jobs}")
+    typer.echo("Already know one? Add it to skills in profile.yaml, so matching counts it.")
 
 
 @app.command()

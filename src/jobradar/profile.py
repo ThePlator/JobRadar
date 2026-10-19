@@ -89,6 +89,17 @@ def skill_names(profile: dict[str, Any]) -> list[str]:
     return names
 
 
+def skill_warnings(profile: dict[str, Any]) -> list[str]:
+    """Skills YAML cut in two: in `[a (b, c), d]` the comma inside brackets ends the item,
+    so "a (b" and "c)" become two skills that match nothing."""
+    return [
+        f"skills: {name!r} looks cut at a comma inside brackets; put the whole item in "
+        f'quotes, e.g. "Machine Learning (feature engineering, model training)"'
+        for name in skill_names(profile)
+        if name.count("(") != name.count(")")
+    ]
+
+
 def _graduation_year(education: dict[str, Any]) -> int | None:
     if isinstance(year := education.get("graduation_year"), int):
         return year

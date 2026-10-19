@@ -110,4 +110,5 @@ notify:
   followups: true         # a follow-up draft when a job you set to Applied gets no reply
   followup_after_days: 10 #   for this long (at most 2 per job; Notion's Followed Up resets it)
   email_actions: true     # "I applied" / "Not interested" buttons in emails (read over IMAP)
+  skill_gaps: true        # weekly digest section: skills your good matches name that you lack
   timezone: Asia/Kolkata
