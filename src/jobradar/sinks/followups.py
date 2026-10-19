@@ -33,7 +33,7 @@ from jobradar.pipeline.task_types import FOLLOWUP_CHECK
 from jobradar.profile import load_profile
 from jobradar.providers.skills_rule import compare_skills
 from jobradar.queue.tasks import TaskQueue
-from jobradar.sinks.email_actions import Actions, mailto, recruiter_email
+from jobradar.sinks.email_actions import REPLIED, Actions, mailto, recruiter_email
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
 from jobradar.sinks.email_template import (
     CARD,
@@ -163,6 +163,8 @@ class FollowUpReminder:
         now = self.clock()
         found = []
         for job in self.repo.jobs_applied():
+            if self.repo.get_setting(REPLIED + job.id):
+                continue  # the company wrote back: no nudging
             applied, since, count = self.status(job)
             if count >= MAX_REMINDERS or now - since < self.after or now - since > QUIET_AFTER:
                 continue

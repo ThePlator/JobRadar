@@ -418,6 +418,9 @@ class NotifyConfig(_Strict):
     # Once a week, the digest lists the skills your good matches asked for that your profile
     # doesn't (`jobradar skills` shows them any time).
     skill_gaps: bool = True
+    # Read new mail from companies you applied to (only theirs) and email you a suggested
+    # status: "Rubrik replied: interview invite?" with a one-tap button. Needs email_actions.
+    company_replies: bool = True
     digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
     timezone: str = "Asia/Kolkata"
 
