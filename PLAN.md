@@ -54,6 +54,14 @@ gantt
     Follow-ups, skill gaps, replies  :d3, after d2, 4d
     Gate · apply in under 5 min       :milestone, g4, after d2, 0d
 
+    section v0.5 Dashboard
+    Read-only pages                  :h1, after d3, 3d
+    Buttons + shared status rules    :h2, after h1, 3d
+    Inside jobradar run, files       :h3, after h2, 2d
+    Skills page, search, polish      :h4, after h3, 3d
+    Notion optional                  :h5, after h4, 1d
+    Gate · a week without Notion      :milestone, g6, after h5, 0d
+
     section v1.0 Launch
     Docker, template, docs, CI       :e1, after d2, 5d
     WhatsApp (experimental)          :e2, after e1, 2d
@@ -377,6 +385,74 @@ JobRadar stops at the alert today. These use data it already keeps: your dated N
 - [ ] Reply detection: invite, test, rejection, and an unrelated newsletter from the same domain (no suggestion)
 
 **Exit gate:** timed run — open a shortlisted job, submit the real form, in under 5 minutes.
+
+---
+
+## v0.5 Dashboard — my own page instead of Notion
+
+Goal: see and update every job and application on a local web page that reads JobRadar's own database, so Notion is no longer needed. Full plan with diagrams: [JobRadar Dashboard Plan](https://claude.ai/artifact/UTjmazUv7xhyssXD4aoFUz) (private link).
+
+**Decisions (19 Oct 2026)**
+
+- Keep SQLite. `data/jobradar.db` already holds everything Notion shows (814 jobs, 306 alerts, 35 resumes and letters, the `status_change` history), so no data moves. MongoDB is not used: it would add a server to run and back up and a rewrite of the task queue (which relies on SQL transactions) and its tests, for no gain at this size. If the data ever needs to be reachable from anywhere, a hosted Postgres fits the existing SQL better.
+- FastAPI on Uvicorn: async like the rest of JobRadar, so the server is one more task in the same event loop; typed routes from the existing Pydantic models; the test client works with pytest.
+- Pages are Jinja2 templates rendered on the server (Jinja2 is already a dependency), with **htmx** for clicks without reloads. No Node build step, so the PyPI package still ships everything. Every page's data is also served as JSON under `/api/`, so a React front end can be added later without changing the server (see "Later: React").
+- Port **8080** by default (`web.port`). If something else is using it, JobRadar tries 8081–8089 and logs the address it took; set `web.port` to pin one.
+- Notion stays on while the dashboard is built and becomes optional (`notion.enabled: false`) in the last step. **Whether to switch it off is decided after a week of using the dashboard.**
+
+```mermaid
+flowchart LR
+    TG[Telegram] --> W[Task queue + worker]
+    BD[Company boards] --> W
+    IM[Gmail IMAP] --> W
+    W --> P[Pipeline: extract, match, resume]
+    P -->|writes| DB[(jobradar.db)]
+    DB -->|alerts, digest| EM[Email]
+    DB <-.->|two-way, every 2 min, optional| NO[Notion]
+    WEB[Web server: FastAPI] <-->|reads, writes status| DB
+    BR[Browser: laptop, phone via Tailscale] <-->|HTTP| WEB
+```
+
+A status click goes through the same rules as the email buttons: `POST /jobs/{id}/status` → shared status rules (forward-only for the quick buttons) → one transaction updating `job` and `status_change` → `notion_status` task queued → the updated card is returned at once; the worker writes Notion afterwards, with retries.
+
+**Folders**
+
+```
+src/jobradar/web/
+  app.py           create_app(settings, repo, queue)
+  server.py        Uvicorn inside JobRadar's event loop; port fallback
+  security.py      page token, Host check, localhost by default
+  views.py         read models: today list, board columns, job detail
+  routes/          pages.py (HTML), actions.py (POST), api.py (JSON)
+  templates/       base, today, applications, jobs, job, skills, partials/job_card
+  static/          app.css, htmx.min.js (pinned, shipped with the package)
+src/jobradar/pipeline/status_rules.py   forward-only rules, moved out of email_actions.py
+```
+
+Config: `web: {enabled: true, host: 127.0.0.1, port: 8080}`. Dependencies `fastapi` and `uvicorn` go in an optional extra, `jobradar-agent[web]`.
+
+**Pages**: Today (new good matches with Shortlist / Not interested / I applied), Applications (board: Shortlisted → Applied → Interview → Offer or Rejected, with follow-up and company-reply chips), Job page (posting, score reasons, eligibility, sources, status history, resume and cover letter with the ATS check, Change status to any value), All jobs (search and filters; replaces the Notion table), Skills (skill gaps any time).
+
+**Steps** (one PR each)
+
+- [ ] Read-only pages: `jobradar web` starts the server; Today, Applications, All jobs, Job page from the existing database. No buttons yet
+- [ ] Buttons: `pipeline/status_rules.py` shared with the email buttons; status buttons and Change status menu; page token on every POST and a Host header check; Notion write queued like the email buttons
+- [ ] Inside `jobradar run` (one thing to start); resume and cover letter links with the ATS report (files served by artifact id, never by path); Build resume button; follow-up and company-reply chips
+- [ ] Skills page, full-text search, phone layout, light and dark themes matching the site; alert and digest emails link to the job page too
+- [ ] `notion.enabled: false` stops every Notion call cleanly; Tailscale guide for phone access; README and website describe the dashboard
+
+**Security** (from the first step that has buttons): any site open in the same browser can send requests to `127.0.0.1:8080`, so every POST needs a token only JobRadar's pages carry; requests with a foreign `Host` are rejected (DNS rebinding); the server listens on 127.0.0.1 only, and the phone goes through Tailscale, never `0.0.0.0`; Jinja2 autoescape on.
+
+**Tests**
+
+- [ ] Every page renders from a seeded database; unknown job → 404
+- [ ] Status moves follow the shared rules; POST without the token → 403; foreign Host → 400; a move queues `notion_status`
+- [ ] Busy port 8080 → the next free port is used and logged
+- [ ] A file route can't serve anything outside the `artifact` table
+
+**Later: React.** Moves to React when the page needs things htmx makes awkward: a drag-and-drop board, charts of applications over time, offline use on the phone. Then: Vite + React + TypeScript in a top-level `frontend/` folder, reading the `/api/` JSON; CI builds it into `web/static/app/` so the Python package still needs no Node at install time; the htmx pages stay until every page has a React version.
+
+**Exit gate:** a full week of applying and updating statuses without opening Notion.
 
 ---
 
