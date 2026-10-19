@@ -18,11 +18,13 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from jobradar.clock import Clock, to_iso, utcnow
-from jobradar.config import Settings
+from jobradar.config import ConfigError, Settings
 from jobradar.db.models import Job, JobStatus, TaskStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.decide import hidden_kind
+from jobradar.pipeline.skill_gaps import Gap, gap_line, skill_gaps
 from jobradar.pipeline.task_types import DIGEST
+from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_actions import Actions
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
@@ -46,6 +48,7 @@ from jobradar.sinks.email_template import (
 log = logging.getLogger(__name__)
 
 TOP = 5
+GAPS_SENT = "skill_gaps_week"  # setting: the ISO week whose digest showed the skill gaps
 CLOSING_DAYS = 2
 
 
@@ -90,6 +93,8 @@ class DigestData:
     pipeline: dict[str, int] = field(default_factory=dict)  # applied/interview/offer now
     moved: dict[str, int] = field(default_factory=dict)  # statuses you set in the window
     boards: list[tuple[Job, str]] = field(default_factory=list)  # (job, "Greenhouse · Stripe")
+    skill_gaps: list[Gap] = field(default_factory=list)  # once a week: skills you keep missing
+    gap_jobs: int = 0  # good matches the gaps were counted over
 
     @property
     def empty(self) -> bool:
@@ -252,6 +257,27 @@ def build_digest(
         )
         text += [f"  {day_month(j.deadline)}  {_title(j)}" for j in data.closing[:10]]
 
+    if data.skill_gaps:
+        rows.append(heading("Skills you keep missing"))
+        lead = (f"This week's {data.gap_jobs} good matches asked for these, and your profile "
+                "doesn't list them. Worth learning, or adding if you already know them.")  # fmt: skip
+        top = data.skill_gaps[0].jobs
+        bars = "".join(
+            f"<tr><td style='padding:5px 0 5px 14px;font-size:14px;color:{INK};white-space:nowrap'>{esc(g.name)}</td>"
+            f"<td width='60%' style='padding:5px 10px'><div style='height:8px;border-radius:99px;background:#e8eefc'>"
+            f"<div style='height:8px;border-radius:99px;background:{ACCENT};width:{round(100 * g.jobs / top)}%'></div></div></td>"
+            f"<td align='right' style='padding:5px 14px 5px 0;font-size:13px;color:{MUTED};white-space:nowrap'>{g.jobs} jobs</td></tr>"
+            for g in data.skill_gaps
+        )
+        rows.append(
+            f"<tr><td style='font-size:13px;color:{MUTED};padding:0 0 8px'>{esc(lead)}</td></tr>"
+        )
+        rows.append(
+            f"<tr><td><table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            f"style='background:{CARD};border:1px solid {LINE};border-radius:12px;padding:6px 0'>{bars}</table></td></tr>"
+        )
+        text += ["", "SKILLS YOU KEEP MISSING", lead, f"  {gap_line(data.skill_gaps)}"]
+
     if data.hidden:
         detail = ", ".join(f"{n} {kind}" for kind, n in sorted(data.hidden.items()))
         line = f"Hidden: {detail}. Find them in Notion under Status = Hidden."
@@ -307,6 +333,14 @@ class Digest:
         self.clock = clock
         self.preview_dir = preview_dir
 
+    def _gaps(self, now: datetime) -> tuple[list[Gap], int]:
+        try:
+            profile = load_profile(self.settings.config.matching.profile_path)
+        except ConfigError:
+            return [], 0
+        alert_above = self.settings.config.scoring.alert_above
+        return skill_gaps(self.repo, profile, now - timedelta(days=7), alert_above)
+
     def _local_now(self) -> datetime:
         return self.clock().astimezone(self.notify.tz)
 
@@ -332,6 +366,9 @@ class Digest:
         if data.empty:
             log.info("digest skipped: nothing new", extra={"since": since.isoformat()})
             return "nothing new since the last digest: not sent"
+        week = f"{now.isocalendar().year}-W{now.isocalendar().week:02d}"
+        if self.notify.skill_gaps and self.repo.get_setting(GAPS_SENT) != week:
+            data.skill_gaps, data.gap_jobs = self._gaps(now)
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_digest(
@@ -346,4 +383,6 @@ class Digest:
             return f"dry run: saved {path}"
         await asyncio.to_thread(smtp_send, self.settings, msg)
         log.info("digest sent", extra={"subject": msg["Subject"]})
+        if data.skill_gaps:
+            self.repo.set_setting(GAPS_SENT, week)  # the first digest each week carries them
         return f"sent: {msg['Subject']}"

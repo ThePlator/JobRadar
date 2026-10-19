@@ -38,7 +38,7 @@ from jobradar.pipeline.task_types import (
     REPLY_CHECK,
     SEND_ALERTS,
 )
-from jobradar.profile import compact_profile, load_profile, profile_version
+from jobradar.profile import compact_profile, load_profile, profile_version, skill_warnings
 from jobradar.providers.base import MatchProvider
 from jobradar.providers.llm import LLMProvider
 from jobradar.providers.skills_rule import SkillsRule
@@ -156,9 +156,10 @@ def make_matcher(
     if not config.matching.enabled:
         return None
     try:
-        profile = compact_profile(
-            load_profile(config.matching.profile_path), config.filters, config.matching
-        )
+        full = load_profile(config.matching.profile_path)
+        for warning in skill_warnings(full):
+            log.warning("profile.yaml: " + warning)
+        profile = compact_profile(full, config.filters, config.matching)
     except ConfigError as e:
         log.warning("matching is off: " + str(e))
         return None
