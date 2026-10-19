@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import Engine, event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import CreateTable
-from sqlmodel import Session, SQLModel, col, create_engine, select
+from sqlmodel import Session, SQLModel, col, create_engine, func, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # also registers every table on SQLModel.metadata
@@ -918,6 +918,75 @@ class Repo:
                     col(Job.user_status_at).is_not(None),
                 )
                 .order_by(col(Job.user_status_at))
+            )
+            return list(s.exec(query))
+
+    # ---- the dashboard's reads ------------------------------------------------------------
+
+    def good_new_jobs(self, min_score: int, since: str) -> list[Job]:
+        """New jobs scoring at least `min_score`, first seen since `since`, best first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(
+                    col(Job.status) == JobStatus.NEW.value,
+                    col(Job.score) >= min_score,
+                    col(Job.created_at) >= since,
+                )
+                .order_by(col(Job.score).desc(), col(Job.created_at).desc())
+            )
+            return list(s.exec(query))
+
+    def jobs_in(self, statuses: list[JobStatus]) -> list[Job]:
+        """Jobs in these statuses, the most recently changed first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(col(Job.status).in_([st.value for st in statuses]))
+                .order_by(func.coalesce(Job.user_status_at, Job.updated_at).desc(), col(Job.id))
+            )
+            return list(s.exec(query))
+
+    def search_jobs(
+        self, statuses: list[str] | None, words: str, limit: int, offset: int
+    ) -> tuple[list[Job], int]:
+        """A page of jobs (newest first) in these statuses (None: any) whose company or role
+        contains `words`, and how many match in all."""
+        where: list[Any] = []
+        if statuses is not None:
+            where.append(col(Job.status).in_(statuses))
+        if words := words.strip():
+            like = "%" + words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            where.append(
+                col(Job.company).ilike(like, escape="\\") | col(Job.role).ilike(like, escape="\\")
+            )
+        with Session(self.engine) as s:
+            total = s.exec(select(func.count()).select_from(Job).where(*where)).one()
+            query = (
+                select(Job).where(*where).order_by(col(Job.created_at).desc(), col(Job.id))
+                .limit(limit).offset(offset)
+            )  # fmt: skip
+            return list(s.exec(query)), int(total)
+
+    def status_history(self, job_id: str) -> list[tuple[str, str]]:
+        """(status, when) for every status you set on this job, oldest first."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT status, changed_at FROM status_change WHERE job_id = :job "
+                    "ORDER BY changed_at, id"
+                ),
+                {"job": job_id},
+            ).all()
+        return [(str(r[0]), str(r[1])) for r in rows]
+
+    def artifacts_of(self, job_id: str) -> list[Artifact]:
+        """Every resume and cover letter built for this job, newest first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Artifact)
+                .where(Artifact.job_id == job_id)
+                .order_by(col(Artifact.created_at).desc(), col(Artifact.id).desc())
             )
             return list(s.exec(query))
 

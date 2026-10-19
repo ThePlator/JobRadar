@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}JobRadar{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="/">JobRadar</a>
+  <nav aria-label="Pages">
+    <a href="/" {% if nav == 'today' %}aria-current="page"{% endif %}>Today</a>
+    <a href="/applications" {% if nav == 'applications' %}aria-current="page"{% endif %}>Applications</a>
+    <a href="/jobs" {% if nav == 'jobs' %}aria-current="page"{% endif %}>All jobs</a>
+  </nav>
+</header>
+<main>
+{% block main %}{% endblock %}
+</main>
+<footer>Read-only for now: change a status with the buttons in JobRadar's emails, or in Notion. It shows up here when you reload.</footer>
+</body>
+</html>

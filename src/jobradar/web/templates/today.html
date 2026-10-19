@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import row %}
+{% block title %}Today · JobRadar{% endblock %}
+{% block main %}
+<div class="head">
+  <h1>Today</h1>
+  <p class="lede">{{ cards|length }} good match{{ '' if cards|length == 1 else 'es' }} (score {{ good }}+) from the last {{ days }} days that you haven't acted on yet. Best first.</p>
+</div>
+{% if cards %}
+<ul class="rows">
+{% for c in cards %}{{ row(c) }}{% endfor %}
+</ul>
+{% else %}
+<p class="empty">Nothing new scored {{ good }} or more in the last {{ days }} days. <a href="/jobs">See all jobs</a>.</p>
+{% endif %}
+{% endblock %}

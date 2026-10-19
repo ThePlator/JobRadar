@@ -1,0 +1,38 @@
+{% macro score(n) -%}
+{%- set kind = 'none' if n is none else ('good' if n >= good else ('fair' if n >= fair else 'poor')) -%}
+<span class="score {{ kind }}" title="Match score">{{ '–' if n is none else n }}</span>
+{%- endmacro %}
+
+{% macro status(c) -%}
+<span class="status s-{{ c.status }}">{{ c.status_label }}</span>
+{%- endmacro %}
+
+{% macro reasons(r) -%}
+{% if r.eligibility or r.place or r.have or r.missing or r.unsure %}
+<ul class="chips">
+  {% if r.eligibility %}<li class="{{ 'ok' if r.eligible else ('no' if r.eligible == false else 'maybe') }}">{{ r.eligibility }}</li>{% endif %}
+  {% if r.place %}<li class="{{ 'ok' if r.place_ok else 'no' }}">{{ r.place }}</li>{% endif %}
+  {% if r.place_ok == false and not r.place %}<li class="no">Location doesn't fit</li>{% endif %}
+  {% for s in r.have %}<li class="have">{{ s }}</li>{% endfor %}
+  {% for s in r.missing %}<li class="missing">missing {{ s }}</li>{% endfor %}
+  {% if r.unsure %}<li class="maybe">score unsure</li>{% endif %}
+</ul>
+{% endif %}
+{%- endmacro %}
+
+{% macro row(c, with_status=false) -%}
+<li class="row">
+  {{ score(c.score) }}
+  <div class="row-main">
+    <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>
+    <p class="meta">
+      {% if c.company %}<b>{{ c.company }}</b>{% endif %}
+      {% if c.place %}<span>{{ c.place }}</span>{% endif %}
+      {% if c.closes %}<span class="closes">closes {{ c.closes }}</span>{% endif %}
+      <span>seen {{ c.seen }}</span>
+    </p>
+    {{ reasons(c.reason) }}
+  </div>
+  {% if with_status %}{{ status(c) }}{% endif %}
+</li>
+{%- endmacro %}

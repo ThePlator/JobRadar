@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "_macros.html" import score, status, reasons %}
+{% block title %}{{ job.card.role }}{% if job.card.company %} @ {{ job.card.company }}{% endif %} · JobRadar{% endblock %}
+{% block main %}
+<article class="job">
+  <header class="job-head">
+    {{ score(job.card.score) }}
+    <div>
+      <h1>{{ job.card.role }}</h1>
+      <p class="company">{{ job.card.company or 'Company not stated' }}</p>
+      <p class="meta">{{ status(job.card) }}<span>first seen {{ job.card.seen }}</span>{% if job.card.moved %}<span>status set {{ job.card.moved }}</span>{% endif %}</p>
+    </div>
+  </header>
+  <p class="links">
+    {% if job.url %}<a class="btn" href="{{ job.url }}" target="_blank" rel="noopener noreferrer">Open the job ↗</a>{% endif %}
+    {% if job.apply_url %}<a class="btn quiet" href="{{ job.apply_url }}" target="_blank" rel="noopener noreferrer">Apply link ↗</a>{% endif %}
+  </p>
+
+  {% if job.score_reason %}
+  <section>
+    <h2>Why it scored {{ job.card.score if job.card.score is not none else 'this' }}</h2>
+    <p class="reason">{{ job.score_reason }}</p>
+    {{ reasons(job.card.reason) }}
+  </section>
+  {% endif %}
+
+  {% if job.facts %}
+  <section>
+    <h2>The job</h2>
+    <dl class="facts">
+      {% for k, v in job.facts %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}
+    </dl>
+    {% if job.summary %}<p>{{ job.summary }}</p>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if job.skills_required or job.skills_preferred %}
+  <section>
+    <h2>Skills it asks for</h2>
+    {% if job.skills_required %}<p class="skills"><b>Required</b> {{ job.skills_required|join(', ') }}</p>{% endif %}
+    {% if job.skills_preferred %}<p class="skills"><b>Nice to have</b> {{ job.skills_preferred|join(', ') }}</p>{% endif %}
+  </section>
+  {% endif %}
+
+  <div class="split">
+    <section>
+      <h2>Seen in</h2>
+      {% if job.seen_in %}
+      <ul class="plain">
+        {% for s in job.seen_in %}<li>{% if s.link %}<a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.where }}</a>{% else %}{{ s.where }}{% endif %} <span class="when">{{ s.at }}</span></li>{% endfor %}
+      </ul>
+      {% else %}<p class="empty small">No posts recorded.</p>{% endif %}
+    </section>
+    <section>
+      <h2>Your status history</h2>
+      {% if job.history %}
+      <ol class="plain">
+        {% for st, at in job.history %}<li>{{ st }} <span class="when">{{ at }}</span></li>{% endfor %}
+      </ol>
+      {% else %}<p class="empty small">You haven't set a status yet.</p>{% endif %}
+    </section>
+    <section>
+      <h2>Resumes and letters</h2>
+      {% if job.files %}
+      <ul class="plain">
+        {% for f in job.files %}<li><span class="mono">{{ f.name }}</span> <span class="when">{{ f.kind }} · {{ f.at }}</span></li>{% endfor %}
+      </ul>
+      {% else %}<p class="empty small">None built for this job.</p>{% endif %}
+    </section>
+  </div>
+
+  {% if job.page_text %}
+  <details class="page-text">
+    <summary>The job page as JobRadar read it</summary>
+    <pre>{{ job.page_text }}</pre>
+  </details>
+  {% endif %}
+</article>
+{% endblock %}

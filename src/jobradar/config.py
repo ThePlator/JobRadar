@@ -446,6 +446,25 @@ class NotifyConfig(_Strict):
         return ZoneInfo(self.timezone)
 
 
+class WebConfig(_Strict):
+    """The dashboard (`jobradar web`): your jobs and applications on a page on this computer."""
+
+    # 127.0.0.1: only this computer can open it. Never 0.0.0.0 (anyone on your Wi-Fi).
+    host: str = "127.0.0.1"
+    # If something else uses it, the next free port up to +9 is taken (the log says which).
+    port: int = Field(default=8080, ge=1024, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def _not_everywhere(cls, v: str) -> str:
+        if v.strip() in ("0.0.0.0", "::", ""):  # noqa: S104 (refusing it, not binding)
+            raise ValueError(
+                "listening on every network would let anyone on your Wi-Fi open your jobs; "
+                "use 127.0.0.1"
+            )
+        return v.strip()
+
+
 class AppConfig(_Strict):
     """Everything in config.yaml. Every section is optional and has defaults."""
 
@@ -459,6 +478,7 @@ class AppConfig(_Strict):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
 
     @model_validator(mode="after")
     def _telegram_has_chats(self) -> AppConfig:

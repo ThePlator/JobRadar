@@ -35,6 +35,10 @@ dependencies = [
 [project.optional-dependencies]
 # Renders JavaScript-only job pages. After installing: `uv run playwright install chromium`.
 browser = ["playwright>=1.45"]
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 jobradar = "jobradar.__main__:app"
@@ -86,6 +90,10 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-ra"
+filterwarnings = [
+    # Starlette's test client asks for its new HTTP library; the old one works the same here.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 [[tool.mypy.overrides]]
 module = ["telethon", "telethon.*", "playwright", "playwright.*"]
