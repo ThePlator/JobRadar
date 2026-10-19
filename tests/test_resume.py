@@ -97,11 +97,11 @@ def test_plain_render_keeps_the_layout() -> None:
         in tex
     )
     assert r"\item \textbf{Infrastructure:} Docker \& Docker Compose, Git/GitHub, RabbitMQ" in tex
-    assert r"{Backend Intern \textbar{} Acme}{Feb 2026 -- May 2026}" in tex
+    assert r"{Backend Intern \textbar{} Acme}{Feb 2026 - May 2026}" in tex
     assert r"{Remote $|$ \href{https://acme.example}{acme.example}}{}" in tex
     assert r"\item Cut query time by \textbf{25\%} with indexing." in tex
     assert (
-        r"{Radar, Job Agent $|$ \normalfont \small \href{https://github.com/asha/radar}{github.com/asha/radar}}{Oct 2026 -- Present}"
+        r"{Radar, Job Agent $|$ \normalfont \small \href{https://github.com/asha/radar}{github.com/asha/radar}}{Oct 2026 - Present}"
         in tex
     )
     assert "{B.Tech, Electrical Engineering (CGPA: 7.54/10)}{Bihar, India}" in tex

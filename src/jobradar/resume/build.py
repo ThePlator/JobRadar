@@ -11,7 +11,10 @@ Shortlisted in Notion and it has no resume yet, and by `jobradar resume <job>`.
 3. Rendered with your template and compiled. Over `resume.max_pages`: the lowest-ranked
    bullet goes and it compiles again, up to 3 times. If the tailored version won't compile,
    the plain one is tried once.
-4. The PDF and its .tex are saved as {Company}_{Role}_{yyyymmdd}_v{n}; Notion's Resume
+4. The PDF's text is read the way hiring software reads it (`resume/ats.py`): email and
+   phone as text, plain-hyphen dates, no run-together words. Problems are logged and kept
+   with the resume, which is saved either way.
+5. The PDF and its .tex are saved as {Company}_{Role}_{yyyymmdd}_v{n}; Notion's Resume
    column links to the newest version. The job's Status stays as it is.
 """
 
@@ -34,6 +37,7 @@ from jobradar.pipeline.task_types import NOTION_UPSERT
 from jobradar.profile import load_profile, resume_problems
 from jobradar.providers.base import JobView
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
+from jobradar.resume import ats
 from jobradar.resume.compile import CompileError, compile_pdf
 from jobradar.resume.render import ResumeContent, content_from_profile, render
 from jobradar.resume.tailor import TailoredResume, tailor
@@ -142,7 +146,9 @@ class ResumeBuilder:
         pages, content, dropped = await self._compile(
             content, plain, pdf, template, used_llm, primary_ids(profile)
         )
-        record = self._record(content, violations, used_llm, pages) | {"dropped_to_fit": dropped}
+        report = self._ats(pdf, content, job_id, profile)
+        record = self._record(content, violations, used_llm, pages) | {
+            "dropped_to_fit": dropped, "ats": report.as_record()}  # fmt: skip
         artifact = self.repo.save_artifact(job_id, "resume", version, str(pdf), json.dumps(record))
         self.queue.enqueue(NOTION_UPSERT, job_id)
         log.info(
@@ -151,6 +157,20 @@ class ResumeBuilder:
                    "tailored": used_llm, "fixed": len(violations)},
         )  # fmt: skip
         return artifact
+
+    def _ats(
+        self, pdf: Path, content: ResumeContent, job_id: str, profile: dict[str, Any]
+    ) -> ats.AtsReport:
+        posting = self._view(job_id).posting
+        try:
+            report = ats.check(pdf, content, posting.skills_required + posting.skills_preferred,
+                               profile)  # fmt: skip
+        except Exception as e:  # a check that can't run never costs you the resume
+            log.warning("resume text check failed", extra={"job_id": job_id[:10], "error": str(e)})
+            return ats.AtsReport(problems=[f"the text check couldn't run: {e}"[:200]])
+        for problem in report.problems:
+            log.warning("resume text problem", extra={"job_id": job_id[:10], "problem": problem})
+        return report
 
     async def _compile(
         self, content: ResumeContent, plain: ResumeContent, pdf: Path, template: str | None,

@@ -252,6 +252,7 @@ def resume(
     from jobradar.llm import LLM
     from jobradar.profile import load_profile, resume_problems
     from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.resume import ats
     from jobradar.resume.build import ResumeBuilder, fit_to_pages
     from jobradar.resume.compile import CompileError
     from jobradar.resume.render import content_from_profile, render
@@ -275,13 +276,14 @@ def resume(
 
         async def preview() -> None:
             try:
-                pages, _, dropped = await fit_to_pages(
+                pages, printed, dropped = await fit_to_pages(
                     content, name, pdf, limit, primary_ids(profile)
                 )
             except CompileError as e:
                 _fail(f"{e}\nThe .tex is at {pdf.with_suffix('.tex')}.")
                 raise
             typer.echo(f"{pdf} ({pages} page(s)); .tex next to it.")
+            _ats_report(ats.check(pdf, printed, [], profile).as_record())
             if dropped:
                 typer.echo(
                     f"Left out to fit {limit} page(s), least relevant first: "
@@ -314,9 +316,25 @@ def resume(
                    f"{'tailored' if record.get('tailored') else 'as written'})")  # fmt: skip
         for fixed in record.get("fixed", []):
             typer.secho(f"  kept your wording: {fixed}", dim=True)
+        _ats_report(record.get("ats") or {})
         typer.echo("Notion's Resume column updates when `jobradar run` is running.")
 
     _run(build())
+
+
+def _ats_report(report: dict[str, Any]) -> None:
+    """What hiring software would read from the PDF: problems, and the job's skills on it."""
+    if problems := report.get("problems"):
+        for problem in problems:
+            typer.secho(f"  hiring software: {problem}", fg="yellow")
+        typer.secho("  These come from the template, not your profile: fix them in the .tex.j2.",
+                    dim=True)  # fmt: skip
+    else:
+        typer.secho("  ✓ reads cleanly as text: email, phone, dates and words intact", fg="green")
+    on, off = report.get("skills_on_resume") or [], report.get("skills_not_on_resume") or []
+    if on or off:
+        typer.echo(f"  The job's skills you have: {len(on)} of {len(on) + len(off)} on the page"
+                   + (f"; not printed: {', '.join(off)}" if off else ""))  # fmt: skip
 
 
 @app.command()
