@@ -137,6 +137,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The default extraction model is `gemini/gemini-flash-lite-latest`.
 
 ### Fixed
+- Oracle career sites (Zensar, Cummins…) often state the years of experience only in their own fields ("Minimum Experience (In Years)": 4) or a short summary, not in the description, so a 4-7 year Java Developer job looked open to freshers and was emailed. Those fields are now read, and `max_experience_years` hides such jobs.
 - `jobradar stats` called every hidden job an ad. It now breaks hidden jobs down by reason (not eligible, weak match, not a job, hidden by you, ad or promo link) and lists only real ads as ads.
 - An ad with a company name but no role (a "free webinar" post) no longer counts as a job; the matcher hides any that got through.
 - A match whose answers contradict each other (a 99 score with the verdict "Not a fit") is marked unsure and never emailed.
