@@ -110,12 +110,12 @@ Re-reads jobs Gemini read earlier with the free layers and prints, per field, ho
 ```bash
 uv run jobradar resume
 ```
-Builds your profile as written into `output/profile_preview.pdf` (and `.tex`), to check the layout. Needs a LaTeX engine: Tectonic, or `sudo apt install texlive-latex-extra`.
+Builds your profile as written into `output/profile_preview.pdf` (and `.tex`), to check the layout, and reads its text the way hiring software does: "✓ reads cleanly as text", or what's wrong (email or phone missing as text, dates with a long dash, words run together). Needs a LaTeX engine: Tectonic, or `sudo apt install texlive-latex-extra`.
 
 ```bash
 uv run jobradar resume a7321a04
 ```
-Builds a tailored resume for that job (the first 8 characters of its Job ID in Notion) as a new version, e.g. `output/Salesforce_SoftwareEngineeringMTS_20261014_v1.pdf` with its `.tex`. Prints anything the checker undid ("kept your wording: …"). `--plain` skips tailoring; `--template path/to/your.tex.j2` uses another layout. JobRadar also builds one by itself when a job first scores 85+ (`scoring.auto_resume_above`, at most `resume.max_per_day`) and when you set a job to Shortlisted.
+Builds a tailored resume for that job (the first 8 characters of its Job ID in Notion) as a new version, e.g. `output/Salesforce_SoftwareEngineeringMTS_20261014_v1.pdf` with its `.tex`. Prints anything the checker undid ("kept your wording: …"), the same text check, and how many of the job's skills that you have are on the page. `--plain` skips tailoring; `--template path/to/your.tex.j2` uses another layout. JobRadar also builds one by itself when a job first scores 85+ (`scoring.auto_resume_above`, at most `resume.max_per_day`) and when you set a job to Shortlisted.
 
 ### `jobradar stats`
 

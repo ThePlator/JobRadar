@@ -323,13 +323,16 @@ Goal: strong matches get a one-page, fully grounded PDF linked from Notion.
 
 An applicant tracking system (Workday, Oracle, SuccessFactors) reads the PDF's text layer, not the page you see. A resume that looks right can still import with the email missing or the dates dropped; ai-job-search found Workday dropping dates written with an en dash (LaTeX's `--`).
 
-- [ ] After each compile, extract the text layer with pypdf (already a dependency for the page count) and check: the email and phone are there as plain text, not only as an icon or a link target; every date range uses an ASCII hyphen or "to", never an en or em dash; no replacement characters (�) or icon-font glyph names where words should be; reading order keeps each heading before its own bullets
-- [ ] A failure is a template problem, not a content one: log it with the offending text, keep the PDF, and show it in `jobradar resume` and the digest; `classic.tex.j2` must pass every check
-- [ ] Keyword coverage per job: which of the job's stated skills appear in the extracted text, only for skills the profile really has (never added to make the number go up), shown with the resume in Notion
+- [x] After each compile, extract the text layer with pypdf (already a dependency for the page count) and check: the email and phone are there as plain text, not only as an icon or a link target; every date range uses an ASCII hyphen or "to", never an en or em dash; no replacement characters (�) or icon-font glyph names where words should be; no words run together (resume words joined with no space, e.g. "pipelineinPython"); reading order keeps each heading before its own bullets (`resume/ats.py`)
+- [x] Found on the owner's own resume and fixed in `classic.tex.j2`: dates printed with an en dash (now a plain hyphen) and no real spaces in the PDF, so bold runs merged with their neighbours (now `\pdfinterwordspaceon` and `glyphtounicode` under pdfLaTeX). Tectonic (XeTeX) skips both; the check says so if its PDFs merge words
+- [x] A failure is a template problem, not a content one: log it with the offending text, keep the PDF (and the report with it), and show it in `jobradar resume`; `classic.tex.j2` passes every check
+- [ ] Show text problems in the digest, with the auto-built resumes section
+- [x] Keyword coverage per job: which of the job's stated skills appear in the extracted text, only for skills the profile really has (never added to make the number go up), kept with the resume and shown by `jobradar resume <job>`
+- [ ] Show the coverage with the resume in Notion
 
 **Tests**
 
-- [ ] Text-layer checks on fixture PDFs: an icon-only email fails, an en-dash date fails, a clean `classic` build passes
+- [x] Text-layer checks: an icon-only email fails, an en-dash date fails, run-together words fail, split capitals ("F rontend") don't, a clean `classic` build passes (with a LaTeX engine)
 - [x] Grounding validator with adversarial cases (invented skill, changed number, unknown `ref_id`)
 - [x] More grounding cases, borrowed from career-ops `verify-cv-facts.mjs`: a number inside bold or other markup; size words with no digits ("doubled", "10x", "halved"); a tool name buried in a sentence; a phrase from a configurable banned list; a missing or unreadable `profile.yaml` fails loudly instead of passing
 - [x] LaTeX escaping of every special character

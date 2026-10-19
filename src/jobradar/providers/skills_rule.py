@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from jobradar.profile import skill_names
 from jobradar.providers.base import JobView, MatchAnswers, ProviderName, ProviderUnavailable
 
 _ALIASES = {
@@ -40,7 +41,7 @@ def skill_key(name: str) -> str:
 
 
 def profile_skill_keys(profile: dict[str, Any]) -> set[str]:
-    names = list(profile.get("skills", []))
+    names = skill_names(profile)  # grouped ({languages: [...]}) or flat
     for project in profile.get("projects", []):
         names += [str(t) for t in project.get("tags", [])]
     keys: set[str] = set()

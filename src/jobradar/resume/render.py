@@ -83,8 +83,10 @@ def display_url(url: str) -> str:
 
 
 def dates(text: str | None) -> str:
-    """'Feb 2026 - May 2026' -> 'Feb 2026 -- May 2026' in LaTeX (an en dash)."""
-    return re.sub(r"\s+-\s+", " \u2013 ", text or "").strip()
+    """'Feb 2026 -- May 2026' (or with an en or em dash) -> 'Feb 2026 - May 2026'. A plain
+    hyphen, never a long dash: hiring software reads the PDF's text, and Workday drops dates
+    written with a long dash."""
+    return re.sub(r"\s*[\u2012-\u2015\u2212]\s*|\s+-{1,3}\s+", " - ", text or "").strip()
 
 
 # ---- content ---------------------------------------------------------------------------------
