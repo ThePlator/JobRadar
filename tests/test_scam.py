@@ -17,6 +17,16 @@ from jobradar.pipeline.scam import check
         ("Role: SDE", "Infosys never charges a registration, test or interview fee.", "low"),
         ("Role: PA", "The non-refundable fee is ₹1,500 for General candidates.", "low"),
         ("Role: SDE", "Is there any training fee? No.", "low"),
+        # A warning against fees, with the fee listed after a long subject (EdgeVerve, 19 Oct).
+        (
+            "Role: SE",
+            "Neither Infosys nor EdgeVerve asks candidates for registration fees, "
+            "training charges, document-verification payments or deposits.",
+            "low",
+        ),
+        ("Role: SE", "We don't charge any security deposit at any stage.", "low"),
+        # A negation in an earlier sentence doesn't excuse a real demand.
+        ("No experience needed. Pay the training fee of ₹3,000 to join.", "", "high"),
         # Job blogs list "application fee" on every page: only the post itself counts.
         ("Role: SDE", "salary details, application fee, selection process", "low"),
         ("Role: Analyst", "Analyst roles typically pay ₹14K–19K a month.", "low"),

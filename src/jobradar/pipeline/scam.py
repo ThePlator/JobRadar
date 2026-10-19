@@ -26,7 +26,13 @@ _POST_FEE = re.compile(
     r"|\bpay\b.{0,30}\bto\s+(confirm|book|reserve)\s+(your\s+)?(seat|slot)\b",
     re.IGNORECASE,
 )
-_NO_FEE = re.compile(r"\b(no|zero|free|without|nil|not|never)\b[^.\n]{0,45}$", re.IGNORECASE)
+# A fee named only to say it isn't charged: "no registration fee", "never charges a training
+# fee", "Neither Infosys nor EdgeVerve asks candidates for registration fees, training charges".
+_NO_FEE = re.compile(
+    r"\b(no|zero|free|without|nil|not|never|neither|nor|don'?t|doesn'?t|won'?t|nobody|"
+    r"no one)\b[^.\n]{0,90}$",
+    re.IGNORECASE,
+)
 _EMAIL = re.compile(r"[\w.+-]+@([\w-]+\.)+[a-z]{2,}", re.IGNORECASE)
 _FREE_MAIL = re.compile(r"@(gmail|yahoo|hotmail|outlook|rediffmail|ymail)\.", re.IGNORECASE)
 _URGENT = re.compile(
@@ -52,7 +58,7 @@ class ScamCheck:
 def _asks(pattern: re.Pattern[str], text: str) -> bool:
     """A fee mention that isn't negated ("no registration fee") or a question."""
     for m in pattern.finditer(text):
-        before = text[max(0, m.start() - 50) : m.start()]
+        before = text[max(0, m.start() - 100) : m.start()]
         after = text[m.end() : m.end() + 40].split("\n")[0]
         if (
             not _NO_FEE.search(before)

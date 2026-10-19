@@ -250,7 +250,9 @@ class Matcher:
             log.info(
                 "job matched",
                 extra={"job_id": job_id[:10], "score": value, "provider": answers.provider,
-                       "decision": decision.rule},
+                       # A re-score (new profile or weights) never emails again: say so.
+                       "decision": decision.rule if alert_ok or not decision.alert
+                       else f"{decision.rule} (re-scored: no new email)"},
             )  # fmt: skip
             self.queue.enqueue(NOTION_UPSERT, job_id)
             self.queue.enqueue(NOTION_BODY, job_id)
