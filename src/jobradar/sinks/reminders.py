@@ -21,6 +21,7 @@ from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.liveness import Liveness, LivenessChecker
 from jobradar.pipeline.task_types import CLOSING_CHECK
 from jobradar.queue.tasks import TaskQueue
+from jobradar.sinks.email_actions import Actions
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
 from jobradar.sinks.email_template import job_card, layout, posting_of
 
@@ -37,7 +38,9 @@ def _title(job: Job) -> str:
     return f"{role} @ {job.company}" if job.company else role
 
 
-def build_reminder(jobs: list[Job], today: str, sender: str, to: str) -> EmailMessage:
+def build_reminder(
+    jobs: list[Job], today: str, sender: str, to: str, actions: Actions | None = None
+) -> EmailMessage:
     def when(job: Job) -> str:
         return "today" if job.deadline == today else "tomorrow"
 
@@ -48,7 +51,11 @@ def build_reminder(jobs: list[Job], today: str, sender: str, to: str) -> EmailMe
         subject = f"[JobRadar] {len(jobs)} jobs you shortlisted close soon"
         title = f"{len(jobs)} shortlisted jobs close soon"
     subtitle = "You shortlisted these in Notion. Apply before they close."
-    cards = [job_card(job, notion=notion_url(job.notion_page_id)) for job in jobs]
+    cards = [
+        job_card(job, notion=notion_url(job.notion_page_id),
+                 actions=actions.job_links(job) if actions else None)
+        for job in jobs
+    ]  # fmt: skip
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
@@ -118,7 +125,8 @@ class ClosingReminder:
             return "nothing closing soon"
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
-        msg = build_reminder(jobs, today.isoformat(), sender, secrets.notify_address or sender)
+        msg = build_reminder(jobs, today.isoformat(), sender, secrets.notify_address or sender,
+                             Actions.load(self.settings, self.repo))  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"reminder-{local:%Y%m%d-%H%M}.html")
             log.info(

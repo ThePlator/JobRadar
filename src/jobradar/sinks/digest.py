@@ -24,6 +24,7 @@ from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.decide import hidden_kind
 from jobradar.pipeline.task_types import DIGEST
 from jobradar.queue.tasks import TaskQueue
+from jobradar.sinks.email_actions import Actions
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
 from jobradar.sinks.email_template import (
     ACCENT,
@@ -148,7 +149,13 @@ def part_of_day(at: datetime) -> str:
     return "Morning" if at.hour < 12 else "Afternoon" if at.hour < 17 else "Evening"
 
 
-def build_digest(data: DigestData, sender: str, to: str, database_id: str | None) -> EmailMessage:
+def build_digest(
+    data: DigestData,
+    sender: str,
+    to: str,
+    database_id: str | None,
+    actions: Actions | None = None,
+) -> EmailMessage:
     part = part_of_day(data.until)
     strong = sum(1 for j in data.inbox if (j.score or 0) >= 75)
     hidden = sum(data.hidden.values())
@@ -186,7 +193,10 @@ def build_digest(data: DigestData, sender: str, to: str, database_id: str | None
         rows.append(heading("Top matches"))
         text += ["", "TOP MATCHES"]
         for job in data.inbox[:TOP]:
-            card, card_text = job_card(job, notion=notion_url(job.notion_page_id), compact=True)
+            card, card_text = job_card(
+                job, notion=notion_url(job.notion_page_id), compact=True,
+                actions=actions.job_links(job) if actions else None,
+            )  # fmt: skip
             rows.append(card)
             text.append(card_text)
         if len(data.inbox) > TOP:
@@ -325,8 +335,9 @@ class Digest:
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_digest(
-            data, sender, secrets.notify_address or sender, secrets.notion_database_id
-        )
+            data, sender, secrets.notify_address or sender, secrets.notion_database_id,
+            Actions.load(self.settings, self.repo),
+        )  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"digest-{now:%Y%m%d-%H%M}.html")
             log.info(

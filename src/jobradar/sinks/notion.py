@@ -582,6 +582,40 @@ class NotionSink:
 
         return notion_body
 
+    async def set_by_you(
+        self, repo: Repo, job_id: str, status: str | None, followed_up: str | None
+    ) -> None:
+        """Write a Status or Followed Up date you chose by email (the email buttons)."""
+        job = repo.get_job(job_id)
+        if job is None:
+            return
+        if not job.notion_page_id and not await self.client.find_page(self.data_source_id, job_id):
+            await self.upsert(repo, job_id)  # not in Notion yet: create it first
+            job = repo.get_job(job_id)
+        page_id = (job.notion_page_id if job else None) or await self.client.find_page(
+            self.data_source_id, job_id
+        )
+        if not page_id:
+            raise RetryableError("Notion page not created yet")
+        props: dict[str, Any] = {}
+        if status:
+            props["Status"] = {"select": {"name": status}}
+        if followed_up and "Followed Up" in self.extra:
+            props["Followed Up"] = {"date": {"start": followed_up}}
+        if props:
+            await self.client.update_page(page_id, props)
+            log.info("notion status set from your email", extra={"job_id": job_id[:10]})
+
+    def status_handler(self, repo: Repo) -> Any:
+        async def notion_status(task: TaskRecord) -> None:
+            try:
+                await self.set_by_you(repo, task.key, task.payload.get("status"),
+                                      task.payload.get("followed_up"))  # fmt: skip
+            except PageGone:
+                repo.set_notion_page(task.key, None)
+
+        return notion_status
+
     def handler(self, repo: Repo) -> Any:
         async def notion_upsert(task: TaskRecord) -> None:
             try:

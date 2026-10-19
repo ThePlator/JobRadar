@@ -26,6 +26,7 @@ from jobradar.db.models import Job
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.task_types import FRESH, SEND_ALERTS
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
+from jobradar.sinks.email_actions import Actions
 from jobradar.sinks.email_template import day_month, job_card, layout
 
 log = logging.getLogger(__name__)
@@ -88,12 +89,20 @@ def posted_ago(posted_at: str, chat: str | None, now: datetime, platform: str = 
 
 
 def build_email(
-    jobs: list[Job], sender: str, to: str, seen: dict[str, str] | None = None
+    jobs: list[Job],
+    sender: str,
+    to: str,
+    seen: dict[str, str] | None = None,
+    actions: Actions | None = None,
 ) -> EmailMessage:
     """One alert email covering these jobs, as HTML and plain text. `seen` maps a job id to
-    where and when it was posted."""
+    where and when it was posted; `actions` adds the "I applied" / "Not interested" buttons."""
     seen = seen or {}
-    cards = [job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id)) for job in jobs]
+    cards = [
+        job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id),
+                 actions=actions.job_links(job) if actions else None)
+        for job in jobs
+    ]  # fmt: skip
     if len(jobs) == 1:
         title = "New strong match"
         subtitle = seen.get(jobs[0].id, "") or "Apply early: fresh posts get read first."
@@ -178,7 +187,9 @@ class AlertSender:
             return
         sender = self.secrets.email_address or "jobradar@localhost"
         to = self.secrets.notify_address or sender
-        msg = build_email(jobs, sender, to, self._seen(jobs))
+        msg = build_email(
+            jobs, sender, to, self._seen(jobs), Actions.load(self.settings, self.repo)
+        )
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html")
             log.info(
