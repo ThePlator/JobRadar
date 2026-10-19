@@ -1,6 +1,14 @@
-{% macro score(n) -%}
+{% macro ring(n, size='') -%}
 {%- set kind = 'none' if n is none else ('good' if n >= good else ('fair' if n >= fair else 'poor')) -%}
-<span class="score {{ kind }}" title="Match score">{{ '–' if n is none else n }}</span>
+<svg class="ring {{ kind }} {{ size }}" viewBox="0 0 36 36" role="img" aria-label="Match score {{ 'unknown' if n is none else n }}">
+  <circle class="ring-bg" cx="18" cy="18" r="15.5"/>
+  {% if n is not none %}<circle class="ring-fg" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="{{ n }} 100" transform="rotate(-90 18 18)"/>{% endif %}
+  <text x="18" y="22.5" text-anchor="middle">{{ '–' if n is none else n }}</text>
+</svg>
+{%- endmacro %}
+
+{% macro avatar(c, size='') -%}
+<span class="avatar hue-{{ c.hue }} {{ size }}" aria-hidden="true">{{ c.initials }}</span>
 {%- endmacro %}
 
 {% macro status(c) -%}
@@ -22,17 +30,20 @@
 
 {% macro row(c, with_status=false) -%}
 <li class="row">
-  {{ score(c.score) }}
+  {{ avatar(c) }}
   <div class="row-main">
     <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>
     <p class="meta">
       {% if c.company %}<b>{{ c.company }}</b>{% endif %}
-      {% if c.place %}<span>{{ c.place }}</span>{% endif %}
-      {% if c.closes %}<span class="closes">closes {{ c.closes }}</span>{% endif %}
-      <span>seen {{ c.seen }}</span>
+      {% if c.place %}<span><svg class="i xs"><use href="#i-pin"/></svg>{{ c.place }}</span>{% endif %}
+      {% if c.closes %}<span class="closes"><svg class="i xs"><use href="#i-clock"/></svg>closes {{ c.closes }}</span>{% endif %}
+      <span class="faint">seen {{ c.seen }}</span>
     </p>
     {{ reasons(c.reason) }}
   </div>
-  {% if with_status %}{{ status(c) }}{% endif %}
+  <div class="row-end">
+    {% if with_status %}{{ status(c) }}{% endif %}
+    {{ ring(c.score) }}
+  </div>
 </li>
 {%- endmacro %}

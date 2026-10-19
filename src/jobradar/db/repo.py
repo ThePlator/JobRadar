@@ -968,6 +968,17 @@ class Repo:
             )  # fmt: skip
             return list(s.exec(query)), int(total)
 
+    def last_activity(self) -> str | None:
+        """When JobRadar last read anything: a message received or a board checked."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT max(t) FROM (SELECT max(received_at) AS t FROM raw_message "
+                    "UNION ALL SELECT max(last_checked) FROM feed_board)"
+                )
+            ).one()
+        return str(row[0]) if row[0] else None
+
     def status_history(self, job_id: str) -> list[tuple[str, str]]:
         """(status, when) for every status you set on this job, oldest first."""
         with self._tx() as c:

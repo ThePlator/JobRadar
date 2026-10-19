@@ -21,8 +21,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from jobradar.clock import Clock, utcnow
-from jobradar.config import Settings
+from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import Repo
+from jobradar.profile import load_profile
 from jobradar.web import views
 
 HERE = Path(__file__).parent
@@ -60,29 +61,42 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(good=config.scoring.alert_above, fair=config.scoring.hide_below)
+    good = config.scoring.alert_above
+    templates.env.globals.update(good=good, fair=config.scoring.hide_below)
+    name = your_name(settings)
 
-    def render(request: Request, name: str, nav: str, **context: object) -> HTMLResponse:
-        return templates.TemplateResponse(request, name, {"nav": nav, **context})
+    def render(
+        request: Request, page: str, nav: str, status_code: int = 200, **context: object
+    ) -> HTMLResponse:
+        now = clock()
+        ov = views.overview(repo, good, now, tz, name)
+        return templates.TemplateResponse(
+            request, page, {"nav": nav, "ov": ov, "now": now, **context}, status_code
+        )
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException) -> Response:
-        return templates.TemplateResponse(
-            request, "error.html", {"nav": "", "status": exc.status_code}, exc.status_code
-        )
+        return render(request, "error.html", "", exc.status_code, status=exc.status_code)
 
     @app.exception_handler(RequestValidationError)
     async def _bad_request(request: Request, exc: RequestValidationError) -> Response:
-        return templates.TemplateResponse(request, "error.html", {"nav": "", "status": 400}, 400)
+        return render(request, "error.html", "", 400, status=400)
 
     @app.get("/", response_class=HTMLResponse)
     def today(request: Request) -> HTMLResponse:
-        cards = views.today(repo, config.scoring.alert_above, clock(), tz)
-        return render(request, "today.html", "today", cards=cards, days=views.TODAY_DAYS)
+        now = clock()
+        cards = views.today(repo, good, now, tz)
+        return render(
+            request, "today.html", "today", cards=cards, days=views.TODAY_DAYS,
+            greeting=views.greeting(now, tz, name),
+            says=views.blip_says(cards, good),
+        )  # fmt: skip
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
-        return render(request, "applications.html", "applications", columns=views.board(repo, tz))
+        columns = views.board(repo, tz, clock())
+        return render(request, "applications.html", "applications", columns=columns,
+                      quiet_after=config.notify.followup_after_days)  # fmt: skip
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(request: Request, show: str = "jobs", q: str = "", page: int = 1) -> HTMLResponse:
@@ -91,9 +105,19 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = views.job_detail(repo, job_id, tz)
+        detail = views.job_detail(repo, job_id, tz, clock())
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
 
     return app
+
+
+def your_name(settings: Settings) -> str:
+    """basics.name from profile.yaml, for Blip's greeting; '' when it can't be read."""
+    try:
+        profile = load_profile(settings.config.matching.profile_path)
+    except ConfigError:
+        return ""
+    basics = profile.get("basics")
+    return str(basics.get("name") or "") if isinstance(basics, dict) else ""

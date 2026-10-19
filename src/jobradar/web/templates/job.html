@@ -1,28 +1,31 @@
 {% extends "base.html" %}
-{% from "_macros.html" import score, status, reasons %}
+{% from "_macros.html" import ring, avatar, status, reasons %}
 {% block title %}{{ job.card.role }}{% if job.card.company %} @ {{ job.card.company }}{% endif %} · JobRadar{% endblock %}
 {% block main %}
 <article class="job">
   <header class="job-head">
-    {{ score(job.card.score) }}
-    <div>
+    {{ avatar(job.card, 'lg') }}
+    <div class="job-names">
       <h1>{{ job.card.role }}</h1>
       <p class="company">{{ job.card.company or 'Company not stated' }}</p>
-      <p class="meta">{{ status(job.card) }}<span>first seen {{ job.card.seen }}</span>{% if job.card.moved %}<span>status set {{ job.card.moved }}</span>{% endif %}</p>
+      <p class="meta">{{ status(job.card) }}<span class="faint">first seen {{ job.card.seen }}</span>{% if job.card.moved %}<span class="faint">status set {{ job.card.moved }}</span>{% endif %}</p>
     </div>
+    {{ ring(job.card.score, 'lg') }}
   </header>
-  <p class="links">
-    {% if job.url %}<a class="btn" href="{{ job.url }}" target="_blank" rel="noopener noreferrer">Open the job ↗</a>{% endif %}
-    {% if job.apply_url %}<a class="btn quiet" href="{{ job.apply_url }}" target="_blank" rel="noopener noreferrer">Apply link ↗</a>{% endif %}
-  </p>
 
-  {% if job.score_reason %}
-  <section>
-    <h2>Why it scored {{ job.card.score if job.card.score is not none else 'this' }}</h2>
-    <p class="reason">{{ job.score_reason }}</p>
-    {{ reasons(job.card.reason) }}
-  </section>
-  {% endif %}
+  <div class="take">
+    <svg class="blip take-blip{{ ' happy' if job.card.score and job.card.score >= good else '' }}" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <div class="take-text">
+      <p class="take-label">Blip's take</p>
+      <p>{{ job.take }}</p>
+      {{ reasons(job.card.reason) }}
+    </div>
+  </div>
+
+  <p class="links">
+    {% if job.url %}<a class="btn" href="{{ job.url }}" target="_blank" rel="noopener noreferrer">Open the job <svg class="i xs"><use href="#i-out"/></svg></a>{% endif %}
+    {% if job.apply_url %}<a class="btn quiet" href="{{ job.apply_url }}" target="_blank" rel="noopener noreferrer">Apply link <svg class="i xs"><use href="#i-out"/></svg></a>{% endif %}
+  </p>
 
   {% if job.facts %}
   <section>
@@ -30,48 +33,48 @@
     <dl class="facts">
       {% for k, v in job.facts %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}
     </dl>
-    {% if job.summary %}<p>{{ job.summary }}</p>{% endif %}
+    {% if job.summary %}<p class="summary">{{ job.summary }}</p>{% endif %}
   </section>
   {% endif %}
 
   {% if job.skills_required or job.skills_preferred %}
   <section>
     <h2>Skills it asks for</h2>
-    {% if job.skills_required %}<p class="skills"><b>Required</b> {{ job.skills_required|join(', ') }}</p>{% endif %}
-    {% if job.skills_preferred %}<p class="skills"><b>Nice to have</b> {{ job.skills_preferred|join(', ') }}</p>{% endif %}
+    {% if job.skills_required %}<div class="skills"><b>Required</b><ul class="chips">{% for s in job.skills_required %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if job.skills_preferred %}<div class="skills"><b>Nice to have</b><ul class="chips">{% for s in job.skills_preferred %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
   </section>
   {% endif %}
 
   <div class="split">
-    <section>
-      <h2>Seen in</h2>
+    <section class="panel">
+      <h2><svg class="i xs"><use href="#i-chat"/></svg>Seen in</h2>
       {% if job.seen_in %}
-      <ul class="plain">
-        {% for s in job.seen_in %}<li>{% if s.link %}<a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.where }}</a>{% else %}{{ s.where }}{% endif %} <span class="when">{{ s.at }}</span></li>{% endfor %}
+      <ul class="timeline">
+        {% for s in job.seen_in %}<li>{% if s.link %}<a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.where }}</a>{% else %}{{ s.where }}{% endif %}<span class="faint">{{ s.at }}</span></li>{% endfor %}
       </ul>
-      {% else %}<p class="empty small">No posts recorded.</p>{% endif %}
+      {% else %}<p class="faint">No posts recorded.</p>{% endif %}
     </section>
-    <section>
-      <h2>Your status history</h2>
+    <section class="panel">
+      <h2><svg class="i xs"><use href="#i-clock"/></svg>Your status history</h2>
       {% if job.history %}
-      <ol class="plain">
-        {% for st, at in job.history %}<li>{{ st }} <span class="when">{{ at }}</span></li>{% endfor %}
+      <ol class="timeline">
+        {% for st, at in job.history %}<li>{{ st }}<span class="faint">{{ at }}</span></li>{% endfor %}
       </ol>
-      {% else %}<p class="empty small">You haven't set a status yet.</p>{% endif %}
+      {% else %}<p class="faint">You haven't set a status yet.</p>{% endif %}
     </section>
-    <section>
-      <h2>Resumes and letters</h2>
+    <section class="panel">
+      <h2><svg class="i xs"><use href="#i-file"/></svg>Resumes and letters</h2>
       {% if job.files %}
-      <ul class="plain">
-        {% for f in job.files %}<li><span class="mono">{{ f.name }}</span> <span class="when">{{ f.kind }} · {{ f.at }}</span></li>{% endfor %}
+      <ul class="timeline">
+        {% for f in job.files %}<li><span class="mono">{{ f.name }}</span><span class="faint">{{ f.kind }} · {{ f.at }}</span></li>{% endfor %}
       </ul>
-      {% else %}<p class="empty small">None built for this job.</p>{% endif %}
+      {% else %}<p class="faint">None built for this job.</p>{% endif %}
     </section>
   </div>
 
   {% if job.page_text %}
   <details class="page-text">
-    <summary>The job page as JobRadar read it</summary>
+    <summary>The job page as Blip read it</summary>
     <pre>{{ job.page_text }}</pre>
   </details>
   {% endif %}

@@ -6,6 +6,7 @@ page's content is tested without a server. Times are shown in `notify.timezone`.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
@@ -65,16 +66,37 @@ def label(status: str) -> str:
         return status.replace("_", " ").capitalize()
 
 
+def _at(iso: str) -> datetime:
+    at = datetime.fromisoformat(iso)
+    return at if at.tzinfo else at.replace(tzinfo=UTC)
+
+
+def ago(iso: str | None, now: datetime) -> str:
+    """'just now', '12 min ago', '3 h ago', '2 days ago', or ''."""
+    if not iso:
+        return ""
+    try:
+        minutes = max(int((now - _at(iso)).total_seconds() // 60), 0)
+    except ValueError:
+        return ""
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h ago"
+    return f"{minutes // (24 * 60)} days ago"
+
+
 def when(iso: str | None, tz: ZoneInfo) -> str:
     """'19 Oct, 21:15' in your timezone, or ''. A bare date (boards often give only the day,
     stored as midnight UTC) shows as '19 Oct'."""
     if not iso:
         return ""
     try:
-        at = datetime.fromisoformat(iso)
+        at = _at(iso)
     except ValueError:
         return ""
-    at = at if at.tzinfo else at.replace(tzinfo=UTC)
     if at.astimezone(UTC).time() == time(0):
         return f"{at.day} {at:%b}"
     local = at.astimezone(tz)
@@ -109,10 +131,28 @@ class Card:
     seen: str  # first seen, "19 Oct, 21:15"
     moved: str  # when you last set its status, or ""
     reason: Reason
+    initials: str  # the company's avatar: "RU"
+    hue: int  # and its colour, 0-7, stable per company
+    days: int | None  # days since you last set its status
 
 
-def card(job: Job, tz: ZoneInfo) -> Card:
+def initials(name: str) -> str:
+    words = [w for w in name.replace("&", " ").split() if w[:1].isalnum()]
+    if len(words) >= 2:
+        return (words[0][0] + words[1][0]).upper()
+    return (words[0][:2] if words else "?").upper()
+
+
+def hue(name: str) -> int:
+    return zlib.crc32(name.casefold().encode()) % 8
+
+
+def card(job: Job, tz: ZoneInfo, now: datetime | None = None) -> Card:
     posting = posting_of(job)
+    company = job.company or ""
+    days = None
+    if job.user_status_at and now is not None:
+        days = max((now - _at(job.user_status_at)).days, 0)
     return Card(
         id=job.id,
         role=job.role or "Role not stated",
@@ -125,6 +165,9 @@ def card(job: Job, tz: ZoneInfo) -> Card:
         seen=when(job.created_at, tz),
         moved=when(job.user_status_at, tz),
         reason=split_reason(job.score_reason, posting),
+        initials=initials(company or job.role or "?"),
+        hue=hue(company or job.role or "?"),
+        days=days,
     )
 
 
@@ -134,7 +177,7 @@ def card(job: Job, tz: ZoneInfo) -> Card:
 def today(repo: Repo, min_score: int, now: datetime, tz: ZoneInfo) -> list[Card]:
     """Good matches you haven't acted on, first seen in the last few days, best first."""
     since = to_iso(now - timedelta(days=TODAY_DAYS))
-    return [card(j, tz) for j in repo.good_new_jobs(min_score, since)]
+    return [card(j, tz, now) for j in repo.good_new_jobs(min_score, since)]
 
 
 # ---- Applications ----------------------------------------------------------------------------
@@ -146,8 +189,8 @@ class Column:
     cards: list[Card]
 
 
-def board(repo: Repo, tz: ZoneInfo) -> list[Column]:
-    return [Column(title, [card(j, tz) for j in repo.jobs_in(sts)]) for title, sts in COLUMNS]
+def board(repo: Repo, tz: ZoneInfo, now: datetime) -> list[Column]:
+    return [Column(title, [card(j, tz, now) for j in repo.jobs_in(sts)]) for title, sts in COLUMNS]
 
 
 # ---- All jobs --------------------------------------------------------------------------------
@@ -203,6 +246,7 @@ class File:
 @dataclass
 class Detail:
     card: Card
+    take: str  # Blip's one-line reading of the score
     url: str | None  # the job's own page
     apply_url: str | None  # where the job says to apply, when it's a different address
     score_reason: str | None
@@ -247,7 +291,7 @@ def _file(artifact: Artifact, tz: ZoneInfo) -> File:
     return File(name, artifact.kind.replace("_", " "), when(artifact.created_at, tz))
 
 
-def job_detail(repo: Repo, job_id: str, tz: ZoneInfo) -> Detail | None:
+def job_detail(repo: Repo, job_id: str, tz: ZoneInfo, now: datetime) -> Detail | None:
     job = repo.get_job(job_id)
     if job is None:
         return None
@@ -255,7 +299,8 @@ def job_detail(repo: Repo, job_id: str, tz: ZoneInfo) -> Detail | None:
     page = repo.get_page(job.id)
     apply_url = posting.apply_url if posting else None
     return Detail(
-        card=card(job, tz),
+        card=card(job, tz, now),
+        take=take(split_reason(job.score_reason, posting)),
         url=job.canonical_url,
         apply_url=apply_url if apply_url and apply_url != job.canonical_url else None,
         score_reason=job.score_reason,
@@ -271,3 +316,91 @@ def job_detail(repo: Repo, job_id: str, tz: ZoneInfo) -> Detail | None:
         files=[_file(a, tz) for a in repo.artifacts_of(job.id)],
         page_text=page.text if page and page.text else None,
     )
+
+
+# ---- Blip ------------------------------------------------------------------------------------
+
+AWAKE_MINUTES = 20  # read something this recently: JobRadar is running
+
+
+@dataclass(frozen=True)
+class Overview:
+    """The numbers in the sidebar and on Today, and what Blip is up to."""
+
+    today: int  # good matches you haven't acted on
+    active: int  # on the Applications board, still open
+    jobs: int  # All jobs (not hidden)
+    applied: int
+    interviews: int
+    closing: int  # jobs you may still apply to, closing in the next 2 days
+    awake: bool
+    last_read: str  # "3 min ago", or ""
+    name: str  # your first name, for the greeting
+
+
+def overview(repo: Repo, min_score: int, now: datetime, tz: ZoneInfo, name: str) -> Overview:
+    counts = repo.status_counts()
+
+    def n(*statuses: JobStatus) -> int:
+        return sum(counts.get(st.value, 0) for st in statuses)
+
+    since = to_iso(now - timedelta(days=TODAY_DAYS))
+    day = now.astimezone(tz).date()
+    closing = repo.jobs_closing(day.isoformat(), (day + timedelta(days=2)).isoformat())
+    last = repo.last_activity()
+    awake = bool(last) and (now - _at(last or "")) < timedelta(minutes=AWAKE_MINUTES)
+    return Overview(
+        today=len(repo.good_new_jobs(min_score, since)),
+        active=n(
+            JobStatus.SHORTLISTED, JobStatus.RESUME_READY, JobStatus.APPLIED, JobStatus.INTERVIEW
+        ),
+        jobs=n(*SHOW_JOBS),
+        applied=n(JobStatus.APPLIED, JobStatus.INTERVIEW, JobStatus.OFFER, JobStatus.REJECTED),
+        interviews=n(JobStatus.INTERVIEW, JobStatus.OFFER),
+        closing=len(closing),
+        awake=awake,
+        last_read=ago(last, now),
+        name=name.split()[0] if name.strip() and name != "Your Name" else "",
+    )
+
+
+def greeting(now: datetime, tz: ZoneInfo, name: str) -> str:
+    hour = now.astimezone(tz).hour
+    part = "morning" if 5 <= hour < 12 else "afternoon" if hour < 17 else "evening"
+    return f"Good {part}, {name}." if name else f"Good {part}."
+
+
+def blip_says(cards: list[Card], min_score: int) -> str:
+    """Blip's speech bubble on Today."""
+    if not cards:
+        return f"Nothing new scored {min_score}+ in the last {TODAY_DAYS} days. I'll keep looking."
+    best = cards[0]
+    at = f" at {best.company}" if best.company else ""
+    many = f"{len(cards)} good matches" if len(cards) > 1 else "One good match"
+    return f"{many} waiting. The best is {best.role}{at}, a {best.score}."
+
+
+def take(r: Reason) -> str:
+    """'Strong fit. You're eligible, Pune works, and you have Python, SQL. Missing: Kafka.'"""
+    bits: list[str] = []
+    if r.eligible is True:
+        bits.append("you're eligible")
+    elif r.eligible is False and r.eligibility:
+        bits.append(r.eligibility[0].lower() + r.eligibility[1:])
+    elif r.eligibility:
+        bits.append("eligibility is unclear")
+    if r.place and r.place_ok:
+        bits.append(f"{r.place} works")
+    elif r.place_ok is False:
+        bits.append("the location doesn't fit")
+    if r.have:
+        bits.append("you have " + ", ".join(r.have))
+    text = (r.fit + ". ") if r.fit else ""
+    if bits:
+        joined = bits[0] if len(bits) == 1 else ", ".join(bits[:-1]) + " and " + bits[-1]
+        text += joined[0].upper() + joined[1:] + "."
+    if r.missing:
+        text += " Missing: " + ", ".join(r.missing) + "."
+    if r.unsure:
+        text += " I'm not sure about this score."
+    return text.strip() or "I couldn't read enough of this job to say."

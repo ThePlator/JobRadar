@@ -1,16 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Not found' if status == 404 else 'Something went wrong' }} · JobRadar{% endblock %}
 {% block main %}
-<div class="head">
+<div class="empty big">
+  <svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+  <div>
   {% if status == 404 %}
-  <h1>Not found</h1>
-  <p class="lede">There's no job or page at this address. It may have been merged into another job. <a href="/jobs">See all jobs</a>.</p>
+  <h1>Blip can't find that</h1>
+  <p>There's no job or page at this address. It may have been merged into another job. <a href="/jobs">See all jobs</a>.</p>
   {% elif status == 400 %}
   <h1>That address doesn't look right</h1>
-  <p class="lede">A value in it isn't one JobRadar understands. <a href="/jobs">Start from all jobs</a>.</p>
+  <p>A value in it isn't one JobRadar understands. <a href="/jobs">Start from all jobs</a>.</p>
   {% else %}
   <h1>Something went wrong</h1>
-  <p class="lede">Error {{ status }}. <a href="/">Back to Today</a>.</p>
+  <p>Error {{ status }}. <a href="/">Back to Today</a>.</p>
   {% endif %}
+  </div>
 </div>
 {% endblock %}

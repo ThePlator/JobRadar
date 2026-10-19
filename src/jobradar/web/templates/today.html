@@ -2,15 +2,32 @@
 {% from "_macros.html" import row %}
 {% block title %}Today · JobRadar{% endblock %}
 {% block main %}
+<section class="hello">
+  <button class="hello-blip blip-btn" type="button" aria-label="Poke Blip">
+    <svg class="blip{{ ' happy' if cards else '' }}{{ '' if ov.awake else ' sleep' }}" viewBox="0 0 200 230"><use href="#blip"/></svg>
+  </button>
+  <div class="bubble" role="status">
+    <p class="bubble-hi">{{ greeting }}</p>
+    <p class="bubble-say" data-say>{{ says }}</p>
+  </div>
+</section>
+
+<section class="stats" aria-label="Your numbers">
+  <div class="stat"><b>{{ ov.today }}</b><span>good matches, last {{ days }} days</span></div>
+  <div class="stat"><b>{{ ov.applied }}</b><span>applied</span></div>
+  <div class="stat"><b>{{ ov.interviews }}</b><span>interviews</span></div>
+  <div class="stat {{ 'warn' if ov.closing else '' }}"><b>{{ ov.closing }}</b><span>closing in 48 h</span></div>
+</section>
+
 <div class="head">
   <h1>Today</h1>
-  <p class="lede">{{ cards|length }} good match{{ '' if cards|length == 1 else 'es' }} (score {{ good }}+) from the last {{ days }} days that you haven't acted on yet. Best first.</p>
+  <p class="lede">Good matches (score {{ good }}+) from the last {{ days }} days you haven't acted on yet. Best first.</p>
 </div>
 {% if cards %}
 <ul class="rows">
 {% for c in cards %}{{ row(c) }}{% endfor %}
 </ul>
 {% else %}
-<p class="empty">Nothing new scored {{ good }} or more in the last {{ days }} days. <a href="/jobs">See all jobs</a>.</p>
+<div class="empty"><svg class="blip sleep empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p>Nothing new scored {{ good }} or more in the last {{ days }} days. <a href="/jobs">See all jobs</a>.</p></div>
 {% endif %}
 {% endblock %}

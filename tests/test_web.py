@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from jobradar.config import WebConfig
 from jobradar.db.models import JobStatus, Platform
 from jobradar.db.repo import Repo
+from jobradar.pipeline.schemas import JobPosting
 from jobradar.web import server, views
 from jobradar.web.app import create_app
 from jobradar.web.server import NoFreePort, free_port
@@ -55,7 +56,7 @@ def test_board_puts_each_status_in_its_column(repo: Repo, clock: FakeClock) -> N
     add(repo, "a2", status=JobStatus.APPLIED, you=True)
     add(repo, "x", status=JobStatus.REJECTED, you=True)
     add(repo, "skip", status=JobStatus.SKIPPED, you=True)
-    columns = {c.title: [card.id for card in c.cards] for c in views.board(repo, TZ)}
+    columns = {c.title: [card.id for card in c.cards] for c in views.board(repo, TZ, clock())}
     assert columns == {
         "Shortlisted": ["r", "s"],
         "Applied": ["a2", "a1"],  # the latest change first
@@ -98,7 +99,7 @@ def test_job_detail(repo: Repo, clock: FakeClock) -> None:
     repo.add_job_source("j", raw)
     repo.set_user_status("j", JobStatus.APPLIED)
     repo.save_artifact("j", "resume", 1, "output/Rubrik_SWE_20261008_v1.pdf", "{}")
-    d = views.job_detail(repo, "j", TZ)
+    d = views.job_detail(repo, "j", TZ, clock())
     assert d is not None
     assert ("Experience", "0-1 years") in d.facts and ("Closes", "24 Oct") in d.facts
     assert d.card.place == "Pune · Hybrid" and d.apply_url == "https://apply.acme.com/1"
@@ -107,7 +108,42 @@ def test_job_detail(repo: Repo, clock: FakeClock) -> None:
     ]
     assert d.history == [("Applied", "8 Oct, 14:30")]  # 09:00 UTC in Asia/Kolkata
     assert [(f.name, f.kind) for f in d.files] == [("Rubrik_SWE_20261008_v1.pdf", "resume")]
-    assert views.job_detail(repo, "nope", TZ) is None
+    assert views.job_detail(repo, "nope", TZ, clock()) is None
+
+
+def test_blip(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "a", company="Rubrik", role="Backend Engineer", score=92)
+    add(repo, "b", status=JobStatus.APPLIED, you=True)
+    cards = views.today(repo, 75, clock(), TZ)
+    assert (
+        views.blip_says(cards, 75)
+        == "One good match waiting. The best is Backend Engineer at Rubrik, a 92."
+    )
+    assert views.blip_says([], 75).startswith("Nothing new scored 75+")
+    assert views.greeting(clock(), TZ, "Sameer") == "Good afternoon, Sameer."  # 14:30 IST
+
+    ov = views.overview(repo, 75, clock(), TZ, "Sameer Kumar")
+    assert (ov.today, ov.active, ov.applied, ov.name, ov.awake) == (1, 1, 1, "Sameer", False)
+    source = repo.upsert_source(Platform.TELEGRAM, "-1001", "Chat")
+    assert source.id is not None
+    repo.save_raw_message(source.id, "1", "2026-10-08T08:59:00.000000Z", "hi")
+    ov = views.overview(repo, 75, clock(), TZ, "Your Name")  # the example profile's name
+    assert ov.awake and ov.last_read == "just now" and ov.name == ""
+    clock.advance(3600)
+    assert not views.overview(repo, 75, clock(), TZ, "").awake  # an hour with nothing read
+
+
+def test_blips_take() -> None:
+    r = views.split_reason("Strong fit · 96 · eligible ✓ · Python, SQL ✓ · missing Kafka · Pune ✓",
+                           JobPosting(locations=["Pune"]))  # fmt: skip
+    assert views.take(r) == (
+        "Strong fit. You're eligible, Pune works and you have Python, SQL. Missing: Kafka."
+    )
+    assert (
+        views.take(views.split_reason(None, None)) == "I couldn't read enough of this job to say."
+    )
+    assert views.initials("Thermo Fisher Scientific") == "TF" and views.initials("rubrik") == "RU"
+    assert views.hue("Rubrik") == views.hue("rubrik")
 
 
 def test_when() -> None:
@@ -134,6 +170,8 @@ def test_pages_render(client: TestClient, repo: Repo) -> None:
     job = client.get("/jobs/a")
     assert job.status_code == 200 and "https://acme.com/jobs/a" in job.text
     assert client.get("/static/app.css").status_code == 200
+    assert client.get("/static/app.js").status_code == 200
+    assert '<symbol id="blip"' in today.text and "Good afternoon" in today.text
 
 
 def test_errors_are_pages(client: TestClient) -> None:

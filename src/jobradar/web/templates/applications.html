@@ -1,30 +1,37 @@
 {% extends "base.html" %}
-{% from "_macros.html" import score, status %}
+{% from "_macros.html" import ring, avatar, status %}
 {% block title %}Applications · JobRadar{% endblock %}
 {% block main %}
 <div class="head">
   <h1>Applications</h1>
-  <p class="lede">Every job you moved past New, most recent change first.</p>
+  <p class="lede">Every job you moved past New, the latest change first.</p>
 </div>
 <div class="board">
 {% for col in columns %}
-  <section class="col" aria-labelledby="col-{{ loop.index }}">
-    <h2 id="col-{{ loop.index }}">{{ col.title }} <span class="count">{{ col.cards|length }}</span></h2>
+  <section class="col col-{{ loop.index }}" aria-labelledby="col-{{ loop.index }}">
+    <h2 id="col-{{ loop.index }}"><span>{{ col.title }}</span> <span class="count">{{ col.cards|length }}</span></h2>
     {% if col.cards %}
     <ul class="cards">
     {% for c in col.cards %}
       <li class="card">
-        <a class="card-title" href="/jobs/{{ c.id }}">{{ c.company or c.role }}</a>
-        {% if c.company %}<p class="card-role">{{ c.role }}</p>{% endif %}
-        <p class="card-foot">{{ score(c.score) }}
+        <div class="card-top">
+          {{ avatar(c, 'sm') }}
+          <div class="card-names">
+            <a class="card-title" href="/jobs/{{ c.id }}">{{ c.company or c.role }}</a>
+            {% if c.company %}<p class="card-role">{{ c.role }}</p>{% endif %}
+          </div>
+        </div>
+        <p class="card-foot">
+          {{ ring(c.score, 'sm') }}
           {% if c.status in ('resume_ready', 'offer', 'rejected') %}{{ status(c) }}{% endif %}
-          {% if c.moved %}<span class="when">{{ c.moved }}</span>{% endif %}
+          {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'today' if c.days == 0 else (c.days|string + ' d ago') }}</span>{% endif %}
+          {% if c.status == 'applied' and c.days is not none and c.days >= quiet_after %}<span class="quiet">{{ c.days }} days quiet</span>{% endif %}
         </p>
       </li>
     {% endfor %}
     </ul>
     {% else %}
-    <p class="empty small">Nothing here yet.</p>
+    <p class="col-empty">Nothing here yet.</p>
     {% endif %}
   </section>
 {% endfor %}
