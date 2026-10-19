@@ -854,6 +854,40 @@ def followups(
 
 
 @app.command()
+def replies(
+    check: Annotated[
+        bool, typer.Option("--check", help="Read the inbox now and act on button emails.")
+    ] = False,
+) -> None:
+    """The "I applied" / "Not interested" / "I followed up" buttons in JobRadar's emails."""
+    from jobradar import app as application
+    from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.sinks.email_actions import Actions, ReplyReader
+
+    settings = _settings()
+    repo, queue = application.open_store()
+    actions = Actions.load(settings, repo)
+    if actions is None:
+        _fail("Email buttons are off: set notify.email_actions: true and EMAIL_ADDRESS in .env.")
+        return
+    if missing := settings.missing("email"):
+        _fail("Add to .env first: " + ", ".join(missing))
+    typer.echo(f"Buttons open an email to {actions.address}. While `jobradar run` is running, "
+               "it reads the inbox every 2 minutes and updates the job and Notion.")  # fmt: skip
+    if not check:
+        typer.echo("Run with --check to read the inbox now.")
+        return
+    try:
+        done = asyncio.run(ReplyReader(settings, repo, queue, actions).check_now())
+    except (PermanentError, RetryableError) as e:
+        _fail(str(e))
+    for line in done:
+        typer.secho(f"  ✓ {line}", fg="green")
+    typer.echo(f"{len(done)} button email(s) acted on. Notion updates when `jobradar run` runs."
+               if done else "No new button emails in the last 7 days.")  # fmt: skip
+
+
+@app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
     from jobradar import app as application

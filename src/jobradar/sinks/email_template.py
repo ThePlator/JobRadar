@@ -145,6 +145,15 @@ def button(label: str, url: str, primary: bool = True) -> str:
     )
 
 
+def action_button(label: str, url: str) -> str:
+    """A small grey button: it opens a ready email to yourself (see sinks/email_actions.py)."""
+    return (
+        f"<a href='{esc(url)}' style='display:inline-block;background:#f6f8fa;color:{INK};"
+        f"border:1px solid {LINE};font-size:13px;font-weight:600;text-decoration:none;"
+        f"padding:6px 12px;border-radius:999px;margin:0 6px 0 0'>{esc(label)}</a>"
+    )
+
+
 def heading(text: str) -> str:
     return (
         f"<tr><td style='padding:22px 0 10px;font-size:13px;font-weight:700;letter-spacing:.06em;"
@@ -153,9 +162,13 @@ def heading(text: str) -> str:
 
 
 def job_card(
-    job: Job, seen: str = "", notion: str | None = None, compact: bool = False
+    job: Job,
+    seen: str = "",
+    notion: str | None = None,
+    compact: bool = False,
+    actions: list[tuple[str, str]] | None = None,
 ) -> tuple[str, str]:
-    """(html, text) for one job."""
+    """(html, text) for one job. `actions`: (label, mailto link) buttons under the others."""
     posting = posting_of(job)
     reason = split_reason(job.score_reason, posting)
     apply = (posting.apply_url if posting else None) or job.canonical_url
@@ -215,6 +228,9 @@ def job_card(
     if notion:
         links.append(button("Notion" if compact else "Open in Notion", notion, primary=False))
     buttons = f"<div style='margin:14px 0 0'>{''.join(links)}</div>" if links else ""
+    if actions:
+        small = "".join(action_button(label, url) for label, url in actions)
+        buttons += f"<div style='margin:10px 0 0'>{small}</div>"
 
     tile = 52 if not compact else 44
     card = f"""
@@ -249,6 +265,8 @@ def job_card(
         text.append(f"    Apply: {apply}")
     if notion:
         text.append(f"    Notion: {notion}")
+    for label, url in actions or []:
+        text.append(f"    {label}: {url}")
     return card, "\n".join(text)
 
 

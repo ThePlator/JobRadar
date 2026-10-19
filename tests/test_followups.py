@@ -127,7 +127,8 @@ async def test_several_due_come_in_one_email(
     await r.check_now()
     assert sent[0]["Subject"] == "[JobRadar] 2 applications to follow up"
     html = str(sent[0].get_body(("html",)).get_content())  # type: ignore[union-attr]
-    assert html.count("Following up: ") == 2 and "Followed Up in Notion" in html
+    assert html.count("Following up: ") >= 2 and "tap I followed up" in html
+    assert "Send to recruiter" not in html and "Open in your mail app" in html  # no HR address
 
 
 async def test_skills_come_from_the_resume_built_for_the_job(

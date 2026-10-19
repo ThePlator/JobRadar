@@ -81,6 +81,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | `jobradar pages resume <name>` | Read a paused page (refused 3 times, or needs a login) or a robots.txt-blocked page again from its next turn |
 | `jobradar alerts --test` | Send yourself a test alert email (works even in dry run) |
 | `jobradar digest --now` | Send the morning/evening digest for the current window right away |
+| `jobradar replies --check` | Read the inbox now for "I applied" / "Not interested" / "I followed up" button emails and update the jobs |
 | `jobradar followups` | Jobs you set to Applied: days without a reply and when a follow-up draft is due (`--now` emails the due ones) |
 | `jobradar resume <job_id>` | *Not built yet (v0.3)*: rebuild a tailored resume |
 | `jobradar doctor` | *Not built yet*: check keys, tools and access |
@@ -131,6 +132,13 @@ A report for the last N days: posts received, posts without a job link, jobs cre
 uv run jobradar retry --failed
 ```
 A task fails after 5 attempts (e.g. a site down for hours). This puts them back; they run the next time JobRadar is running.
+
+### `jobradar replies --check`
+
+```bash
+uv run jobradar replies --check
+```
+Every job card in alerts, digests and reminders has **I applied** and **Not interested** buttons; follow-up emails have **Send to recruiter** and **I followed up**. A button opens a ready email to yourself: press Send and, while `jobradar run` is running, JobRadar reads it from your inbox within 2 minutes (IMAP, with the same `EMAIL_ADDRESS` and app password that send alerts), sets the job to Applied or Skipped (or its Followed Up date) in Notion, and archives that email. Only emails from a button JobRadar sent you count: each carries a signature only your JobRadar can make. `--check` reads the inbox once now. Gmail needs IMAP on (Settings, Forwarding and POP/IMAP); it usually is. Turn the buttons off with `notify.email_actions: false`.
 
 ### `jobradar followups`
 

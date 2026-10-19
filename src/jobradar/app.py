@@ -30,10 +30,12 @@ from jobradar.pipeline.task_types import (
     MATCH,
     NOTION_BODY,
     NOTION_POLL,
+    NOTION_STATUS,
     NOTION_UPSERT,
     PAGE_CHECK,
     PAGES_TICK,
     PROCESS_MESSAGE,
+    REPLY_CHECK,
     SEND_ALERTS,
 )
 from jobradar.profile import compact_profile, load_profile, profile_version
@@ -45,6 +47,7 @@ from jobradar.queue.worker import Handler, Worker
 from jobradar.resume.build import ResumeBuilder
 from jobradar.sinks import notion
 from jobradar.sinks.digest import Digest
+from jobradar.sinks.email_actions import Actions, ReplyReader
 from jobradar.sinks.email_notify import AlertSender
 from jobradar.sinks.followups import FollowUpReminder
 from jobradar.sinks.notion_sync import StatusSync
@@ -129,6 +132,16 @@ def make_followups(settings: Settings, repo: Repo, queue: TaskQueue) -> FollowUp
     return FollowUpReminder(settings, repo, queue)
 
 
+def make_replies(settings: Settings, repo: Repo, queue: TaskQueue) -> ReplyReader | None:
+    """The reader for "I applied" / "Not interested" button emails, or None when it's off."""
+    if (actions := Actions.load(settings, repo)) is None:
+        return None
+    if missing := settings.missing("email"):
+        log.warning("email buttons are off: add to .env " + ", ".join(missing))
+        return None
+    return ReplyReader(settings, repo, queue, actions)
+
+
 def make_matcher(
     settings: Settings,
     repo: Repo,
@@ -181,6 +194,7 @@ class Pipeline:
             PROCESS_MESSAGE: self.ingest.process_message,
             NOTION_UPSERT: sink.handler(repo),
             NOTION_BODY: sink.body_handler(repo),
+            NOTION_STATUS: sink.status_handler(repo),
         }
         llm_config = settings.config.llm
         llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
@@ -234,6 +248,9 @@ class Pipeline:
         self.reminders = make_reminders(settings, repo, queue, self.liveness)
         if self.reminders is not None:
             handlers[CLOSING_CHECK] = self.reminders.tick
+        self.replies = make_replies(settings, repo, queue)
+        if self.replies is not None:
+            handlers[REPLY_CHECK] = self.replies.tick
         self.followups = make_followups(settings, repo, queue)
         if self.followups is not None:
             handlers[FOLLOWUP_CHECK] = self.followups.tick
@@ -286,6 +303,9 @@ async def run(settings: Settings) -> None:
         log.info("reading freehire's job search")
     if pipeline.reminders is not None:
         pipeline.reminders.schedule()  # then every hour
+    if pipeline.replies is not None:
+        pipeline.replies.schedule()  # then every 2 minutes
+        log.info("reading your email buttons (I applied / Not interested) from the inbox")
     if pipeline.followups is not None:
         pipeline.followups.schedule(60)  # then every hour; after the first Notion read
     if pipeline.digest is not None:

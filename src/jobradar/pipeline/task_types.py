@@ -17,6 +17,8 @@ PAGE_CHECK = "page_check"  # read one watched page (key: its URL)
 FREEHIRE_CHECK = "freehire_check"  # every sources.freehire.every_minutes: read the search
 CLOSING_CHECK = "closing_check"  # hourly: remind you of shortlisted jobs that close soon
 FOLLOWUP_CHECK = "followup_check"  # hourly: follow-up drafts for applications with no reply
+REPLY_CHECK = "reply_check"  # every 2 min: read "I applied" / "Not interested" button emails
+NOTION_STATUS = "notion_status"  # set a Status or Followed Up you chose by email in Notion
 DIGEST = "digest"  # summary email at each notify.digest_times slot (key: local slot time)
 BUILD_RESUME = (
     "build_resume"  # job -> tailored one-page PDF (payload why: auto | shortlisted | manual)

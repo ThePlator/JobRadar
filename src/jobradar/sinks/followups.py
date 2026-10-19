@@ -28,12 +28,24 @@ from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import ConfigError, Settings
 from jobradar.db.models import Job
 from jobradar.db.repo import Repo, TaskRecord
+from jobradar.pipeline.extract import own_post
 from jobradar.pipeline.task_types import FOLLOWUP_CHECK
 from jobradar.profile import load_profile
 from jobradar.providers.skills_rule import compare_skills
 from jobradar.queue.tasks import TaskQueue
+from jobradar.sinks.email_actions import Actions, mailto, recruiter_email
 from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
-from jobradar.sinks.email_template import CARD, INK, LINE, MUTED, esc, job_card, layout, posting_of
+from jobradar.sinks.email_template import (
+    CARD,
+    INK,
+    LINE,
+    MUTED,
+    action_button,
+    esc,
+    job_card,
+    layout,
+    posting_of,
+)
 from jobradar.sinks.notion_sync import FOLLOWED_UP
 
 log = logging.getLogger(__name__)
@@ -57,6 +69,7 @@ class Due:
 class Draft:
     subject: str
     body: str
+    to: str | None = None  # the recruiter, when the job makes it clear
 
 
 def _role(job: Job) -> str:
@@ -187,11 +200,17 @@ class FollowUpReminder:
             return "no application is due a follow-up"
         profile = self._profile()
         basics = profile.get("basics") or {}
-        drafts = [draft(d.job, d.applied.date(), self._skills(d.job, profile), basics, d.nth)
-                  for d in due]  # fmt: skip
+        drafts = []
+        for d in due:
+            dr = draft(d.job, d.applied.date(), self._skills(d.job, profile), basics, d.nth)
+            posting = posting_of(d.job)
+            dr.to = recruiter_email(d.job, posting.apply_url if posting else None,
+                                    own_post(self.repo, d.job.id))  # fmt: skip
+            drafts.append(dr)
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
-        msg = build_followups(due, drafts, sender, secrets.notify_address or sender, self.after)
+        msg = build_followups(due, drafts, sender, secrets.notify_address or sender, self.after,
+                              Actions.load(self.settings, self.repo))  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"followup-{local:%Y%m%d-%H%M}.html")
             log.info("dry run: follow-up reminder saved",
@@ -227,7 +246,12 @@ def _draft_html(note: str, dr: Draft) -> str:
 
 
 def build_followups(
-    due: list[Due], drafts: list[Draft], sender: str, to: str, after: timedelta
+    due: list[Due],
+    drafts: list[Draft],
+    sender: str,
+    to: str,
+    after: timedelta,
+    actions: Actions | None = None,
 ) -> EmailMessage:
     if len(due) == 1:
         subject = f"[JobRadar] Follow up: {_title(due[0].job)}"
@@ -235,24 +259,33 @@ def build_followups(
     else:
         subject = f"[JobRadar] {len(due)} applications to follow up"
         title = f"{len(due)} applications have gone quiet"
+    done = "tap I followed up" if actions else "set Followed Up in Notion to today"
     subtitle = (
         "A short follow-up often gets a reply. Here's a draft for each: send it to the recruiter "
-        "by email or LinkedIn, then set Followed Up in Notion to today."
+        f"by email or LinkedIn, then {done}."
     )
     rows, texts = [], [title, subtitle]
     for d, dr in zip(due, drafts, strict=True):
+        send = "Send to recruiter" if dr.to else "Open in your mail app"
+        buttons = [(send, mailto(dr.to or "", dr.subject, dr.body))]
+        if actions:
+            buttons.append(("I followed up", actions.link("followed up", d.job)))
         card, text = job_card(d.job, notion=notion_url(d.job.notion_page_id), compact=True)
+        after_draft = "".join(action_button(label, url) for label, url in buttons)
         which = "first follow-up" if d.nth == 1 else "last follow-up (the second)"
         note = f"Applied {_day(d.applied.date())}, {d.quiet_days} days quiet: {which}"
         rows.append(
             card.replace(
                 "</td></tr></table>\n</td></tr>",
-                _draft_html(note, dr) + "</td></tr></table>\n</td></tr>",
+                _draft_html(note, dr)
+                + f"<div style='margin:10px 0 0'>{after_draft}</div>"
+                + "</td></tr></table>\n</td></tr>",
                 1,
             )
         )
         texts += ["", text, f"    {note}", f"    Subject: {dr.subject}", "",
-                  *("    " + line for line in dr.body.splitlines())]  # fmt: skip
+                  *("    " + line for line in dr.body.splitlines()), "",
+                  *(f"    {label}: {url}" for label, url in buttons)]  # fmt: skip
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = sender
