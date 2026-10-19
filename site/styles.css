@@ -153,7 +153,7 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .log { list-style: none; margin: 56px 0 0; padding: 0; position: relative; }
 .log::before { content: ""; position: absolute; left: 118px; top: 8px; bottom: 8px; border-left: 2px dashed var(--line); }
 .entry { display: grid; grid-template-columns: 130px max-content minmax(200px, 270px); column-gap: 76px; row-gap: 10px; align-items: start; padding: 26px 0; position: relative; }
-.entry time { font: 500 14px var(--mono); color: var(--muted); padding-top: 6px; position: relative; text-align: left; }
+.entry time { font: 500 14px var(--mono); color: var(--muted); padding: 6px 24px 0 0; position: relative; text-align: left; }
 .entry time::after { content: ""; position: absolute; left: 112px; top: 10px; width: 14px; height: 14px; border-radius: 50%; background: var(--page); border: 3px solid var(--accent); }
 .entry.later time::after { border-color: var(--line); }
 .thing { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; max-width: 560px; }
@@ -185,6 +185,22 @@ nav .gh { display: inline-flex; align-items: center; gap: 8px; color: var(--ink)
 .paper-wrap:hover { transform: rotate(0) translateY(-4px); }
 .pdf-link { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-top: 8px; }
 .paper-wrap img { display: block; width: 100%; height: auto; }
+/* After you apply: a mock email with the buttons, the email it sends, and Notion catching up. */
+.mail-card { width: 470px; max-width: 100%; background: #fff; color: #1f2328; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.mc-body { padding: 14px 16px 16px; font: 400 15px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+.mc-role { font-weight: 700; font-size: 17px; }
+.mc-sub { color: #59636e; font-size: 14px; margin: 2px 0 10px; }
+.mc-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mc-btn { font-weight: 600; font-size: 13px; padding: 7px 14px; border-radius: 8px; border: 1px solid #c6d4f5; color: #1a56db; }
+.mc-btn.primary { background: #1a56db; border-color: #1a56db; color: #fff; }
+.mc-pill { font: 600 13px var(--body); padding: 5px 12px; border-radius: 999px; border: 1px solid #e3e6ea; background: #f6f8fa; color: #1f2328; }
+button.mc-pill { cursor: pointer; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+button.mc-pill[aria-pressed="true"] { background: #e6f4ea; border-color: #137333; color: #137333; box-shadow: none; }
+.sent-line { display: flex; gap: 8px; align-items: center; max-width: 470px; font: 500 12.5px var(--mono); color: var(--muted); opacity: .35; transition: opacity .3s; }
+.sent-line span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#applyEntry.done .sent-line { opacity: 1; color: var(--ink); }
+#applyEntry.done .n-pill { background: color-mix(in srgb, #137333 18%, transparent); }
+.draft-box { white-space: pre-wrap; margin: 4px 0 0; padding: 12px 14px; border: 1px dashed #d0d7de; border-radius: 8px; font: 14px/1.5 Georgia, serif; color: #1f2328; }
 
 .chat-sec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 64px; align-items: center; }
 .chat-copy p { color: var(--muted); max-width: 46ch; }

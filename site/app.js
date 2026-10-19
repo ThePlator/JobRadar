@@ -104,7 +104,7 @@
     bubble.textContent = text;
     bubble.classList.remove("pop"); void bubble.offsetWidth; bubble.classList.add("pop");
   }
-  const LINES = ["Hi, I'm Blip.", "I read every new post in your job channels.", "Same job in three channels? One row.", "Same role in five cities? One job.",
+  const LINES = ["Hi, I'm Blip.", "I read every new post in your job channels.", "Same job in three channels? One row.", "Same role in five cities? One job.", "Tap I applied. I'll tell Notion.",
     "Senior and sales roles never reach you.", "I'll never call you an expert.", "Click me again. I like it."];
   let line = 0;
   $("#heroBlip").addEventListener("click", () => { mood(heroBlip, "happy"); say(LINES[++line % LINES.length]); });
@@ -395,6 +395,18 @@
       })(t0);
     };
     new IntersectionObserver((es, o) => { if (es.some((e) => e.isIntersecting)) { o.disconnect(); flip(); } }, { threshold: .35 }).observe($(".board"));
+  })();
+
+  // ---- when you apply: tap "I applied" and watch Notion catch up ------------------------------
+  (function applied() {
+    const entry = $("#applyEntry"), tap = $("#tapApplied"), pill = $("#notionPill");
+    if (!entry || !tap) return;
+    tap.addEventListener("click", () => {
+      const on = tap.getAttribute("aria-pressed") !== "true";
+      tap.setAttribute("aria-pressed", String(on));
+      entry.classList.toggle("done", on);
+      pill.textContent = on ? "Applied" : "New";
+    });
   })();
 
   // ---- wake up your own Blip: each step shows its first-run output ------------------------------
