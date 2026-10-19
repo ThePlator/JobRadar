@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -63,7 +64,9 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
     templates = Jinja2Templates(directory=HERE / "templates")
     good = config.scoring.alert_above
     templates.env.globals.update(good=good, fair=config.scoring.hide_below)
-    name = your_name(settings)
+    profile = your_profile(settings)
+    basics = profile.get("basics") if profile else None
+    name = str(basics.get("name") or "") if isinstance(basics, dict) else ""
 
     def render(
         request: Request, page: str, nav: str, status_code: int = 200, **context: object
@@ -90,34 +93,40 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
             request, "today.html", "today", cards=cards, days=views.TODAY_DAYS,
             greeting=views.greeting(now, tz, name),
             says=views.blip_says(cards, good),
+            pulse=views.pulse(repo, good, now, tz),
+            sources=views.sources(repo, good, now),
+            filters=views.QUICK_FILTERS,
         )  # fmt: skip
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
         columns = views.board(repo, tz, clock())
         return render(request, "applications.html", "applications", columns=columns,
-                      quiet_after=config.notify.followup_after_days)  # fmt: skip
+                      quiet_after=config.notify.followup_after_days,
+                      funnel=views.funnel(repo, good))  # fmt: skip
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(request: Request, show: str = "jobs", q: str = "", page: int = 1) -> HTMLResponse:
-        found = views.all_jobs(repo, tz, show, q, page)
+        found = views.all_jobs(repo, tz, show, q, page, clock())
         return render(request, "jobs.html", "jobs", found=found, choices=views.SHOW_CHOICES)
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = views.job_detail(repo, job_id, tz, clock())
+        detail = views.job_detail(repo, job_id, tz, clock(), config.matching.weights, profile)
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
 
+    @app.get("/api/search")
+    def api_search(q: str = "") -> JSONResponse:
+        return JSONResponse({"jobs": views.search(repo, q)})
+
     return app
 
 
-def your_name(settings: Settings) -> str:
-    """basics.name from profile.yaml, for Blip's greeting; '' when it can't be read."""
+def your_profile(settings: Settings) -> dict[str, Any] | None:
+    """profile.yaml, for Blip's greeting and the skills you have; None when it can't be read."""
     try:
-        profile = load_profile(settings.config.matching.profile_path)
+        return load_profile(settings.config.matching.profile_path)
     except ConfigError:
-        return ""
-    basics = profile.get("basics")
-    return str(basics.get("name") or "") if isinstance(basics, dict) else ""
+        return None

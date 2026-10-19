@@ -20,7 +20,7 @@
   <button type="submit">Filter</button>
 </form>
 {% if found.cards %}
-<ul class="rows">
+<ul class="rows" data-list>
 {% for c in found.cards %}{{ row(c, with_status=true) }}{% endfor %}
 </ul>
 {% if found.pages > 1 %}

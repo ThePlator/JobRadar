@@ -28,8 +28,12 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro bar(pct, kind='') -%}
+<svg class="bar {{ kind }}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-bg" width="100" height="8"/><rect class="bar-fg" width="{{ [pct, 0]|max }}" height="8"/></svg>
+{%- endmacro %}
+
 {% macro row(c, with_status=false) -%}
-<li class="row">
+<li class="row" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}">
   {{ avatar(c) }}
   <div class="row-main">
     <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>

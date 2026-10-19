@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, event, text
+from sqlalchemy import Engine, bindparam, event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import CreateTable
 from sqlmodel import Session, SQLModel, col, create_engine, func, select
@@ -978,6 +978,54 @@ class Repo:
                 )
             ).one()
         return str(row[0]) if row[0] else None
+
+    def latest_match(self, job_id: str) -> str | None:
+        """The newest stored match answers (JSON) for this job, or None."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT answers_json FROM match_result WHERE job_id = :job "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"job": job_id},
+            ).first()
+        return str(row[0]) if row else None
+
+    def good_job_sources(self, min_score: int, since: str) -> list[tuple[str, str, int]]:
+        """(platform, chat or board title, jobs) for jobs scoring `min_score`+ first seen since
+        `since`, each job counted once per source."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT s.platform, coalesce(s.title, s.chat_id), count(DISTINCT j.id) "
+                    "FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "JOIN raw_message m ON m.id = js.raw_message_id "
+                    "JOIN source s ON s.id = m.source_id "
+                    "WHERE j.created_at >= :since AND j.score >= :min "
+                    "GROUP BY s.platform, s.id ORDER BY 3 DESC"
+                ),
+                {"since": since, "min": min_score},
+            ).all()
+        return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    def search_good_count(self, min_score: int) -> int:
+        """Jobs that ever scored `min_score` or more (not counting what wasn't a job)."""
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT count(*) FROM job WHERE score >= :min AND status != 'discarded'"),
+                {"min": min_score},
+            ).one()
+        return int(row[0])
+
+    def jobs_ever_in(self, statuses: list[JobStatus]) -> int:
+        """Jobs that are, or once were, in one of these statuses (by your status history)."""
+        query = text(
+            "SELECT count(*) FROM (SELECT id FROM job WHERE status IN :sts "
+            "UNION SELECT job_id FROM status_change WHERE status IN :sts)"
+        ).bindparams(bindparam("sts", expanding=True))
+        with self._tx() as c:
+            row = c.execute(query, {"sts": [st.value for st in statuses]}).one()
+        return int(row[0])
 
     def status_history(self, job_id: str) -> list[tuple[str, str]]:
         """(status, when) for every status you set on this job, oldest first."""

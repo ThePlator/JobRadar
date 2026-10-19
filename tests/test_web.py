@@ -210,3 +210,84 @@ def test_busy_port_takes_the_next(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(server, "PORT_TRIES", 1)
         with pytest.raises(NoFreePort, match="in use"):
             free_port("127.0.0.1", port)
+
+
+# ---- charts, funnel, score parts, palette ------------------------------------------------------
+
+
+def test_pulse_counts_each_day(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "a", score=90)
+    add(repo, "b", score=50)
+    add(repo, "x", score=None, status=JobStatus.DISCARDED)  # not a job: not counted
+    clock.advance(86400)
+    add(repo, "c", score=80)
+    p = views.pulse(repo, 75, clock(), TZ)
+    assert len(p.days) == views.PULSE_DAYS and p.days[-1].today
+    assert [(d.found, d.good) for d in p.days[-2:]] == [(2, 1), (1, 1)]
+    assert (p.found, p.good, p.peak) == (3, 2, 2)
+
+
+def test_sources_group_boards(repo: Repo, clock: FakeClock) -> None:
+    def seen(job_id: str, platform: Platform, chat: str, title: str) -> None:
+        source = repo.upsert_source(platform, chat, title)
+        assert source.id is not None
+        raw, _ = repo.save_raw_message(source.id, job_id, "2026-10-08T08:00:00.000000Z", "x")
+        repo.add_job_source(job_id, raw)
+
+    for n in range(3):
+        add(repo, f"t{n}", score=90)
+        seen(f"t{n}", Platform.TELEGRAM, "-1001", "Freshershunt")
+    add(repo, "g", score=90)
+    seen("g", Platform.BOARD, "greenhouse:stripe", "Greenhouse · Stripe")
+    add(repo, "l", score=85)
+    seen("l", Platform.BOARD, "lever:meesho", "Lever · Meesho")
+    add(repo, "weak", score=40)
+    seen("weak", Platform.TELEGRAM, "-1002", "Spam jobs")
+    got = [(s.name, s.jobs, s.share) for s in views.sources(repo, 75, clock())]
+    assert got == [("Freshershunt", 3, 100), ("Company boards", 2, 67)]
+
+
+def test_funnel_counts_jobs_that_moved_on(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "a", score=90, status=JobStatus.APPLIED, you=True)
+    add(repo, "b", score=95, status=JobStatus.INTERVIEW, you=True)
+    repo.set_user_status("b", JobStatus.REJECTED)  # rejected after the interview
+    add(repo, "c", score=80)
+    add(repo, "d", score=30, status=JobStatus.HIDDEN)
+    add(repo, "x", score=None, status=JobStatus.DISCARDED)
+    steps = {s.name: (s.jobs, s.rate) for s in views.funnel(repo, 75)}
+    assert steps["Found"] == (4, "")
+    assert steps["Scored 75+"] == (3, "75% of found")
+    # b is Rejected now, but it reached Interview, so it counts as applied and interviewed
+    assert steps["Applied"] == (2, "100% of shortlisted")
+    assert steps["Interview"] == (1, "50% of applied") and steps["Offer"] == (0, "0% of interview")
+
+
+def test_breakdown_and_skills(repo: Repo) -> None:
+    weights = {"skills_coverage": 0.4, "role_alignment": 0.3, "seniority_fit": 0.15,
+               "location_ok": 0.15}  # fmt: skip
+    answers = json.dumps({"provider": "llm", "eligible": 0.95, "skills_coverage": 0.5,
+                          "role_alignment": 1.0, "confidence": 0.8})  # fmt: skip
+    b = views.breakdown(answers, weights)
+    assert b is not None and (b.eligible, b.confidence, b.by) == (95, 80, "AI read the whole job")
+    assert [(p.name, p.value, p.weight) for p in b.parts] == [
+        ("Skills you have", 50, 40), ("Role fits what you want", 100, 30)
+    ]  # fmt: skip
+    assert views.breakdown(None, weights) is None and views.breakdown("{bad", weights) is None
+    profile = {"skills": {"languages": ["Python", "SQL"]}}
+    got = [(s.name, s.have) for s in views.skills(["Python", "Kafka"], profile)]
+    assert got == [("Python", True), ("Kafka", False)]
+    assert views.skills(["Go"], None)[0].have is None
+
+
+def test_quick_filter_tags(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "i", role="SDE Intern", work_mode="remote", deadline="2026-10-10")
+    c = views.today(repo, 75, clock(), TZ)[0]
+    assert set(c.tags.split()) == {"eligible", "remote", "internship", "closing"}
+    assert c.closes_in == 2
+
+
+def test_palette_search(client: TestClient, repo: Repo) -> None:
+    add(repo, "r", company="Rubrik", role="SDE")
+    jobs = client.get("/api/search", params={"q": "rub"}).json()["jobs"]
+    assert jobs == [{"id": "r", "role": "SDE", "company": "Rubrik", "score": 90, "status": "New"}]
+    assert client.get("/api/search").json() == {"jobs": []}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import row %}
+{% from "_macros.html" import row, bar %}
 {% block title %}Today · JobRadar{% endblock %}
 {% block main %}
 <section class="hello">
@@ -19,12 +19,49 @@
   <div class="stat {{ 'warn' if ov.closing else '' }}"><b>{{ ov.closing }}</b><span>closing in 48 h</span></div>
 </section>
 
+<section class="insights" aria-label="The last two weeks">
+  <div class="panel pulse">
+    <div class="panel-head">
+      <h2>Last 14 days</h2>
+      <p class="legend"><span class="key found"></span>found {{ pulse.found }}<span class="key good"></span>scored {{ good }}+ {{ pulse.good }}</p>
+    </div>
+    <svg class="chart" viewBox="0 0 420 132" role="img" aria-label="{{ pulse.found }} jobs found and {{ pulse.good }} good matches in the last 14 days, by day">
+      <line class="axis" x1="0" y1="100.5" x2="420" y2="100.5"/>
+      {% for d in pulse.days %}
+      {%- set hf = (d.found / pulse.peak * 88)|round(1) -%}
+      {%- set hg = (d.good / pulse.peak * 88)|round(1) -%}
+      <g class="day{{ ' is-today' if d.today else '' }}">
+        <title>{{ d.weekday }} {{ d.day }}: {{ d.found }} found, {{ d.good }} scored {{ good }}+</title>
+        <rect class="hit" x="{{ loop.index0 * 30 }}" y="0" width="30" height="132"/>
+        <rect class="found" x="{{ loop.index0 * 30 + 6 }}" y="{{ 100 - hf }}" width="18" height="{{ hf }}" rx="3"/>
+        <rect class="good" x="{{ loop.index0 * 30 + 6 }}" y="{{ 100 - hg }}" width="18" height="{{ hg }}" rx="3"/>
+        {% if d.found %}<text class="num" x="{{ loop.index0 * 30 + 15 }}" y="{{ 100 - hf - 4 }}" text-anchor="middle">{{ d.found }}</text>{% endif %}
+        <text class="lbl" x="{{ loop.index0 * 30 + 15 }}" y="114" text-anchor="middle">{{ d.weekday[0] }}</text>
+        <text class="lbl" x="{{ loop.index0 * 30 + 15 }}" y="127" text-anchor="middle">{{ d.day }}</text>
+      </g>
+      {% endfor %}
+    </svg>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Where good matches came from</h2></div>
+    {% if sources %}
+    <ul class="sources">
+      {% for src in sources %}<li><span class="src-name">{{ src.name }}</span><span class="src-n">{{ src.jobs }}</span>{{ bar(src.share) }}</li>{% endfor %}
+    </ul>
+    {% else %}<p class="faint">No good matches in the last 14 days yet.</p>{% endif %}
+  </div>
+</section>
+
 <div class="head">
   <h1>Today</h1>
   <p class="lede">Good matches (score {{ good }}+) from the last {{ days }} days you haven't acted on yet. Best first.</p>
 </div>
 {% if cards %}
-<ul class="rows">
+<div class="quick" role="group" aria-label="Quick filters">
+  {% for key, text in filters %}<button type="button" class="pill" data-filter="{{ key }}" aria-pressed="{{ 'true' if key == 'all' else 'false' }}">{{ text }}</button>{% endfor %}
+  <span class="quick-count faint" data-count>{{ cards|length }} shown</span>
+</div>
+<ul class="rows" data-list>
 {% for c in cards %}{{ row(c) }}{% endfor %}
 </ul>
 {% else %}

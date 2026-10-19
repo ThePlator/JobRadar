@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import ring, avatar, status, reasons %}
+{% from "_macros.html" import ring, avatar, status, reasons, bar %}
 {% block title %}{{ job.card.role }}{% if job.card.company %} @ {{ job.card.company }}{% endif %} · JobRadar{% endblock %}
 {% block main %}
 <article class="job">
@@ -8,7 +8,7 @@
     <div class="job-names">
       <h1>{{ job.card.role }}</h1>
       <p class="company">{{ job.card.company or 'Company not stated' }}</p>
-      <p class="meta">{{ status(job.card) }}<span class="faint">first seen {{ job.card.seen }}</span>{% if job.card.moved %}<span class="faint">status set {{ job.card.moved }}</span>{% endif %}</p>
+      <p class="meta">{{ status(job.card) }}{% set n = job.card.closes_in %}{% if n is not none %}<span class="due {{ 'over' if n < 0 else ('soon' if n <= 3 else '') }}"><svg class="i xs"><use href="#i-clock"/></svg>{% if n < 0 %}closed {{ job.card.closes }}{% elif n == 0 %}closes today{% elif n == 1 %}closes tomorrow{% else %}closes in {{ n }} days{% endif %}</span>{% endif %}<span class="faint">first seen {{ job.card.seen }}</span>{% if job.card.moved %}<span class="faint">status set {{ job.card.moved }}</span>{% endif %}</p>
     </div>
     {{ ring(job.card.score, 'lg') }}
   </header>
@@ -21,6 +21,20 @@
       {{ reasons(job.card.reason) }}
     </div>
   </div>
+
+  {% if job.breakdown %}
+  <section class="panel score-parts">
+    <div class="panel-head"><h2>How the score was made</h2><p class="faint">{{ job.breakdown.by }} · {{ job.breakdown.confidence }}% sure</p></div>
+    <ul class="parts">
+      {% for part in job.breakdown.parts %}
+      <li><span class="part-name">{{ part.name }}</span><span class="part-w faint">{{ part.weight }}% of score</span>{{ bar(part.value, 'good' if part.value >= 70 else ('fair' if part.value >= 40 else 'poor')) }}<span class="part-v">{{ part.value }}</span></li>
+      {% endfor %}
+      {% if job.breakdown.eligible is not none %}
+      <li class="gate"><span class="part-name">Open to you</span><span class="part-w faint">a gate, not part of the score</span>{{ bar(job.breakdown.eligible, 'good' if job.breakdown.eligible >= 70 else ('fair' if job.breakdown.eligible > 30 else 'poor')) }}<span class="part-v">{{ job.breakdown.eligible }}</span></li>
+      {% endif %}
+    </ul>
+  </section>
+  {% endif %}
 
   <p class="links">
     {% if job.url %}<a class="btn" href="{{ job.url }}" target="_blank" rel="noopener noreferrer">Open the job <svg class="i xs"><use href="#i-out"/></svg></a>{% endif %}
@@ -40,8 +54,9 @@
   {% if job.skills_required or job.skills_preferred %}
   <section>
     <h2>Skills it asks for</h2>
-    {% if job.skills_required %}<div class="skills"><b>Required</b><ul class="chips">{% for s in job.skills_required %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
-    {% if job.skills_preferred %}<div class="skills"><b>Nice to have</b><ul class="chips">{% for s in job.skills_preferred %}<li>{{ s }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if job.skills_required %}<div class="skills"><b>Required</b><ul class="chips">{% for s in job.skills_required %}<li class="{{ 'have' if s.have else ('missing' if s.have == false else '') }}">{{ '✓ ' if s.have else '' }}{{ s.name }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if job.skills_preferred %}<div class="skills"><b>Nice to have</b><ul class="chips">{% for s in job.skills_preferred %}<li class="{{ 'have' if s.have else '' }}">{{ '✓ ' if s.have else '' }}{{ s.name }}</li>{% endfor %}</ul></div>{% endif %}
+    <p class="faint small">Green: on your profile. Red: a required skill you don't list.</p>
   </section>
   {% endif %}
 
