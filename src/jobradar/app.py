@@ -46,6 +46,7 @@ from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
 from jobradar.resume.build import ResumeBuilder
 from jobradar.sinks import notion
+from jobradar.sinks.company_replies import CompanyReplies
 from jobradar.sinks.digest import Digest
 from jobradar.sinks.email_actions import Actions, ReplyReader
 from jobradar.sinks.email_notify import AlertSender
@@ -139,7 +140,10 @@ def make_replies(settings: Settings, repo: Repo, queue: TaskQueue) -> ReplyReade
     if missing := settings.missing("email"):
         log.warning("email buttons are off: add to .env " + ", ".join(missing))
         return None
-    return ReplyReader(settings, repo, queue, actions)
+    companies = (
+        CompanyReplies(settings, repo, actions) if settings.config.notify.company_replies else None
+    )
+    return ReplyReader(settings, repo, queue, actions, companies=companies)
 
 
 def make_matcher(

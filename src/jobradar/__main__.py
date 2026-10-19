@@ -862,6 +862,7 @@ def replies(
     """The "I applied" / "Not interested" / "I followed up" buttons in JobRadar's emails."""
     from jobradar import app as application
     from jobradar.queue.tasks import PermanentError, RetryableError
+    from jobradar.sinks.company_replies import CompanyReplies
     from jobradar.sinks.email_actions import Actions, ReplyReader
 
     settings = _settings()
@@ -878,7 +879,11 @@ def replies(
         typer.echo("Run with --check to read the inbox now.")
         return
     try:
-        done = asyncio.run(ReplyReader(settings, repo, queue, actions).check_now())
+        companies = (CompanyReplies(settings, repo, actions)
+                     if settings.config.notify.company_replies else None)  # fmt: skip
+        done = asyncio.run(
+            ReplyReader(settings, repo, queue, actions, companies=companies).check_now()
+        )
     except (PermanentError, RetryableError) as e:
         _fail(str(e))
     for line in done:

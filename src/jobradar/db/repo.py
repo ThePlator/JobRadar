@@ -895,6 +895,19 @@ class Repo:
             query = select(Job).where(col(Job.created_at) >= since)
             return list(s.exec(query))
 
+    def jobs_you_moved_to(self, statuses: list[JobStatus]) -> list[Job]:
+        """Jobs whose Status you set to one of these, most recent change first."""
+        with Session(self.engine) as s:
+            query = (
+                select(Job)
+                .where(
+                    col(Job.status).in_([st.value for st in statuses]),
+                    col(Job.user_status_at).is_not(None),
+                )
+                .order_by(col(Job.user_status_at).desc())
+            )
+            return list(s.exec(query))
+
     def jobs_applied(self) -> list[Job]:
         """Jobs whose Status you set to Applied (and nothing since), oldest first."""
         with Session(self.engine) as s:

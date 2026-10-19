@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.policy import default as default_policy
 from email.utils import getaddresses, parsedate_to_datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from urllib.parse import quote
 
 from jobradar.clock import Clock, utcnow
@@ -51,15 +51,17 @@ from jobradar.sinks.notion_sync import FOLLOWED_UP
 
 log = logging.getLogger(__name__)
 
-Action = Literal["applied", "skip", "followed up"]
+Action = Literal["applied", "skip", "followed up", "interview", "rejected"]
 PREFIX = "JobRadar action:"
 KEY_SETTING = "email_action_key"
 DONE = "email_action_done:"  # setting key prefix, per message: handled already
+REPLIED = "company_replied:"  # setting key prefix, per job: the company wrote back (JSON)
 CHECK_SECONDS = 120
 LOOK_BACK = timedelta(days=7)
 ID_CHARS = 12
 _SUBJECT = re.compile(
-    r"JobRadar action:\s*(applied|skip|followed up)\b.*?\b([0-9a-f]{12})\.([0-9a-f]{8})\b",
+    r"JobRadar action:\s*(applied|skip|followed up|interview|rejected)\b.*?"
+    r"\b([0-9a-f]{12})\.([0-9a-f]{8})\b",
     re.IGNORECASE | re.DOTALL,
 )
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -73,8 +75,15 @@ _FROM: dict[str, set[str]] = {
     "skip": {s.value for s in (JobStatus.DISCOVERED, JobStatus.EXTRACTED, JobStatus.NEW,
                                JobStatus.SHORTLISTED, JobStatus.RESUME_READY, JobStatus.HIDDEN)},
     "followed up": {JobStatus.APPLIED.value},
+    "interview": {s.value for s in (JobStatus.NEW, JobStatus.SHORTLISTED,
+                                    JobStatus.RESUME_READY, JobStatus.APPLIED)},
+    "rejected": {s.value for s in (JobStatus.NEW, JobStatus.SHORTLISTED, JobStatus.RESUME_READY,
+                                   JobStatus.APPLIED, JobStatus.INTERVIEW)},
 }  # fmt: skip
-NOTION_OPTION = {"applied": "Applied", "skip": "Skipped"}
+NOTION_OPTION = {"applied": "Applied", "skip": "Skipped", "interview": "Interview",
+                 "rejected": "Rejected"}  # fmt: skip
+_STATUS = {"applied": JobStatus.APPLIED, "skip": JobStatus.SKIPPED,
+           "interview": JobStatus.INTERVIEW, "rejected": JobStatus.REJECTED}  # fmt: skip
 
 
 def _title(job: Job) -> str:
@@ -116,7 +125,8 @@ class Actions:
 
     def link(self, action: Action, job: Job) -> str:
         what = {"applied": "Applied", "skip": "Skipped (not interested)",
-                "followed up": "followed up today"}[action]  # fmt: skip
+                "followed up": "followed up today", "interview": "Interview",
+                "rejected": "Rejected"}[action]  # fmt: skip
         body = (
             f"Send this email as it is. JobRadar marks {_title(job)} as {what} in Notion within "
             "a few minutes, then archives this email."
@@ -167,6 +177,12 @@ def recruiter_email(job: Job, apply_url: str | None, post: str | None) -> str | 
 
 
 # ---- reading the mailbox ------------------------------------------------------------------
+
+
+class InboxScanner(Protocol):
+    """Something else that reads the inbox while JobRadar is logged in (company replies)."""
+
+    def scan(self, imap: imaplib.IMAP4_SSL) -> list[str]: ...
 
 
 @dataclass
@@ -237,6 +253,7 @@ class ReplyReader:
         queue: TaskQueue,
         actions: Actions,
         clock: Clock = utcnow,
+        companies: InboxScanner | None = None,
     ) -> None:
         self.settings = settings
         self.repo = repo
@@ -244,6 +261,7 @@ class ReplyReader:
         self.actions = actions
         self.clock = clock
         self.tz = settings.config.notify.tz
+        self.companies = companies  # replies from companies you applied to (same login)
 
     def schedule(self, delay: float = 0, key: str = "a") -> None:
         self.queue.enqueue(REPLY_CHECK, key, delay=delay)
@@ -280,6 +298,11 @@ class ReplyReader:
                 done.append(outcome)
             if handled:
                 archive(imap, handled)
+            if self.companies is not None:
+                try:
+                    done += self.companies.scan(imap)
+                except (OSError, imaplib.IMAP4.error) as e:  # the buttons still count
+                    log.warning("company replies not read this time", extra={"error": str(e)})
         finally:
             with contextlib.suppress(imaplib.IMAP4.error, OSError):
                 imap.logout()
@@ -308,8 +331,7 @@ class ReplyReader:
             self.repo.set_setting(FOLLOWED_UP + job.id, day)
             payload = {"followed_up": day}
         else:
-            status = JobStatus.APPLIED if action == "applied" else JobStatus.SKIPPED
-            self.repo.set_user_status(job.id, status)
+            self.repo.set_user_status(job.id, _STATUS[action])
             payload = {"status": NOTION_OPTION[action]}
         self.queue.enqueue(NOTION_STATUS, job.id, payload)
         log.info("your email action", extra={"job_id": job.id[:10], "action": action})
