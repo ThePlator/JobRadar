@@ -217,3 +217,16 @@ def test_buttons_off_without_a_mailbox(repo: Repo) -> None:
     assert Actions.load(no_mailbox, repo) is None
     s2 = settings(email_actions=False)
     assert Actions.load(s2, repo) is None
+
+
+async def test_a_gmail_timeout_is_a_quiet_retry(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jobradar.queue.tasks import RetryableError
+
+    def slow(s: object, since: object) -> None:
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(email_actions, "fetch", slow)
+    with pytest.raises(RetryableError, match="inbox not reachable"):
+        await reader(repo, queue, clock).check_now()

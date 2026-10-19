@@ -191,6 +191,8 @@ def fetch(settings: Settings, since: date) -> tuple[imaplib.IMAP4_SSL, list[Inco
         raise RetryableError(f"IMAP connect to {host} failed: {e}") from e
     try:
         imap.login(address, password.get_secret_value())
+    except imaplib.IMAP4.abort:
+        raise  # the connection dropped mid-login: a retry, not a wrong password
     except imaplib.IMAP4.error as e:
         imap.logout()
         raise PermanentError(
@@ -258,7 +260,10 @@ class ReplyReader:
 
     def _check(self) -> list[str]:
         since = (self.clock() - LOOK_BACK).date()
-        imap, incoming = fetch(self.settings, since)
+        try:
+            imap, incoming = fetch(self.settings, since)
+        except (OSError, imaplib.IMAP4.abort) as e:  # Gmail timed out or dropped the line
+            raise RetryableError(f"inbox not reachable right now: {e}") from e
         done: list[str] = []
         handled: list[str] = []
         try:
