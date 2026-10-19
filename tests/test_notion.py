@@ -314,7 +314,7 @@ async def test_connect_adds_the_source_column(mock_api: respx.MockRouter) -> Non
     assert json.loads(patch.calls[0].request.content) == {
         "properties": {"Source": {"multi_select": {}}}
     }
-    assert sink.added == {"Source"} and sink.extra == {"Source", "Posted On"}
+    assert sink.added == {"Source"} and sink.extra == {"Source", "Posted On", "Followed Up"}
     await sink.aclose()
 
 
@@ -324,7 +324,7 @@ async def test_connect_carries_on_without_the_source_column(mock_api: respx.Mock
         403, json={"code": "restricted_resource", "message": "no edit access"}
     )
     sink = await notion.connect(settings(), http=http())
-    assert sink.extra == {"Posted On"}  # the one that could not be added is left out
+    assert sink.extra == {"Posted On", "Followed Up"}  # the one not added is left out
     await sink.aclose()
 
 

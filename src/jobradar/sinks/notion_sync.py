@@ -6,6 +6,9 @@ show. A difference is yours: the job takes that status for good, the change is w
 `status_change` (your application funnel), and JobRadar never hides, re-decides or alerts on
 that job again. JobRadar's own edits (score, details) also touch pages, which is why only a
 *different* Status counts.
+
+The same read picks up the Followed Up date you set after sending a follow-up; it's kept as
+a setting per job (`followed_up:<job id>`) for the follow-up reminders.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ log = logging.getLogger(__name__)
 POLL_SECONDS = 120
 OVERLAP = timedelta(minutes=1)
 CURSOR_KEY = "notion_poll_since"
+FOLLOWED_UP = "followed_up:"  # setting key prefix, per job: the date you set in Notion
 FIRST_SINCE = "2000-01-01T00:00:00.000000Z"  # the first poll reads every page once
 
 # Notion Status option -> JobRadar status. Case doesn't matter.
@@ -56,6 +60,13 @@ def page_status(page: dict[str, Any]) -> tuple[str, str | None]:
     select = (props.get("Status") or {}).get("select") or {}
     name = select.get("name")
     return _plain(props.get("Job ID")), (str(name) if name else None)
+
+
+def page_followed_up(page: dict[str, Any]) -> str | None:
+    """The Followed Up date on a page ('2026-10-19'), or None."""
+    prop = (page.get("properties") or {}).get("Followed Up") or {}
+    start = (prop.get("date") or {}).get("start") if prop.get("type", "date") == "date" else None
+    return str(start)[:10] if start else None
 
 
 def shown_by_jobradar(status: str) -> str | None:
@@ -101,11 +112,23 @@ class StatusSync:
         since = self.repo.get_setting(CURSOR_KEY) or FIRST_SINCE
         pages = await self.client.changed_pages(self.data_source_id, since)
         changed = sum(self._apply(page) for page in pages)
+        for page in pages:
+            self._note_follow_up(page)
         # Notion timestamps are minute-rounded and edits can land mid-poll: overlap a bit.
         self.repo.set_setting(CURSOR_KEY, to_iso(started - OVERLAP))
         if changed:
             log.info("statuses from Notion", extra={"changed": changed, "pages": len(pages)})
         return changed
+
+    def _note_follow_up(self, page: dict[str, Any]) -> None:
+        job_id, _ = page_status(page)
+        if not job_id or self.repo.get_job(job_id) is None:
+            return
+        day = page_followed_up(page) or ""
+        if (self.repo.get_setting(FOLLOWED_UP + job_id) or "") != day:
+            self.repo.set_setting(FOLLOWED_UP + job_id, day)
+            if day:
+                log.info("you followed up", extra={"job_id": job_id[:10], "on": day})
 
     def _apply(self, page: dict[str, Any]) -> bool:
         job_id, option = page_status(page)

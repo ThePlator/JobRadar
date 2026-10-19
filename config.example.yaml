@@ -107,4 +107,6 @@ notify:
   digest: true            # summary email at each digest time (skipped when nothing happened)
   digest_times: ["09:00", "19:00"]
   closing_reminders: true # email when a job you shortlisted closes today or tomorrow
+  followups: true         # a follow-up draft when a job you set to Applied gets no reply
+  followup_after_days: 10 #   for this long (at most 2 per job; Notion's Followed Up resets it)
   timezone: Asia/Kolkata
