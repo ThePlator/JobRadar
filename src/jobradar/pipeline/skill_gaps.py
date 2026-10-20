@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -114,6 +114,8 @@ class Demand:
     missing: Counter[str]
     have: Counter[str]
     jobs: dict[str, list[str]]  # skill key -> job ids, best score first
+    texts: dict[str, str] = field(default_factory=dict)  # job id -> its page and post
+    have_keys: set[str] = field(default_factory=set)  # the skills your profile lists
 
     def name(self, key: str) -> str:
         return NAMES.get(key, key)
@@ -132,10 +134,12 @@ def demand(
     missing: Counter[str] = Counter()
     have: Counter[str] = Counter()
     by_skill: dict[str, list[str]] = {}
+    texts: dict[str, str] = {}
     for job in jobs:
         page = repo.get_page(job.id)
-        keys = job_skill_keys(job, (page.text or "") if page else "", own_post(repo, job.id) or "")
-        for key in keys:
+        page_text, post = (page.text or "") if page else "", own_post(repo, job.id) or ""
+        texts[job.id] = f"{page_text}\n{post}"
+        for key in job_skill_keys(job, page_text, post):
             (have if key in have_keys else missing)[key] += 1
             by_skill.setdefault(key, []).append(job.id)
-    return Demand(len(jobs), missing, have, by_skill)
+    return Demand(len(jobs), missing, have, by_skill, texts, have_keys)

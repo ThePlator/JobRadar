@@ -656,8 +656,10 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
     for n in range(3):
         add(repo, f"j{n}", company=f"Co{n}", score=90)
         repo.save_page(f"j{n}", f"https://acme.com/j{n}", "Role", "Python, AWS and Kubernetes.")
+    add(repo, "j3", company="Co3", score=80)
+    repo.save_page("j3", "https://acme.com/j3", "Role", "Good knowledge of Python or C++.")
     page = views.skills_page(repo, s, views_profile(path), clock(), 30)
-    assert page.looked_at == 3
+    assert page.looked_at == 4  # C++ isn't missing: that job takes Python instead
     assert [(r.name, r.jobs, r.trend) for r in page.missing] == [
         ("AWS", 3, None),
         ("Kubernetes", 3, None),
@@ -665,6 +667,12 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
     assert [r.name for r in page.have] == ["Python"] and len(page.missing[0].samples) == 3
     client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
     assert "Skills you keep missing" in client.get("/skills").text
+    aws = client.get("/skills/aws")
+    assert aws.status_code == 200 and "AWS: what they really want" in aws.text
+    assert "3 of 3 jobs ask for AWS outright" in aws.text and "<mark>AWS</mark>" in aws.text
+    cpp = client.get("/skills/c%2B%2B").text
+    assert "The one job naming C++ takes Python instead, which you have." in cpp
+    assert client.get("/skills/cobol").status_code == 404
     form = {"content-type": "application/x-www-form-urlencoded"}
     assert client.post("/skills/know", content="skill=AWS", headers=form).status_code == 403
     token = repo.get_setting("web_token") or ""

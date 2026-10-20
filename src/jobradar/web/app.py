@@ -346,6 +346,13 @@ def create_app(
         page = views.skills_page(repo, settings, current_profile(), clock(), days)
         return render(request, "skills.html", "skills", s=page)
 
+    @app.get("/skills/{key}", response_class=HTMLResponse)
+    def skill(request: Request, key: str, days: int = 30) -> HTMLResponse:
+        page = views.skill_detail_page(repo, settings, current_profile(), clock(), days, key)
+        if page is None:
+            raise HTTPException(status_code=404)
+        return render(request, "skill.html", "skills", s=page)
+
     @app.post("/skills/know")
     async def know(request: Request) -> Response:
         """ "I know this": add a skill to profile.yaml, so matching counts it."""
