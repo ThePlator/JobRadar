@@ -27,7 +27,13 @@ from jobradar.pipeline.task_types import DIGEST
 from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_actions import Actions
-from jobradar.sinks.email_notify import PREVIEW_DIR, notion_url, save_preview, smtp_send
+from jobradar.sinks.email_notify import (
+    PREVIEW_DIR,
+    dashboard_link,
+    notion_url,
+    save_preview,
+    smtp_send,
+)
 from jobradar.sinks.email_template import (
     ACCENT,
     CARD,
@@ -166,6 +172,7 @@ def build_digest(
     to: str,
     database_id: str | None,
     actions: Actions | None = None,
+    dashboard: str | None = None,
 ) -> EmailMessage:
     part = part_of_day(data.until)
     strong = sum(1 for j in data.inbox if (j.score or 0) >= 75)
@@ -206,7 +213,7 @@ def build_digest(
         for job in data.inbox[:TOP]:
             card, card_text = job_card(
                 job, notion=notion_url(job.notion_page_id), compact=True,
-                actions=actions.job_links(job) if actions else None,
+                actions=actions.job_links(job) if actions else None, dashboard=dashboard,
             )  # fmt: skip
             rows.append(card)
             text.append(card_text)
@@ -379,7 +386,7 @@ class Digest:
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_digest(
             data, sender, secrets.notify_address or sender, secrets.notion_database_id,
-            Actions.load(self.settings, self.repo),
+            Actions.load(self.settings, self.repo), dashboard_link(self.settings),
         )  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"digest-{now:%Y%m%d-%H%M}.html")

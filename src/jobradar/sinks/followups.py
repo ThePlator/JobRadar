@@ -26,7 +26,7 @@ from typing import Any
 
 from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import ConfigError, Settings
-from jobradar.db.models import Job
+from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.extract import own_post
 from jobradar.pipeline.task_types import FOLLOWUP_CHECK
@@ -186,6 +186,24 @@ class FollowUpReminder:
         have, _ = compare_skills(posting.skills_required + posting.skills_preferred, profile)
         return list(dict.fromkeys(have))
 
+    def _draft(self, job: Job, applied: date, nth: int, profile: dict[str, Any]) -> Draft:
+        dr = draft(job, applied, self._skills(job, profile), profile.get("basics") or {}, nth)
+        posting = posting_of(job)
+        dr.to = recruiter_email(job, posting.apply_url if posting else None,
+                                own_post(self.repo, job.id))  # fmt: skip
+        return dr
+
+    def draft_for(self, job: Job) -> Draft | None:
+        """The follow-up JobRadar would send you for an Applied job (the next one: first or
+        second), whether or not it's due yet; None past the second or for other statuses."""
+        if job.status != JobStatus.APPLIED.value or not job.user_status_at:
+            return None
+        applied, _, count = self.status(job)
+        if count >= MAX_REMINDERS:
+            return None
+        local = applied.astimezone(self.notify.tz).date()
+        return self._draft(job, local, count + 1, self._profile())
+
     def _profile(self) -> dict[str, Any]:
         try:
             return load_profile(self.settings.config.matching.profile_path)
@@ -201,14 +219,9 @@ class FollowUpReminder:
         if not due:
             return "no application is due a follow-up"
         profile = self._profile()
-        basics = profile.get("basics") or {}
         drafts = []
         for d in due:
-            dr = draft(d.job, d.applied.date(), self._skills(d.job, profile), basics, d.nth)
-            posting = posting_of(d.job)
-            dr.to = recruiter_email(d.job, posting.apply_url if posting else None,
-                                    own_post(self.repo, d.job.id))  # fmt: skip
-            drafts.append(dr)
+            drafts.append(self._draft(d.job, d.applied.date(), d.nth, profile))
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_followups(due, drafts, sender, secrets.notify_address or sender, self.after,

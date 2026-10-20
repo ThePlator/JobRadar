@@ -77,7 +77,69 @@
   </section>
   {% endif %}
 
-  <div class="split">
+
+  <section class="panel resumes" data-resumes data-id="{{ job.card.id }}" data-count="{{ job.files|length }}">
+    <div class="panel-head">
+      <h2><svg class="i xs"><use href="#i-file"/></svg>Resume for this job</h2>
+      <form method="post" action="/jobs/{{ job.card.id }}/resume" data-build>
+        <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="next" value="{{ request.url.path }}">
+        <button type="submit" class="btn {{ 'quiet' if job.files else '' }}" {% if job.building %}disabled{% endif %}>
+          {% if job.building %}Building…{% elif job.files %}Build a new version{% else %}Build resume{% endif %}
+        </button>
+      </form>
+    </div>
+    <p class="building faint small" data-building {% if not job.building %}hidden{% endif %}><span class="spin"></span>Building: tailoring, compiling and checking it. This page updates when it's ready (about a minute while <code>jobradar run</code> is running).</p>
+    {% if job.files %}
+    <ul class="resume-list">
+      {% for f in job.files %}
+      <li class="resume{{ ' latest' if loop.first else '' }}">
+        <div class="resume-head">
+          <span class="pdf"><svg class="i"><use href="#i-file"/></svg></span>
+          <div class="resume-name">
+            <b>Version {{ f.version }}{% if loop.first %} <span class="new-badge">Latest</span>{% endif %}</b>
+            <span class="faint small mono">{{ f.name }}</span>
+            <span class="faint small">{{ f.at }} · {{ 'tailored to this job' if f.tailored else 'your profile as written' }}</span>
+          </div>
+          <div class="resume-open">
+            {% if f.url %}<a class="btn" href="{{ f.url }}" target="_blank" rel="noopener">Open PDF <svg class="i xs"><use href="#i-out"/></svg></a>{% else %}<span class="faint small">File not found</span>{% endif %}
+            {% if f.cover_url %}<a class="btn quiet" href="{{ f.cover_url }}" target="_blank" rel="noopener">Cover letter <svg class="i xs"><use href="#i-out"/></svg></a>{% endif %}
+          </div>
+        </div>
+        <div class="ats">
+          <p class="ats-line {{ 'ok' if not f.problems else 'warn' }}">{% if f.problems %}<svg class="i xs"><use href="#i-x"/></svg>{{ f.problems|length }} problem{{ '' if f.problems|length == 1 else 's' }} an ATS might trip on{% else %}<svg class="i xs"><use href="#i-check"/></svg>Reads cleanly the way an ATS reads it: contact details, dates, headings{% endif %}</p>
+          {% if f.problems %}<ul class="ats-problems">{% for p in f.problems %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
+          {% if f.skills_on or f.skills_off %}
+          <div class="skills"><b>Job's skills</b><ul class="chips">{% for k in f.skills_on %}<li class="have">✓ {{ k }}</li>{% endfor %}{% for k in f.skills_off %}<li class="maybe" title="On your profile, not on this resume">{{ k }}</li>{% endfor %}</ul></div>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif not job.building %}
+    <p class="faint">No resume built for this job yet. JobRadar builds one automatically for strong matches and anything you shortlist.</p>
+    {% endif %}
+  </section>
+
+  {% if job.draft %}
+  <section class="panel draft" data-draft>
+    <div class="panel-head">
+      <h2><svg class="i xs"><use href="#i-mail"/></svg>Follow-up email</h2>
+      <p class="faint">{% if job.card.days is not none %}You applied {{ job.card.days }} day{{ '' if job.card.days == 1 else 's' }} ago. {% endif %}Written from what JobRadar knows; nothing invented.</p>
+    </div>
+    <dl class="draft-meta">
+      <div><dt>To</dt><dd>{% if job.draft.to %}<span class="mono">{{ job.draft.to }}</span>{% else %}<span class="faint">No recruiter address in the job; use the company's careers contact.</span>{% endif %}</dd></div>
+      <div><dt>Subject</dt><dd data-copy-subject>{{ job.draft.subject }}</dd></div>
+    </dl>
+    <pre class="draft-body" data-copy-body>{{ job.draft.body }}</pre>
+    <div class="draft-acts">
+      <button type="button" class="btn" data-copy>Copy email</button>
+      <a class="btn quiet" href="mailto:{{ (job.draft.to or '')|urlencode }}?subject={{ job.draft.subject|urlencode }}&amp;body={{ job.draft.body|urlencode }}">Open in mail <svg class="i xs"><use href="#i-out"/></svg></a>
+      <span class="faint small">Sent it? Tap <b>I followed up</b> above.</span>
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="split two">
     <section class="panel">
       <h2><svg class="i xs"><use href="#i-chat"/></svg>Seen in</h2>
       {% if job.seen_in %}
@@ -93,14 +155,6 @@
         {% for st, at in job.history %}<li>{{ st }}<span class="faint">{{ at }}</span></li>{% endfor %}
       </ol>
       {% else %}<p class="faint">You haven't set a status yet.</p>{% endif %}
-    </section>
-    <section class="panel">
-      <h2><svg class="i xs"><use href="#i-file"/></svg>Resumes and letters</h2>
-      {% if job.files %}
-      <ul class="timeline">
-        {% for f in job.files %}<li><span class="mono">{{ f.name }}</span><span class="faint">{{ f.kind }} · {{ f.at }}</span></li>{% endfor %}
-      </ul>
-      {% else %}<p class="faint">None built for this job.</p>{% endif %}
     </section>
   </div>
 

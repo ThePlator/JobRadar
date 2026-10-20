@@ -239,6 +239,60 @@
     });
 
 
+
+    // ---- resumes: build one, and update when it's ready ----
+    const watchBuild = (id, count, label) => {
+      const started = Date.now();
+      const tick = async () => {
+        try {
+          const now = await (await fetch(`/api/jobs/${encodeURIComponent(id)}/resumes`)).json();
+          if (now.count > count) { reloadWith(`Resume ready${label ? ` for ${label}` : ""}.`, null); return; }
+          if (!now.building && Date.now() - started > 20000) {
+            toast("The resume didn't build. Check `jobradar run`'s log for why.", null, true);
+            document.querySelectorAll("[data-building]").forEach((el) => { el.hidden = true; });
+            return;
+          }
+        } catch { /* the server restarted: keep trying */ }
+        if (Date.now() - started < 10 * 60 * 1000) setTimeout(tick, 3000);
+      };
+      setTimeout(tick, 3000);
+    };
+    document.addEventListener("submit", async (e) => {
+      const form = e.target;
+      if (!(form instanceof HTMLFormElement) || !form.matches("[data-build]")) return;
+      e.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      const url = form.getAttribute("action");
+      const id = decodeURIComponent(url.split("/jobs/")[1].split("/")[0]);
+      const out = await send(url, Object.fromEntries(new FormData(form)));
+      if (!out.ok) { button.disabled = false; toast(out.message, null, true); return; }
+      button.textContent = "Building…";
+      document.querySelectorAll("[data-building]").forEach((el) => { el.hidden = false; });
+      toast(out.message);
+      watchBuild(id, out.count, "");
+    });
+    const panel = document.querySelector("[data-resumes]");
+    if (panel && !panel.querySelector("[data-building]").hidden) {
+      watchBuild(panel.dataset.id, Number(panel.dataset.count), "");
+    }
+
+    // ---- the follow-up draft: copy it ----
+    document.querySelector("[data-copy]")?.addEventListener("click", async () => {
+      const subject = document.querySelector("[data-copy-subject]").textContent.trim();
+      const body = document.querySelector("[data-copy-body]").textContent;
+      try {
+        await navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`);
+        toast("Copied. Paste it into a new email.");
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector("[data-copy-body]"));
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        toast("Selected: press Ctrl+C to copy.");
+      }
+    });
+
     // ---- Applications: drag a card to another column ----
     const boardEl = document.querySelector("[data-board]");
     if (boardEl) {

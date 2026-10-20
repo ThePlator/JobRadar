@@ -1032,6 +1032,22 @@ class Repo:
             row = c.execute(query, {"sts": [st.value for st in statuses]}).one()
         return int(row[0])
 
+    def get_artifact(self, artifact_id: int) -> Artifact | None:
+        with Session(self.engine) as s:
+            return s.get(Artifact, artifact_id)
+
+    def task_waiting(self, task_type: str, key: str) -> bool:
+        """A task of this type and key is queued or running."""
+        with self._tx() as c:
+            row = c.execute(
+                text(
+                    "SELECT 1 FROM task WHERE type = :type AND key = :key "
+                    "AND status IN ('pending', 'running') LIMIT 1"
+                ),
+                {"type": task_type, "key": key},
+            ).first()
+        return row is not None
+
     def status_history(self, job_id: str) -> list[tuple[str, str]]:
         """(status, when) for every status you set on this job, oldest first."""
         with self._tx() as c:

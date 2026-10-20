@@ -6,7 +6,9 @@ import asyncio
 import contextlib
 import logging
 import signal
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
@@ -271,6 +273,24 @@ class Pipeline:
         await self.liveness.aclose()
 
 
+def start_dashboard(
+    settings: Settings, repo: Repo, queue: TaskQueue, wake: Callable[[], None]
+) -> Any | None:
+    """The dashboard's server for `jobradar run`, or None when it's off or can't start."""
+    if not settings.config.web.enabled:
+        return None
+    try:
+        from jobradar.web.server import NoFreePort, make_server
+    except ImportError:
+        log.info("dashboard off: install it with `uv sync --extra web`")
+        return None
+    try:
+        return make_server(settings, repo, queue, wake=wake, own_signals=False)
+    except (ImportError, NoFreePort, OSError) as e:
+        log.warning("dashboard not started", extra={"error": str(e)})
+        return None
+
+
 async def run(settings: Settings) -> None:
     """`jobradar run`: Telegram in, Notion out, until Ctrl+C / SIGTERM."""
     settings.require("telegram", "notion")
@@ -317,6 +337,7 @@ async def run(settings: Settings) -> None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})
     source = TelegramSource(settings, repo)
+    dashboard = start_dashboard(settings, repo, queue, worker.wake)
 
     loop = asyncio.get_running_loop()
     stopping = asyncio.Event()
@@ -329,6 +350,8 @@ async def run(settings: Settings) -> None:
         source.start(make_emit(repo, queue, worker.wake)), name="telegram"
     )
     stop_wait = asyncio.create_task(stopping.wait())
+    # The dashboard isn't in the wait below: if it fails, JobRadar keeps reading jobs.
+    web_task = asyncio.create_task(dashboard.serve(), name="dashboard") if dashboard else None
     try:
         done, _ = await asyncio.wait(
             {worker_task, source_task, stop_wait}, return_when=asyncio.FIRST_COMPLETED
@@ -340,7 +363,10 @@ async def run(settings: Settings) -> None:
         await source.stop()
         worker.stop()
         stop_wait.cancel()
-        await asyncio.gather(source_task, worker_task, return_exceptions=True)
+        if dashboard is not None:
+            dashboard.should_exit = True
+        await asyncio.gather(source_task, worker_task, *([web_task] if web_task else []),
+                             return_exceptions=True)  # fmt: skip
         await pipeline.aclose()
         await sink.aclose()
 

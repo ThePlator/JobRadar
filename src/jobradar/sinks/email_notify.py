@@ -26,7 +26,7 @@ from jobradar.db.models import Job
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.task_types import FRESH, SEND_ALERTS
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
-from jobradar.sinks.email_actions import Actions
+from jobradar.sinks.email_actions import Actions, dashboard_url
 from jobradar.sinks.email_template import day_month, job_card, layout
 
 log = logging.getLogger(__name__)
@@ -88,19 +88,25 @@ def posted_ago(posted_at: str, chat: str | None, now: datetime, platform: str = 
     return f"posted {age}" + (f" {where}" if where else "")
 
 
+def dashboard_link(settings: Settings) -> str | None:
+    """The dashboard's address for "View in dashboard" links, when it's on."""
+    return dashboard_url(settings) if settings.config.web.enabled else None
+
+
 def build_email(
     jobs: list[Job],
     sender: str,
     to: str,
     seen: dict[str, str] | None = None,
     actions: Actions | None = None,
+    dashboard: str | None = None,
 ) -> EmailMessage:
     """One alert email covering these jobs, as HTML and plain text. `seen` maps a job id to
     where and when it was posted; `actions` adds the "I applied" / "Not interested" buttons."""
     seen = seen or {}
     cards = [
         job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id),
-                 actions=actions.job_links(job) if actions else None)
+                 actions=actions.job_links(job) if actions else None, dashboard=dashboard)
         for job in jobs
     ]  # fmt: skip
     if len(jobs) == 1:
@@ -188,7 +194,12 @@ class AlertSender:
         sender = self.secrets.email_address or "jobradar@localhost"
         to = self.secrets.notify_address or sender
         msg = build_email(
-            jobs, sender, to, self._seen(jobs), Actions.load(self.settings, self.repo)
+            jobs,
+            sender,
+            to,
+            self._seen(jobs),
+            Actions.load(self.settings, self.repo),
+            dashboard_link(self.settings),
         )
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html")

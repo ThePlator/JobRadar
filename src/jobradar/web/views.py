@@ -7,6 +7,7 @@ page's content is tested without a server. Times are shown in `notify.timezone`.
 from __future__ import annotations
 
 import json
+import re
 import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -21,13 +22,14 @@ from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.skill_gaps import Gap, skill_gaps
+from jobradar.pipeline.task_types import BUILD_RESUME
 from jobradar.providers.base import MatchAnswers
 from jobradar.providers.skills_rule import compare_skills
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.digest import gather, part_of_day, pipeline_line, previous_slot
 from jobradar.sinks.email_actions import REPLIED
 from jobradar.sinks.email_template import Reason, day_month, posting_of, split_reason
-from jobradar.sinks.followups import MAX_REMINDERS, FollowUpReminder
+from jobradar.sinks.followups import MAX_REMINDERS, Draft, FollowUpReminder
 from jobradar.sinks.notion import experience_text, message_link, source_label
 from jobradar.sinks.notion_sync import FOLLOWED_UP
 
@@ -412,9 +414,17 @@ class Seen:
 
 @dataclass(frozen=True)
 class File:
+    id: int | None
     name: str
     kind: str
     at: str
+    version: int = 1
+    url: str | None = None  # opens the PDF, when it's there
+    cover_url: str | None = None  # the cover letter written next to it, when there is one
+    tailored: bool = False
+    problems: list[str] = field(default_factory=list)  # the resume check's findings
+    skills_on: list[str] = field(default_factory=list)  # the job's skills on the page
+    skills_off: list[str] = field(default_factory=list)  # the job's skills you have, not on it
 
 
 @dataclass
@@ -432,6 +442,8 @@ class Detail:
     seen_in: list[Seen] = field(default_factory=list)
     history: list[tuple[str, str]] = field(default_factory=list)
     files: list[File] = field(default_factory=list)
+    building: bool = False  # a resume is queued or being built
+    draft: Draft | None = None  # the follow-up JobRadar would send (Applied jobs)
     page_text: str | None = None
 
 
@@ -460,10 +472,52 @@ def _facts(job: Job, posting: JobPosting | None) -> list[tuple[str, str]]:
     return facts
 
 
-def _file(artifact: Artifact, tz: ZoneInfo) -> File:
+_VERSION = re.compile(r"_v\d+\.pdf$")
+
+
+def artifact_file(
+    settings: Settings | None, artifact: Artifact, cover: bool = False
+) -> Path | None:
+    """The PDF for this resume, or the cover letter beside it ({…}_cover_letter.pdf), if it's
+    a file inside storage.local_dir. Never a path from anywhere else."""
+    if not artifact.local_path:
+        return None
+    base = (settings.config.storage.local_dir if settings else Path("output")).resolve()
+    path = Path(artifact.local_path)
+    path = (path if path.is_absolute() else Path.cwd() / path).resolve()
+    if cover:
+        if not _VERSION.search(path.name):
+            return None
+        path = path.with_name(_VERSION.sub("_cover_letter.pdf", path.name))
+    if path.suffix.lower() != ".pdf" or not path.is_relative_to(base) or not path.is_file():
+        return None
+    return path
+
+
+def _file(artifact: Artifact, tz: ZoneInfo, settings: Settings | None = None) -> File:
     path = artifact.local_path
     name = Path(path).name if path else f"{artifact.kind} v{artifact.version}"
-    return File(name, artifact.kind.replace("_", " "), when(artifact.created_at, tz))
+    record: dict[str, Any] = {}
+    try:
+        record = json.loads(artifact.content_json or "{}")
+    except ValueError:
+        record = {}
+    ats_report = record.get("ats") or {}
+    has_file = artifact_file(settings, artifact) is not None
+    has_cover = artifact_file(settings, artifact, cover=True) is not None
+    return File(
+        id=artifact.id,
+        name=name,
+        kind=artifact.kind.replace("_", " "),
+        at=when(artifact.created_at, tz),
+        version=artifact.version,
+        url=f"/files/{artifact.id}" if has_file else None,
+        cover_url=f"/files/{artifact.id}?cover=1" if has_cover else None,
+        tailored=bool(record.get("tailored")),
+        problems=[str(p) for p in ats_report.get("problems") or []],
+        skills_on=[str(k) for k in ats_report.get("skills_on_resume") or []],
+        skills_off=[str(k) for k in ats_report.get("skills_not_on_resume") or []],
+    )
 
 
 @dataclass(frozen=True)
@@ -533,10 +587,14 @@ def job_detail(
     now: datetime,
     weights: dict[str, float] | None = None,
     profile: dict[str, Any] | None = None,
+    settings: Settings | None = None,
 ) -> Detail | None:
     job = repo.get_job(job_id)
     if job is None:
         return None
+    draft = None
+    if settings is not None and job.status == JobStatus.APPLIED.value:
+        draft = FollowUpReminder(settings, repo, TaskQueue(repo)).draft_for(job)
     posting = posting_of(job)
     page = repo.get_page(job.id)
     apply_url = posting.apply_url if posting else None
@@ -556,7 +614,9 @@ def job_detail(
             for s in repo.job_sightings(job.id)
         ],
         history=[(label(st), when(at, tz)) for st, at in repo.status_history(job.id)],
-        files=[_file(a, tz) for a in repo.artifacts_of(job.id)],
+        files=[_file(a, tz, settings) for a in repo.artifacts_of(job.id)],
+        building=repo.task_waiting(BUILD_RESUME, job.id),
+        draft=draft,
         page_text=page.text if page and page.text else None,
     )
 

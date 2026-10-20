@@ -60,7 +60,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 
 | Command | What it does |
 |---|---|
-| `jobradar run` | Start everything: Telegram reader, page reading, matching, Notion sync, alerts and digests |
+| `jobradar run` | Start everything: Telegram reader, page reading, matching, Notion sync, alerts, digests, and the dashboard at http://127.0.0.1:8080 (`web.enabled: false` leaves it out) |
 | `jobradar web` | The dashboard at http://127.0.0.1:8080: today's good matches, your applications board, every job, the digest, and buttons to change a status (Notion follows). Needs `uv sync --extra web` |
 | `jobradar init` | First-time setup (see above) |
 | `jobradar chats` | List Telegram chats with their ids |
@@ -152,12 +152,12 @@ Installs the dashboard's two extra packages (FastAPI and Uvicorn), once.
 ```bash
 uv run jobradar web
 ```
-Starts the dashboard and prints its address, normally http://127.0.0.1:8080; open it in your browser. Ctrl+C stops it. It reads JobRadar's own database, so it works whether `jobradar run` is running or not. Pages:
+`jobradar run` starts the dashboard too and prints its address (normally http://127.0.0.1:8080); `jobradar web` opens it on its own, when the agent is off. It reads JobRadar's own database either way; changes you make wait in the queue until `jobradar run` is running. Pages:
 
 - **Today**: good matches (score at or above `scoring.alert_above`) from the last 3 days that you haven't acted on, best first.
 - **Applications**: a board of every job you moved past New: Shortlisted (and Resume ready), Applied, Interview, Offer or rejected.
 - **All jobs**: search by company or role, and show jobs by status (hidden ones and "not a job" are left out unless you pick them).
-- **A job's page**: why it scored what it did, the job's details, where it was posted, your status history, the resumes and letters built for it, and the page text JobRadar read.
+- **A job's page**: **Resume for this job** (every version: open the PDF, the cover letter written next to it, and the resume check: contact details, dates, headings, and which of the job's skills are on it), **Build resume** / **Build a new version** (the page updates when it's ready), the **follow-up email** for an Applied job (the same draft the reminder sends, with Copy and Open in mail), why it scored what it did, the job's details, where it was posted, your status history, the resumes and letters built for it, and the page text JobRadar read.
 
 Change a status right on the page: **I applied**, **Shortlist** and **Not interested** on new jobs; **Interview**, **I followed up**, **Rejected** and **Offer** on applications (each button only moves a job forward, like the email buttons); and **Change status** on a job's page for any status, to fix a mistake. A toast offers **Undo**. Notion follows within a minute while `jobradar run` is running (the change waits in the queue until then). Shortlisting a job with no resume queues one, as in Notion. Only this computer can open it (`web.host: 127.0.0.1`). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
 

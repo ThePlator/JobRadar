@@ -114,6 +114,7 @@ notify:
   company_replies: true   # read new mail from companies you applied to; suggest Interview etc.
   timezone: Asia/Kolkata
 
-web:                      # the dashboard: `jobradar web`, then open http://127.0.0.1:8080
+web:                      # the dashboard at http://127.0.0.1:8080 (needs `uv sync --extra web`)
+  enabled: true           # start it with `jobradar run`; `jobradar web` opens it on its own
   host: 127.0.0.1         # this computer only; never 0.0.0.0 (anyone on your Wi-Fi)
   port: 8080              # busy? the next free one up to 8089 is used (the log says which)
