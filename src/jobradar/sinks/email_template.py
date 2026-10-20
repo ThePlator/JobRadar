@@ -167,8 +167,10 @@ def job_card(
     notion: str | None = None,
     compact: bool = False,
     actions: list[tuple[str, str]] | None = None,
+    dashboard: str | None = None,
 ) -> tuple[str, str]:
-    """(html, text) for one job. `actions`: (label, mailto link) buttons under the others."""
+    """(html, text) for one job. `actions`: (label, mailto link) buttons under the others;
+    `dashboard`: the dashboard's address, for a link to the job's page there."""
     posting = posting_of(job)
     reason = split_reason(job.score_reason, posting)
     apply = (posting.apply_url if posting else None) or job.canonical_url
@@ -227,6 +229,9 @@ def job_card(
         links.append(button("Apply" if compact else "Apply now", apply))
     if notion:
         links.append(button("Notion" if compact else "Open in Notion", notion, primary=False))
+    page = f"{dashboard}/jobs/{job.id}" if dashboard else None
+    if page:
+        links.append(button("Dashboard" if compact else "View in dashboard", page, primary=False))
     buttons = f"<div style='margin:14px 0 0'>{''.join(links)}</div>" if links else ""
     if actions:
         small = "".join(action_button(label, url) for label, url in actions)
@@ -265,6 +270,8 @@ def job_card(
         text.append(f"    Apply: {apply}")
     if notion:
         text.append(f"    Notion: {notion}")
+    if page:
+        text.append(f"    Dashboard: {page}")
     for label, url in actions or []:
         text.append(f"    {label}: {url}")
     return card, "\n".join(text)

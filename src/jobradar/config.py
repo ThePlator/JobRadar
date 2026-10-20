@@ -447,8 +447,10 @@ class NotifyConfig(_Strict):
 
 
 class WebConfig(_Strict):
-    """The dashboard (`jobradar web`): your jobs and applications on a page on this computer."""
+    """The dashboard: your jobs and applications on a page on this computer."""
 
+    # Start it with `jobradar run` (`jobradar web` opens it on its own either way).
+    enabled: bool = True
     # 127.0.0.1: only this computer can open it. Never 0.0.0.0 (anyone on your Wi-Fi).
     host: str = "127.0.0.1"
     # If something else uses it, the next free port up to +9 is taken (the log says which).

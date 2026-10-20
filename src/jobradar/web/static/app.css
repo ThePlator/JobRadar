@@ -531,6 +531,36 @@ footer .keys kbd + kbd { margin-left: -2px; }
 .toast-undo { font: inherit; font-weight: 800; color: inherit; text-decoration: underline; text-underline-offset: 3px; background: none; border: 0; padding: 4px 6px; cursor: pointer; border-radius: 6px; }
 .toast-undo:hover { background: color-mix(in srgb, var(--page) 14%, transparent); }
 
+
+/* ---- resumes, follow-up draft ---- */
+.split.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.resumes form { margin: 0; }
+.resumes .btn, .draft .btn { cursor: pointer; font: inherit; font-weight: 700; border: 1px solid var(--accent); }
+.resumes .btn.quiet, .draft .btn.quiet { border-color: var(--line); }
+.building { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: scan .8s linear infinite; flex: none; }
+.resume-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.resume { padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--raise); }
+.resume.latest { background: var(--card); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.resume-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.pdf { display: grid; place-items: center; width: 40px; height: 48px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); flex: none; }
+.resume-name { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.resume-name .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resume-open { display: flex; flex-wrap: wrap; gap: 6px; }
+.ats { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.ats-line { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 650; }
+.ats-line.ok { color: var(--good); } .ats-line.warn { color: var(--fair); }
+.ats-problems { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: var(--muted); }
+.ats .skills { margin: 8px 0 0; }
+.draft-meta { display: grid; gap: 6px; margin: 0 0 10px; }
+.draft-meta div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; font-size: 14px; }
+.draft-meta dt { color: var(--muted); font-weight: 700; font-size: 12.5px; }
+.draft-meta dd { margin: 0; overflow-wrap: anywhere; }
+.draft-body { margin: 0; padding: 14px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); white-space: pre-wrap; font: 14px/1.6 var(--body); }
+.draft-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.card-build { margin: 9px 0 0; }
+.chip-btn.build { display: inline-flex; align-items: center; gap: 5px; border-style: dashed; }
+
 /* ---- empty and error states ---- */
 .empty { display: flex; align-items: center; gap: 18px; padding: 22px; border-radius: 14px; background: var(--card); border: 1px dashed var(--line); color: var(--muted); }
 .empty p { margin: 0; }
@@ -559,6 +589,7 @@ footer .keys kbd + kbd { margin-left: -2px; }
 
 /* ---- narrow screens ---- */
 @media (max-width: 1000px) {
+  .split.two { grid-template-columns: minmax(0, 1fr); }
   .digest-grid { grid-template-columns: minmax(0, 1fr); }
   .stats.five { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .insights { grid-template-columns: minmax(0, 1fr); }

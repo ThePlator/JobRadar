@@ -74,6 +74,12 @@
           {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'moved today' if c.days == 0 else ('moved ' ~ c.days ~ ' d ago') }}</span>{% endif %}
           {% if c.place %}<span class="faint"><svg class="i xs"><use href="#i-pin"/></svg>{{ c.place.split(' · ')[0] }}</span>{% endif %}
         </p>
+        {% if c.status in ('shortlisted', 'resume_ready') and not t.resume %}
+        <form method="post" action="/jobs/{{ c.id }}/resume" class="card-build" data-build>
+          <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="next" value="/applications">
+          <button type="submit" class="chip-btn build"><svg class="i xs"><use href="#i-file"/></svg>Build resume</button>
+        </form>
+        {% endif %}
         {% if c.actions %}<div class="card-acts">{% for action, text in c.actions %}{{ act_form(c, action, text, 'chip-btn' ~ (' primary' if loop.first else '')) }}{% endfor %}</div>{% endif %}
       </li>
     {% endfor %}

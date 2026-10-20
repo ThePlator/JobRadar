@@ -1,6 +1,7 @@
 import json
 import re
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from jobradar.config import WebConfig
 from jobradar.db.models import JobStatus, Platform
 from jobradar.db.repo import Repo
 from jobradar.pipeline.schemas import JobPosting
+from jobradar.queue.tasks import TaskQueue
 from jobradar.web import server, views
 from jobradar.web.app import create_app
 from jobradar.web.server import NoFreePort, free_port
@@ -437,3 +439,122 @@ def test_cards_show_the_next_steps(repo: Repo, clock: FakeClock) -> None:
     assert acts("n") == ["applied", "shortlist", "skip"]
     assert acts("a") == ["interview", "followed up", "rejected"]
     assert acts("i") == ["offer", "rejected"] and acts("o") == []
+
+
+# ---- step 3: inside `jobradar run`, resumes, follow-up drafts ---------------------------------
+
+
+def with_storage(tmp_path: Any, **web: Any) -> Any:
+    from jobradar.config import AppConfig, Settings
+
+    base = settings()
+    config = base.config.model_dump()
+    config["storage"]["local_dir"] = str(tmp_path / "output")
+    config["web"].update(web)
+    return Settings(config=AppConfig.model_validate(config), secrets=base.secrets)
+
+
+async def test_the_dashboard_runs_inside_jobradar_run(
+    repo: Repo, queue: TaskQueue, tmp_path: Path
+) -> None:
+    import asyncio
+    import signal
+
+    import httpx
+
+    from jobradar.app import start_dashboard
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    before = signal.getsignal(signal.SIGINT)
+    woke: list[int] = []
+    server = start_dashboard(with_storage(tmp_path, port=port), repo, queue,
+                             lambda: woke.append(1))  # fmt: skip
+    assert server is not None
+    task = asyncio.create_task(server.serve())
+    for _ in range(100):
+        if server.started:
+            break
+        await asyncio.sleep(0.05)
+    async with httpx.AsyncClient() as http:
+        page = await http.get(f"http://127.0.0.1:{port}/")
+    assert page.status_code == 200 and "JobRadar" in page.text
+    assert signal.getsignal(signal.SIGINT) is before  # Ctrl+C stays JobRadar's
+    server.should_exit = True
+    await asyncio.wait_for(task, 5)
+    assert start_dashboard(with_storage(tmp_path, enabled=False), repo, queue, print) is None
+
+
+def test_resume_files_only_from_the_output_folder(
+    repo: Repo, tmp_path: Path, clock: FakeClock
+) -> None:
+    s = with_storage(tmp_path)
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "Acme_SWE_20261020_v1.pdf").write_bytes(b"%PDF-1.4 resume")
+    (out / "Acme_SWE_20261020_cover_letter.pdf").write_bytes(b"%PDF-1.4 letter")
+    (tmp_path / "secret.pdf").write_bytes(b"%PDF-1.4 not yours to serve")
+    add(repo, "j", company="Acme")
+    ats = {"ats": {"problems": [], "skills_on_resume": ["Python"], "skills_not_on_resume": ["SQL"]},
+           "tailored": True}  # fmt: skip
+    good = repo.save_artifact(
+        "j", "resume", 1, str(out / "Acme_SWE_20261020_v1.pdf"), json.dumps(ats)
+    )
+    evil = repo.save_artifact("j", "resume", 2, str(out / ".." / "secret.pdf"), "{}")
+    client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
+    pdf = client.get(f"/files/{good.id}")
+    assert pdf.status_code == 200 and pdf.content == b"%PDF-1.4 resume"
+    assert (
+        pdf.headers["content-type"] == "application/pdf"
+        and "inline" in pdf.headers["content-disposition"]
+    )
+    assert "content-security-policy" not in pdf.headers  # the browser's PDF viewer may show it
+    assert client.get(f"/files/{good.id}?cover=1").content == b"%PDF-1.4 letter"
+    assert client.get(f"/files/{evil.id}").status_code == 404  # outside storage.local_dir
+    assert client.get("/files/12345").status_code == 404
+    page = client.get("/jobs/j").text
+    assert f'href="/files/{good.id}"' in page and f'href="/files/{good.id}?cover=1"' in page
+    assert "✓ Python" in page and "Version 2" in page and "File not found" in page
+
+
+def test_build_resume_button(repo: Repo, tmp_path: Path, clock: FakeClock) -> None:
+    add(repo, "j")
+    client = TestClient(
+        create_app(with_storage(tmp_path), repo, clock), base_url="http://127.0.0.1:8080"
+    )
+    token = repo.get_setting("web_token") or ""
+    headers = {"x-jobradar-token": token, "content-type": "application/x-www-form-urlencoded"}
+    assert (
+        client.post(
+            "/jobs/j/resume", content="", headers={"content-type": headers["content-type"]}
+        ).status_code
+        == 403
+    )
+    out = client.post("/jobs/j/resume", content="", headers=headers).json()
+    assert out["ok"] and out["count"] == 0
+    assert client.get("/api/jobs/j/resumes").json() == {"count": 0, "building": True}
+    assert "Building…" in client.get("/jobs/j").text
+
+
+def test_follow_up_draft_on_an_applied_job(repo: Repo, tmp_path: Path, clock: FakeClock) -> None:
+    add(repo, "j", company="Rubrik", role="SDE", status=JobStatus.APPLIED, you=True)
+    add(repo, "n", company="Acme")
+    client = TestClient(
+        create_app(with_storage(tmp_path), repo, clock), base_url="http://127.0.0.1:8080"
+    )
+    page = client.get("/jobs/j").text
+    assert "Follow-up email" in page and "SDE role at Rubrik" in page and "mailto:" in page
+    assert "Follow-up email" not in client.get("/jobs/n").text
+
+
+def test_alert_emails_link_to_the_dashboard(repo: Repo, tmp_path: Path) -> None:
+    from jobradar.sinks.email_notify import build_email, dashboard_link
+
+    add(repo, "j", company="Rubrik")
+    job = repo.get_job("j")
+    assert job is not None
+    msg = build_email([job], "me@x.com", "me@x.com", dashboard=dashboard_link(settings()))
+    assert "http://127.0.0.1:8080/jobs/j" in str(msg.get_body(("plain",)).get_content())  # type: ignore[union-attr]
+    off = with_storage(tmp_path, enabled=False)
+    assert dashboard_link(off) is None

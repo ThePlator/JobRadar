@@ -20,7 +20,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -30,6 +36,7 @@ from jobradar.clock import Clock, utcnow
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
+from jobradar.pipeline.task_types import BUILD_RESUME
 from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.digest import build_digest, gather
@@ -87,11 +94,16 @@ def safe_next(path: str | None) -> str:
 
 
 def create_app(
-    settings: Settings, repo: Repo, clock: Clock = utcnow, queue: TaskQueue | None = None
+    settings: Settings,
+    repo: Repo,
+    clock: Clock = utcnow,
+    queue: TaskQueue | None = None,
+    wake: Callable[[], None] | None = None,
 ) -> FastAPI:
     config = settings.config
     tz = config.notify.tz
     queue = queue or TaskQueue(repo, clock)
+    nudge = wake or (lambda: None)  # inside `jobradar run`: start queued work now
     token = page_token(repo)
     hosts = allowed_hosts(config.web.host)
     app = FastAPI(title="JobRadar", docs_url=None, redoc_url=None, openapi_url=None)
@@ -106,6 +118,10 @@ def create_app(
         response.headers.update(HEADERS)
         if email_csp:
             response.headers["Content-Security-Policy"] = EMAIL_CSP
+        if request.url.path.startswith("/files/") and response.status_code == 200:
+            # A PDF, shown by the browser's own viewer: the page policy can stop that viewer.
+            del response.headers["Content-Security-Policy"]
+            del response.headers["X-Frame-Options"]
         static = request.url.path.startswith("/static/")
         # Static files are versioned by asset(): cache them, but check back before reuse.
         response.headers["Cache-Control"] = "no-cache" if static else "no-store"
@@ -189,7 +205,9 @@ def create_app(
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = views.job_detail(repo, job_id, tz, clock(), config.matching.weights, profile)
+        detail = views.job_detail(
+            repo, job_id, tz, clock(), config.matching.weights, profile, settings
+        )
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
@@ -235,6 +253,7 @@ def create_app(
             raise HTTPException(status_code=404)
         today = clock().astimezone(tz).date()
         outcome = rules.act(repo, queue, job, fields.get("action", ""), today)
+        nudge()
         log.info("your dashboard action", extra={"job_id": job_id[:10], "ok": outcome.ok,
                                                  "action": outcome.action})  # fmt: skip
         return answer(request, outcome, job_id, fields.get("next", ""))
@@ -246,8 +265,49 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404)
         outcome = rules.set_status(repo, queue, job, fields.get("status", ""))
+        nudge()
         log.info("your dashboard status", extra={"job_id": job_id[:10], "status": outcome.after})
         return answer(request, outcome, job_id, fields.get("next", ""))
+
+    # ---- resumes and cover letters ---------------------------------------------------------
+
+    @app.get("/files/{artifact_id}")
+    def file(artifact_id: int, cover: int = 0) -> FileResponse:
+        """A resume (or the cover letter beside it) by its id in the database. The path comes
+        from the database, never the address, and must be a PDF inside storage.local_dir."""
+        artifact = repo.get_artifact(artifact_id)
+        path = views.artifact_file(settings, artifact, bool(cover)) if artifact else None
+        if path is None:
+            raise HTTPException(status_code=404)
+        return FileResponse(path, media_type="application/pdf",
+                            content_disposition_type="inline", filename=path.name)  # fmt: skip
+
+    @app.post("/jobs/{job_id}/resume")
+    async def build_resume(request: Request, job_id: str) -> Response:
+        fields = await checked_form(request)
+        job = repo.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404)
+        if not config.resume.enabled:
+            message, ok = "Resumes are off (resume.enabled in config.yaml).", False
+        else:
+            queue.enqueue(BUILD_RESUME, job.id, {"why": "manual"})
+            nudge()
+            message, ok = f"Building a resume for {views.card(job, tz).role}…", True
+        log.info("your dashboard resume", extra={"job_id": job_id[:10], "ok": ok})
+        if request.headers.get("x-jobradar-token"):
+            return JSONResponse({"ok": ok, "message": message,
+                                 "count": len(repo.artifacts_of(job.id))},
+                                status_code=200 if ok else 409)  # fmt: skip
+        return RedirectResponse(safe_next(fields.get("next")), status_code=303)
+
+    @app.get("/api/jobs/{job_id}/resumes")
+    def resumes(job_id: str) -> JSONResponse:
+        """How many resumes a job has and whether one is being built: the page polls this."""
+        return JSONResponse({
+            "count": len(repo.artifacts_of(job_id)),
+            "building": repo.task_waiting(BUILD_RESUME, job_id),
+        })  # fmt: skip
 
     @app.get("/api/search")
     def api_search(q: str = "") -> JSONResponse:

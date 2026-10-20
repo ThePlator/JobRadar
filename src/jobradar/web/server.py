@@ -1,10 +1,14 @@
-"""Serves the dashboard with Uvicorn on `web.host`, port `web.port` or the next free one."""
+"""Serves the dashboard with Uvicorn on `web.host`, port `web.port` or the next free one:
+on its own (`jobradar web`), or as one more task inside `jobradar run`."""
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import logging
 import socket
+from collections.abc import Callable, Generator
+from typing import Any
 
 from jobradar.config import Settings
 from jobradar.db.repo import Repo
@@ -42,10 +46,27 @@ def free_port(host: str, port: int) -> int:
     )
 
 
-async def serve(settings: Settings, repo: Repo, queue: TaskQueue | None = None) -> None:
+def make_server(
+    settings: Settings,
+    repo: Repo,
+    queue: TaskQueue | None = None,
+    wake: Callable[[], None] | None = None,
+    own_signals: bool = True,
+) -> Any:
+    """A Uvicorn server for the dashboard, its port chosen and logged. `own_signals=False`
+    (inside `jobradar run`) leaves Ctrl+C to JobRadar, which stops it with `should_exit`."""
     import uvicorn
 
     from jobradar.web.app import create_app
+
+    class Server(uvicorn.Server):
+        @contextlib.contextmanager
+        def capture_signals(self) -> Generator[None, None, None]:
+            if own_signals:
+                with super().capture_signals():
+                    yield
+            else:
+                yield
 
     web = settings.config.web
     port = free_port(web.host, web.port)
@@ -54,7 +75,7 @@ async def serve(settings: Settings, repo: Repo, queue: TaskQueue | None = None) 
     host = f"[{web.host}]" if ":" in web.host else web.host
     log.info("Dashboard: http://%s:%d", host, port)
     config = uvicorn.Config(
-        create_app(settings, repo, queue=queue),
+        create_app(settings, repo, queue=queue, wake=wake),
         host=web.host,
         port=port,
         log_level="warning",
@@ -62,4 +83,9 @@ async def serve(settings: Settings, repo: Repo, queue: TaskQueue | None = None) 
         lifespan="off",
         server_header=False,
     )
-    await uvicorn.Server(config).serve()
+    return Server(config)
+
+
+async def serve(settings: Settings, repo: Repo, queue: TaskQueue | None = None) -> None:
+    """`jobradar web`: the dashboard alone, until Ctrl+C."""
+    await make_server(settings, repo, queue).serve()
