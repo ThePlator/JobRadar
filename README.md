@@ -1,22 +1,23 @@
 # JobRadar
 
-**One inbox for every job posted in the Telegram groups and company boards you follow: deduplicated, ranked, and ready to apply.**
+**One inbox for every new job from company career pages, job boards and the Telegram groups you follow: deduplicated, ranked, and ready to apply.**
 
 **Website:** [jobradar.theplator.dev](https://jobradar.theplator.dev/), see how it works and try the post reader in your browser.
 
-JobRadar is an open-source, self-hosted agent. It watches your Telegram job channels and the company job boards you pick, pulls out each job's details (free rules first, an LLM only when needed), scores how well each job fits your profile, emails you only about strong matches you're eligible for, builds a tailored one-page LaTeX resume, and lays everything out on a local dashboard and in Notion. You review and click Submit; JobRadar never applies for you.
+JobRadar is an open-source, self-hosted agent. It reads company career sites directly (Greenhouse, Lever, Ashby, SmartRecruiters, Workday and Oracle boards, plus freehire.me's search across about 90 hiring systems), watches hiring-drive pages and your Telegram job channels, and takes jobs you forward by email. It reads each job page, pulls out each job's details (free rules first, an LLM only when needed), scores how well each job fits your profile, emails you only about strong matches you're eligible for, builds a tailored one-page LaTeX resume, and lays everything out on a local dashboard and in Notion. You review and click Submit; JobRadar never applies for you.
 
-> **Status:** pre-1.0, and I use it every day for my own job search. Working today: Telegram and company-board sources, dedupe, ad and scam filtering, free extraction with a Gemini fallback, the Match Score, email alerts and digests, tailored resumes, follow-up reminders, replies from companies, and a local dashboard. Not done yet: a one-command Docker setup, [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) matching, and running without Notion. See the [roadmap](#roadmap).
+> **Status:** pre-1.0, and I use it every day for my own job search. Working today: company boards, hiring-drive pages, Telegram and email-forward sources, dedupe, ad and scam filtering, free extraction with a Gemini fallback, the Match Score, email alerts and digests, tailored resumes, follow-up reminders, replies from companies, and a local dashboard. Not done yet: a one-command Docker setup, [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) matching, and running without Notion. See the [roadmap](#roadmap).
 
 ---
 
 ## Why
 
-If you are a fresher in India, you probably follow 10 to 50 Telegram and WhatsApp groups that post hundreds of links a day. Most are duplicates, irrelevant, or scams. Good postings get missed, deadlines pass, and every application needs a resume tweak and the same form answers typed again.
+Job hunting means checking dozens of company career pages every day, and if you are a fresher in India, also 10 to 50 Telegram and WhatsApp groups that post hundreds of links a day. Most of those links are duplicates, irrelevant, or scams. Good postings get missed or found days late, deadlines pass, and every application needs a resume tweak and the same form answers typed again.
 
 JobRadar fixes that:
 
-- **Never miss a posting.** Every followed channel is watched in real time, with backfill on first run. Company boards (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle) are read directly every 20 to 30 minutes, so many jobs arrive before any channel reposts them.
+- **Straight from the source.** The company boards you pick are read through their public job APIs every 20 to 30 minutes, so a new posting reaches you minutes after it goes up, not when someone reposts it. `jobradar boards add <careers link>` adds one. Hiring-drive pages are checked every few hours (robots.txt obeyed).
+- **And from the groups.** Telegram channels are watched in real time, with backfill on first run, and you can forward any job by email.
 - **One job, one row.** A job posted in 10 groups, or one role posted for three cities, shows up once, with a "Seen In" count.
 - **Ranked by fit.** Each job is checked against your profile: are you eligible, is it a role you want, do your skills cover it, does the location work. Code turns the answers into a 0–100 Match Score with a reason: *Good fit · 82 · eligible ✓ · Python, SQL ✓ · missing Docker · Remote ✓*.
 - **Free first.** Most details come from the job page's structured data and the post's own "Company: … Role: …" lines. An LLM is only called when those fall short: 138 of the first 181 Telegram jobs needed no AI call at all.
@@ -63,7 +64,7 @@ flowchart TB
     N -- "Shortlisted / Applied / …" --> D
 ```
 
-1. **Ingest:** messages from your channels and new board postings are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears in Notion within a second.
+1. **Ingest:** new board postings, page changes and channel messages are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears in Notion within a second.
 2. **Extract:** the job page is fetched, and details are filled cheapest first: structured data on the page, the post's own labels, then an LLM only if role or company is still missing. Board postings that aren't in India, aren't tech or are senior are skipped before any AI call.
 3. **Match:** one LLM request per job answers eligibility, role fit, skills coverage, seniority and location, each with a confidence. Code combines them with your weights into a Match Score and a reason line. Without an LLM key, a skills-overlap rule scores instead (and never alerts).
 4. **Decide:** confidently ineligible jobs are hidden with the reason; likely scams are flagged and never emailed; uncertain matches go to the Inbox marked "unsure"; strong, eligible, fresh matches also send an email. The first alert goes out about 30 seconds after the job is matched.
@@ -116,7 +117,7 @@ Edit `config/config.yaml` and `config/profile.yaml`. `uv run jobradar chats` lis
 uv run jobradar run
 ```
 
-Alerts start in **dry run**: they're saved to `data/alerts/` instead of sent, so you can check them for a few days before turning email on. To keep it running after you close the terminal, see [docs/COMMANDS.md](docs/COMMANDS.md#start-stop-restart). A Docker image is planned for v1.0.
+Telegram API keys are needed to start for now, even if you only want company boards; making each source optional is on the roadmap. Alerts start in **dry run**: they're saved to `data/alerts/` instead of sent, so you can check them for a few days before turning email on. To keep it running after you close the terminal, see [docs/COMMANDS.md](docs/COMMANDS.md#start-stop-restart). A Docker image is planned for v1.0.
 
 ## Configuration
 
@@ -221,7 +222,7 @@ Most details come from free rules, and dedupe runs before any model call. With G
 | **v0.2.5 Statuses and feeds** | Statuses from Notion and email buttons, company boards, still-open check, closing reminders | ✓ |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, grounding checker, check as hiring software reads it, auto + Shortlisted triggers | ✓ |
 | **v0.4 Apply kit** | Form answers, cover letter, forward-to-add, follow-ups, replies from companies | ✓ |
-| **v0.5 Dashboard** | Local web dashboard; Notion becomes optional | in progress |
+| **v0.5 Dashboard** | Local web dashboard; Notion and Telegram become optional | in progress |
 | **Matching with Jev** | [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) answers the match questions with calibrated confidence, beside the LLM first | planned |
 | **Text-only posts** | Posts without links, poster OCR | planned |
 | **v1.0 Public release** | Docker image, PyPI (`jobradar-agent`), setup guide; WhatsApp as experimental | planned: new user running in under 15 minutes |
