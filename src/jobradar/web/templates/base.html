@@ -19,6 +19,7 @@
     <a href="/" {% if nav == 'today' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-today"/></svg><span>Today</span>{% if ov.today %}<b class="badge hot">{{ ov.today }}</b>{% endif %}</a>
     <a href="/applications" {% if nav == 'applications' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-board"/></svg><span>Applications</span><b class="badge">{{ ov.active }}</b></a>
     <a href="/jobs" {% if nav == 'jobs' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-list"/></svg><span>All jobs</span><b class="badge">{{ ov.jobs }}</b></a>
+    <a href="/digest" {% if nav == 'digest' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-mail"/></svg><span>Digest</span></a>
   </nav>
   <div class="agent {{ 'awake' if ov.awake else 'asleep' }}">
     <button class="agent-blip blip-btn" type="button" aria-label="Poke Blip">
@@ -37,7 +38,7 @@
 {% block main %}{% endblock %}
 </main>
 <footer>Read-only for now: change a status with the buttons in Blip's emails, or in Notion, then reload.
-  <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> go to a page</span></footer>
+  <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> <kbd>d</kbd> go to a page</span></footer>
 <dialog class="palette" id="palette" aria-label="Jump to a job">
   <form method="dialog" class="palette-box">
     <div class="palette-input"><svg class="i"><use href="#i-search"/></svg><input id="palette-q" type="search" placeholder="Company or role…" autocomplete="off" aria-controls="palette-list"><kbd>Esc</kbd></div>

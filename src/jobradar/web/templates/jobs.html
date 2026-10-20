@@ -4,7 +4,7 @@
 {% block main %}
 <div class="head">
   <h1>All jobs</h1>
-  <p class="lede">{{ found.total }} job{{ '' if found.total == 1 else 's' }}{% if found.words %} matching “{{ found.words }}”{% endif %}, newest first.</p>
+  <p class="lede">{{ found.total }} job{{ '' if found.total == 1 else 's' }}{% if found.words %} matching “{{ found.words }}”{% endif %}, {% for v, t in sorts if v == found.sort %}{{ t|lower }}{% endfor %}.</p>
 </div>
 <form class="filters" method="get" action="/jobs" role="search">
   <div class="search">
@@ -17,6 +17,10 @@
   <select id="show" name="show">
     {% for value, text in choices %}<option value="{{ value }}" {% if value == found.show %}selected{% endif %}>{{ text }}</option>{% endfor %}
   </select>
+  <label class="sr" for="sort-all">Sort</label>
+  <select id="sort-all" name="sort" data-autosubmit>
+    {% for value, text in sorts %}<option value="{{ value }}" {% if value == found.sort %}selected{% endif %}>{{ text }}</option>{% endfor %}
+  </select>
   <button type="submit">Filter</button>
 </form>
 {% if found.cards %}
@@ -25,9 +29,9 @@
 </ul>
 {% if found.pages > 1 %}
 <nav class="pager" aria-label="Pages of jobs">
-  {% if found.page > 1 %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;page={{ found.page - 1 }}">← Newer</a>{% else %}<span></span>{% endif %}
+  {% if found.page > 1 %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;sort={{ found.sort }}&amp;page={{ found.page - 1 }}">← Previous</a>{% else %}<span></span>{% endif %}
   <span>Page {{ found.page }} of {{ found.pages }}</span>
-  {% if found.page < found.pages %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;page={{ found.page + 1 }}">Older →</a>{% else %}<span></span>{% endif %}
+  {% if found.page < found.pages %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;sort={{ found.sort }}&amp;page={{ found.page + 1 }}">Next →</a>{% else %}<span></span>{% endif %}
 </nav>
 {% endif %}
 {% else %}

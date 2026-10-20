@@ -796,15 +796,16 @@ class Repo:
             rows = c.execute(text("SELECT status, count(*) FROM job GROUP BY status")).all()
         return {str(r[0]): int(r[1]) for r in rows}
 
-    def status_changes_since(self, since: str) -> dict[str, int]:
-        """How many jobs you moved into each status since this time."""
+    def status_changes_since(self, since: str, until: str | None = None) -> dict[str, int]:
+        """How many jobs you moved into each status since this time (and before `until`)."""
         with self._tx() as c:
             rows = c.execute(
                 text(
                     "SELECT status, count(DISTINCT job_id) FROM status_change "
-                    "WHERE changed_at >= :since GROUP BY status"
+                    "WHERE changed_at >= :since AND (:until IS NULL OR changed_at < :until) "
+                    "GROUP BY status"
                 ),
-                {"since": since},
+                {"since": since, "until": until},
             ).all()
         return {str(r[0]): int(r[1]) for r in rows}
 
@@ -860,15 +861,15 @@ class Repo:
             ).all()
         return [str(r[0]) for r in rows]
 
-    def alerts_sent_since(self, since: str) -> int:
-        """Alerts sent (or previewed in a dry run) since this time."""
+    def alerts_sent_since(self, since: str, until: str | None = None) -> int:
+        """Alerts sent (or previewed in a dry run) since this time (and before `until`)."""
         with self._tx() as c:
             row = c.execute(
                 text(
                     "SELECT count(*) FROM alert WHERE outcome IN ('sent', 'dry_run') "
-                    "AND sent_at >= :since"
+                    "AND sent_at >= :since AND (:until IS NULL OR sent_at < :until)"
                 ),
-                {"since": since},
+                {"since": since, "until": until},
             ).one()
         return int(row[0])
 
@@ -890,9 +891,11 @@ class Repo:
 
     # ---- digest -------------------------------------------------------------------------------
 
-    def jobs_created_since(self, since: str) -> list[Job]:
+    def jobs_created_since(self, since: str, until: str | None = None) -> list[Job]:
         with Session(self.engine) as s:
             query = select(Job).where(col(Job.created_at) >= since)
+            if until is not None:
+                query = query.where(col(Job.created_at) < until)
             return list(s.exec(query))
 
     def jobs_you_moved_to(self, statuses: list[JobStatus]) -> list[Job]:
@@ -948,10 +951,10 @@ class Repo:
             return list(s.exec(query))
 
     def search_jobs(
-        self, statuses: list[str] | None, words: str, limit: int, offset: int
+        self, statuses: list[str] | None, words: str, limit: int, offset: int, order: str = "new"
     ) -> tuple[list[Job], int]:
-        """A page of jobs (newest first) in these statuses (None: any) whose company or role
-        contains `words`, and how many match in all."""
+        """A page of jobs in these statuses (None: any) whose company or role contains `words`,
+        and how many match in all. `order`: "new" (newest first), "old" or "score"."""
         where: list[Any] = []
         if statuses is not None:
             where.append(col(Job.status).in_(statuses))
@@ -962,10 +965,12 @@ class Repo:
             )
         with Session(self.engine) as s:
             total = s.exec(select(func.count()).select_from(Job).where(*where)).one()
-            query = (
-                select(Job).where(*where).order_by(col(Job.created_at).desc(), col(Job.id))
-                .limit(limit).offset(offset)
-            )  # fmt: skip
+            by: list[Any] = [col(Job.created_at).desc(), col(Job.id)]  # newest first
+            if order == "old":
+                by = [col(Job.created_at), col(Job.id)]
+            elif order == "score":
+                by = [col(Job.score).desc().nulls_last(), col(Job.created_at).desc()]
+            query = select(Job).where(*where).order_by(*by).limit(limit).offset(offset)
             return list(s.exec(query)), int(total)
 
     def last_activity(self) -> str | None:

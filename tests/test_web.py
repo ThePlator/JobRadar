@@ -319,3 +319,44 @@ def test_today_cards_carry_what_the_toolbar_sorts_by(
     page = client.get("/").text
     assert 'data-filter="internship"' in page and "data-sort" in page and "data-find" in page
     assert 'data-text="sde intern rubrik' in page and 'data-closes="1"' in page  # tomorrow
+
+
+# ---- the digest page and sorting by time ------------------------------------------------------
+
+
+def test_digest_windows_follow_the_digest_times(clock: FakeClock) -> None:
+    now = clock().astimezone(TZ)  # Thu 8 Oct, 14:30 IST; digests at 09:00 and 19:00
+    w = views.windows(now, ["09:00", "19:00"])
+    assert (w[0].key, w[0].label, w[0].current) == ("now", "So far", True)
+    assert w[0].since.hour == 9 and w[0].until == now
+    assert (w[1].key, w[1].label) == ("2026-10-08-0900", "Morning · 8 Oct")
+    assert (w[1].since.day, w[1].since.hour, w[2].label) == (7, 19, "Evening · 7 Oct")
+    assert len(w) == views.DIGEST_WINDOWS
+
+
+def test_an_earlier_digest_leaves_out_what_came_after(
+    client: TestClient, repo: Repo, clock: FakeClock
+) -> None:
+    clock.now = clock.now.replace(hour=2)  # 07:30 IST: in the window before the 09:00 digest
+    add(repo, "early", company="Rubrik", score=90)
+    clock.now = clock.now.replace(hour=5)  # 10:30 IST: after it
+    add(repo, "late", company="Acme", score=95)
+    morning = views.digest(repo, settings(), clock(), "", None)  # default: the latest sent
+    assert morning.title == "Morning digest" and [c.id for c in morning.inbox] == ["early"]
+    so_far = views.digest(repo, settings(), clock(), "now", None)
+    assert so_far.title == "Next digest, so far" and [c.id for c in so_far.inbox] == ["late"]
+    page = client.get("/digest")
+    assert page.status_code == 200 and "Rubrik" in page.text and "Acme" not in page.text
+    email = client.get("/digest/email", params={"w": "now"})
+    assert "Acme" in email.text and "Rubrik" not in email.text
+    assert email.headers["content-security-policy"].startswith("default-src 'none'")
+    assert "script" not in email.headers["content-security-policy"]
+
+
+def test_all_jobs_sort_by_time(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "first", score=50)
+    clock.advance(60)
+    add(repo, "second", score=99)
+    order = lambda sort: [c.id for c in views.all_jobs(repo, TZ, "jobs", "", 1, sort=sort).cards]  # noqa: E731
+    assert order("new") == ["second", "first"] and order("old") == ["first", "second"]
+    assert order("score") == ["second", "first"] and order("nonsense") == order("new")
