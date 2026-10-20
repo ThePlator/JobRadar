@@ -24,7 +24,7 @@
 {% set icons = {'shortlisted': 'i-star', 'applied': 'i-send', 'interview': 'i-chat', 'offer': 'i-trophy', 'rejected': 'i-x'} %}
 <div class="board" data-board>
 {% for col in columns %}
-  <section class="col col-{{ col.key }}" data-drop="{{ col.key }}" aria-labelledby="col-{{ col.key }}">
+  <section class="col col-{{ col.key }}{{ ' is-empty' if not col.cards else '' }}{{ ' is-busy' if col.cards|length > 2 else '' }}" data-drop="{{ col.key }}" aria-labelledby="col-{{ col.key }}">
     <header class="col-head">
       <span class="col-icon"><svg class="i"><use href="#{{ icons[col.key] }}"/></svg></span>
       <h2 id="col-{{ col.key }}">{{ col.title }}</h2>
@@ -51,7 +51,7 @@
         {% endif %}
         {% if t.next_nudge %}
         <div class="nudge {{ 'due' if t.nudge_in == 0 else '' }}">
-          <p><span>{% if t.nudge_in == 0 %}Follow-up draft due now{% elif t.nudge_in == 1 %}Follow-up draft tomorrow{% else %}Follow-up draft in {{ t.nudge_in }} days{% endif %}</span><span class="faint">{{ t.next_nudge }}</span></p>
+          <p><span>{% if t.nudge_in == 0 %}Follow-up due now{% elif t.nudge_in == 1 %}Follow-up tomorrow{% else %}Follow-up in {{ t.nudge_in }} days{% endif %}</span><span class="faint">{{ t.next_nudge }}</span></p>
           {{ bar(t.waited, 'fair' if t.nudge_in == 0 else '') }}
         </div>
         {% endif %}
