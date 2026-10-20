@@ -9,6 +9,7 @@ open, so requests naming any other host are refused (that stops a site posing as
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,13 @@ HEADERS = {
 }
 
 
+def asset(path: str) -> str:
+    """'/static/app.js?v=3f9c1a2b7d': a new version of the file gets a new address, so the
+    browser never keeps running an old one after an update."""
+    digest = hashlib.sha256((HERE / "static" / path).read_bytes()).hexdigest()[:10]
+    return f"/static/{path}?v={digest}"
+
+
 def allowed_hosts(host: str) -> list[str]:
     """Host names a request may carry: this computer's own, and the configured one."""
     return sorted({"127.0.0.1", "localhost", "[::1]", host})
@@ -56,14 +64,15 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
     ) -> Response:
         response = await call_next(request)
         response.headers.update(HEADERS)
-        if not request.url.path.startswith("/static/"):
-            response.headers["Cache-Control"] = "no-store"
+        static = request.url.path.startswith("/static/")
+        # Static files are versioned by asset(): cache them, but check back before reuse.
+        response.headers["Cache-Control"] = "no-cache" if static else "no-store"
         return response
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     good = config.scoring.alert_above
-    templates.env.globals.update(good=good, fair=config.scoring.hide_below)
+    templates.env.globals.update(good=good, fair=config.scoring.hide_below, asset=asset)
     profile = your_profile(settings)
     basics = profile.get("basics") if profile else None
     name = str(basics.get("name") or "") if isinstance(basics, dict) else ""

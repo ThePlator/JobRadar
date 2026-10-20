@@ -1,4 +1,5 @@
 import json
+import re
 import socket
 from typing import Any
 
@@ -291,3 +292,30 @@ def test_palette_search(client: TestClient, repo: Repo) -> None:
     jobs = client.get("/api/search", params={"q": "rub"}).json()["jobs"]
     assert jobs == [{"id": "r", "role": "SDE", "company": "Rubrik", "score": 90, "status": "New"}]
     assert client.get("/api/search").json() == {"jobs": []}
+
+
+def test_static_files_get_a_new_address_when_they_change(client: TestClient) -> None:
+    page = client.get("/").text
+    js = re.search(r'src="(/static/app\.js\?v=[0-9a-f]{10})"', page)
+    css = re.search(r'href="(/static/app\.css\?v=[0-9a-f]{10})"', page)
+    assert js and css  # the browser can't keep running an old app.js after an update
+    assert client.get(js.group(1)).headers["cache-control"] == "no-cache"
+
+
+def test_today_cards_carry_what_the_toolbar_sorts_by(
+    client: TestClient, repo: Repo, clock: FakeClock
+) -> None:
+    add(repo, "a", company="Rubrik", role="SDE Intern", deadline="2026-10-09")
+    clock.advance(7 * 3600)
+    add(repo, "b", company="Acme", score=80)
+    c = {x.id: x for x in views.today(repo, 75, clock(), TZ)}
+    assert (c["a"].fresh, c["a"].age, c["b"].fresh, c["b"].age) == (
+        False,
+        "7 h ago",
+        True,
+        "just now",
+    )
+    assert c["a"].url == "https://acme.com/jobs/a"
+    page = client.get("/").text
+    assert 'data-filter="internship"' in page and "data-sort" in page and "data-find" in page
+    assert 'data-text="sde intern rubrik' in page and 'data-closes="1"' in page  # tomorrow

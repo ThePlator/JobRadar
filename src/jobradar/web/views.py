@@ -38,6 +38,7 @@ LABELS = {
     JobStatus.EXTRACTED: "Being scored",
 }
 TODAY_DAYS = 3  # Today lists good matches first seen this recently
+FRESH_HOURS = 6  # a job first seen this recently is marked "new"
 PER_PAGE = 50
 
 # The Applications board: (column, the statuses in it).
@@ -139,6 +140,10 @@ class Card:
     days: int | None  # days since you last set its status
     tags: str  # quick-filter tags on Today: "eligible remote internship closing"
     closes_in: int | None  # days until the deadline (negative: closed), None: no deadline
+    url: str | None  # the job's own page
+    seen_at: str  # first seen, ISO, for sorting
+    age: str  # "3 h ago"
+    fresh: bool  # first seen in the last few hours
 
 
 def initials(name: str) -> str:
@@ -169,7 +174,7 @@ def _tags(job: Job, posting: JobPosting | None, reason: Reason, closes_in: int |
 
 QUICK_FILTERS = [
     ("all", "All"), ("eligible", "Eligible"), ("remote", "Remote or hybrid"),
-    ("internship", "Internships"), ("closing", "Closing this week"),
+    ("internship", "Internships"), ("closing", "Closing soon"),
 ]  # fmt: skip
 
 
@@ -203,6 +208,10 @@ def card(job: Job, tz: ZoneInfo, now: datetime | None = None) -> Card:
         days=days,
         tags=" ".join(_tags(job, posting, reason, closes_in)),
         closes_in=closes_in,
+        url=job.canonical_url,
+        seen_at=job.created_at,
+        age=ago(job.created_at, now) if now is not None else "",
+        fresh=now is not None and now - _at(job.created_at) < timedelta(hours=FRESH_HOURS),
     )
 
 
