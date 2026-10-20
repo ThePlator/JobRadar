@@ -101,8 +101,14 @@ class DigestData:
         return not (self.new or self.closing or self.failed)
 
 
-def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> DigestData:
-    jobs = repo.jobs_created_since(to_iso(since))
+def gather(
+    repo: Repo, settings: Settings, since: datetime, until: datetime, bounded: bool = False
+) -> DigestData:
+    """What happened between `since` and `until`. `bounded`: leave out anything after
+    `until` (an earlier digest, seen again on the dashboard); the email digest runs at
+    `until`, so nothing comes after it."""
+    end = to_iso(until) if bounded else None
+    jobs = repo.jobs_created_since(to_iso(since), end)
     data = DigestData(since=since, until=until, new=len(jobs))
     data.inbox = sorted(
         (j for j in jobs if j.status == JobStatus.NEW.value),
@@ -116,14 +122,14 @@ def gather(repo: Repo, settings: Settings, since: datetime, until: datetime) -> 
     data.closing = repo.jobs_closing(
         today.isoformat(), (today + timedelta(days=CLOSING_DAYS)).isoformat()
     )
-    data.alerts = repo.alerts_sent_since(to_iso(since))
+    data.alerts = repo.alerts_sent_since(to_iso(since), end)
     data.failed = repo.task_counts()[TaskStatus.FAILED]
     midnight = until.replace(hour=0, minute=0, second=0, microsecond=0)
     data.spent_inr = repo.llm_spend_since(to_iso(midnight))
     data.budget_inr = settings.config.llm.daily_budget_inr
     counts = repo.status_counts()
     data.pipeline = {s: counts.get(s, 0) for s in _PIPELINE}
-    data.moved = repo.status_changes_since(to_iso(since))
+    data.moved = repo.status_changes_since(to_iso(since), end)
     for job in data.inbox:
         board = next((s for s in repo.job_sightings(job.id) if s.platform == "board"), None)
         if board is not None:

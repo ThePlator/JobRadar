@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_macros.html" import row, bar, ring, avatar %}
+{% block title %}Digest · JobRadar{% endblock %}
+{% block main %}
+<div class="head digest-head">
+  <div>
+    <p class="eyebrow">{% if d.window.current %}Digest so far · goes out at the next digest time{% else %}Digest · as emailed to you{% endif %}</p>
+    <h1>{{ d.title }}</h1>
+    <p class="lede">{{ d.span }}</p>
+  </div>
+  <a class="btn quiet" href="/digest/email?w={{ d.window.key }}" target="_blank" rel="noopener">See it as emailed <svg class="i xs"><use href="#i-out"/></svg></a>
+</div>
+
+<nav class="windows" aria-label="Digests">
+  {% for w in d.windows %}<a href="/digest?w={{ w.key }}" {% if w.key == d.window.key %}aria-current="page"{% endif %}>{% if w.current %}<i class="dot live"></i>{% endif %}{{ w.label }}</a>{% endfor %}
+</nav>
+
+{% if not d.new and not d.closing %}
+<div class="empty big"><svg class="blip sleep empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><div><h1>A quiet one</h1><p>No new jobs and nothing closing in this window, so no digest went out. {% if not d.window.current %}<a href="/digest">See what's new now</a>.{% endif %}</p></div></div>
+{% else %}
+
+<div class="take digest-take">
+  <svg class="blip take-blip happy" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+  <div class="take-text">
+    <p class="take-label">Blip's summary</p>
+    <p>{{ d.new }} new job{{ '' if d.new == 1 else 's' }}{% if d.strong %}, {{ d.strong }} scored {{ good }} or more{% endif %}{% if d.hidden_total %}, {{ d.hidden_total }} hidden{% endif %}.
+      {% if d.alerts %}I emailed you {{ d.alerts }} alert{{ '' if d.alerts == 1 else 's' }}.{% endif %}
+      {% if d.closing %}{{ d.closing|length }} job{{ '' if d.closing|length == 1 else 's' }} you can still apply to close{{ 's' if d.closing|length == 1 else '' }} soon.{% endif %}</p>
+    {% if d.pipeline %}<p class="faint">{{ d.pipeline }}</p>{% endif %}
+  </div>
+</div>
+
+<section class="stats five" aria-label="This digest in numbers">
+  <div class="stat"><b>{{ d.new }}</b><span>new jobs</span></div>
+  <div class="stat"><b>{{ d.strong }}</b><span>scored {{ good }}+</span></div>
+  <div class="stat"><b>{{ d.inbox|length }}</b><span>still in your inbox</span></div>
+  <div class="stat"><b>{{ d.alerts }}</b><span>alerts emailed</span></div>
+  <div class="stat {{ 'warn' if d.closing else '' }}"><b>{{ d.closing|length }}</b><span>closing soon</span></div>
+</section>
+
+<div class="digest-grid">
+  <section class="digest-main">
+    <h2>New jobs, best first</h2>
+    {% if d.inbox %}
+    <ul class="rows">{% for c in d.inbox %}{{ row(c, with_status=c.status != 'new') }}{% endfor %}</ul>
+    {% else %}<p class="faint">Nothing new is still open in your inbox.</p>{% endif %}
+  </section>
+
+  <aside class="digest-side">
+    {% if d.closing %}
+    <section class="panel">
+      <h2><svg class="i xs"><use href="#i-clock"/></svg>Closing soon</h2>
+      <ul class="mini">{% for c in d.closing %}<li>{{ avatar(c, 'sm') }}<a href="/jobs/{{ c.id }}"><b>{{ c.role }}</b><span>{{ c.company }}</span></a><span class="due soon">{{ c.closes }}</span></li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    {% if d.boards %}
+    <section class="panel">
+      <h2><svg class="i xs"><use href="#i-board"/></svg>From company boards</h2>
+      <ul class="mini">{% for b in d.boards %}<li>{{ avatar(b.card, 'sm') }}<a href="/jobs/{{ b.card.id }}"><b>{{ b.card.role }}</b><span>{{ b.board }}</span></a>{{ ring(b.card.score, 'sm') }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    {% if d.gaps %}
+    <section class="panel">
+      <h2>Skills you keep missing</h2>
+      <p class="faint small">In {{ d.gap_jobs }} good matches over the 7 days to this digest.</p>
+      <ul class="gaps">{% set top = d.gaps[0].jobs %}{% for g in d.gaps %}<li><span>{{ g.name }}</span><b>{{ g.jobs }}</b>{{ bar((g.jobs / top * 100)|round, 'fair') }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    {% if d.hidden %}
+    <section class="panel">
+      <h2>Hidden, so you didn't have to look</h2>
+      <ul class="chips">{% for kind, n in d.hidden %}<li>{{ n }} {{ kind }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    <section class="panel status-panel">
+      <h2>Behind the scenes</h2>
+      <p class="small">AI today: about {{ d.spent }} daily budget (list price).</p>
+      {% if d.failed %}<p class="small due over">{{ d.failed }} task{{ '' if d.failed == 1 else 's' }} failed: run <code>jobradar retry --failed</code>.</p>{% else %}<p class="small faint">No failed tasks.</p>{% endif %}
+    </section>
+  </aside>
+</div>
+{% endif %}
+{% endblock %}

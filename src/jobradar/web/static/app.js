@@ -88,13 +88,14 @@
       const fromHash = window.location.hash.slice(1);
       if (NAMES[fromHash]) state.tag = fromHash;
       if (!NAMES[state.tag]) state.tag = "all";
-      sort.value = ["score", "new", "closes"].includes(state.sort) ? state.sort : "score";
+      sort.value = ["score", "new", "old", "closes"].includes(state.sort) ? state.sort : "score";
 
       const has = (row, tag) => tag === "all" || (row.dataset.tags || "").split(" ").includes(tag);
       const matches = (row, words) => words.every((w) => row.dataset.text.includes(w));
       const order = {
         score: (a, b) => b.dataset.score - a.dataset.score || b.dataset.seen.localeCompare(a.dataset.seen),
         new: (a, b) => b.dataset.seen.localeCompare(a.dataset.seen),
+        old: (a, b) => a.dataset.seen.localeCompare(b.dataset.seen),
         closes: (a, b) => a.dataset.closes - b.dataset.closes || b.dataset.score - a.dataset.score,
       };
 
@@ -217,7 +218,7 @@
       if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || palette?.open) return;
       if (g) {
         g = false;
-        const to = { t: "/", a: "/applications", j: "/jobs" }[e.key];
+        const to = { t: "/", a: "/applications", j: "/jobs", d: "/digest" }[e.key];
         if (to) { e.preventDefault(); window.location.href = to; }
         return;
       }
@@ -232,6 +233,10 @@
         const row = rows()[at];
         if (row?.dataset.href) window.location.href = row.dataset.href;
       }
+    });
+    // All jobs: changing the sort or Show applies it straight away
+    document.querySelectorAll("[data-autosubmit], #show").forEach((el) => {
+      el.addEventListener("change", () => el.form?.requestSubmit());
     });
     if (window.location.hash === "#search") document.getElementById("q")?.focus();
   });

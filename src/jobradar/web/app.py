@@ -26,6 +26,7 @@ from jobradar.clock import Clock, utcnow
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import Repo
 from jobradar.profile import load_profile
+from jobradar.sinks.digest import build_digest, gather
 from jobradar.web import views
 
 HERE = Path(__file__).parent
@@ -38,6 +39,12 @@ HEADERS = {
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
 }
+
+
+EMAIL_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+)
 
 
 def asset(path: str) -> str:
@@ -63,7 +70,10 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         response = await call_next(request)
+        email_csp = response.headers.get("Content-Security-Policy") == EMAIL_CSP
         response.headers.update(HEADERS)
+        if email_csp:
+            response.headers["Content-Security-Policy"] = EMAIL_CSP
         static = request.url.path.startswith("/static/")
         # Static files are versioned by asset(): cache them, but check back before reuse.
         response.headers["Cache-Control"] = "no-cache" if static else "no-store"
@@ -115,9 +125,32 @@ def create_app(settings: Settings, repo: Repo, clock: Clock = utcnow) -> FastAPI
                       funnel=views.funnel(repo, good))  # fmt: skip
 
     @app.get("/jobs", response_class=HTMLResponse)
-    def jobs(request: Request, show: str = "jobs", q: str = "", page: int = 1) -> HTMLResponse:
-        found = views.all_jobs(repo, tz, show, q, page, clock())
-        return render(request, "jobs.html", "jobs", found=found, choices=views.SHOW_CHOICES)
+    def jobs(
+        request: Request, show: str = "jobs", q: str = "", page: int = 1, sort: str = "new"
+    ) -> HTMLResponse:
+        found = views.all_jobs(repo, tz, show, q, page, clock(), sort)
+        return render(request, "jobs.html", "jobs", found=found, choices=views.SHOW_CHOICES,
+                      sorts=views.SORTS)  # fmt: skip
+
+    @app.get("/digest", response_class=HTMLResponse)
+    def digest(request: Request, w: str = "") -> HTMLResponse:
+        page = views.digest(repo, settings, clock(), w, profile)
+        return render(request, "digest.html", "digest", d=page)
+
+    @app.get("/digest/email", response_class=HTMLResponse)
+    def digest_email(w: str = "") -> HTMLResponse:
+        """The digest exactly as the email looks. Email HTML is styled inline, so this one
+        page may use inline styles; it still runs no script and loads nothing."""
+        notify = config.notify
+        local = clock().astimezone(tz)
+        options = views.windows(local, notify.digest_times)
+        window = next((x for x in options if x.key == w), options[1])
+        data = gather(repo, settings, window.since, window.until, bounded=not window.current)
+        sender = settings.secrets.email_address or "jobradar@localhost"
+        msg = build_digest(data, sender, sender, settings.secrets.notion_database_id)
+        part = msg.get_body(("html",))
+        html = str(part.get_content()) if part is not None else "<p>No HTML part.</p>"
+        return HTMLResponse(html, headers={"Content-Security-Policy": EMAIL_CSP})
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
