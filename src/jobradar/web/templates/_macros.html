@@ -33,21 +33,33 @@
 {%- endmacro %}
 
 {% macro row(c, with_status=false) -%}
-<li class="row" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}">
+{%- set tier = 'none' if c.score is none else ('good' if c.score >= good else ('fair' if c.score >= fair else 'poor')) -%}
+<li class="row tier-{{ tier }}" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}"
+    data-score="{{ c.score if c.score is not none else -1 }}" data-seen="{{ c.seen_at }}"
+    data-closes="{{ c.closes_in if c.closes_in is not none and c.closes_in >= 0 else 9999 }}"
+    data-text="{{ (c.role ~ ' ' ~ c.company ~ ' ' ~ c.place)|lower }}">
   {{ avatar(c) }}
   <div class="row-main">
-    <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>
+    <div class="row-top">
+      <a class="row-title" href="/jobs/{{ c.id }}">{{ c.role }}</a>
+      {% if c.fresh %}<span class="new-badge">New</span>{% endif %}
+      {% if with_status %}{{ status(c) }}{% endif %}
+    </div>
     <p class="meta">
       {% if c.company %}<b>{{ c.company }}</b>{% endif %}
       {% if c.place %}<span><svg class="i xs"><use href="#i-pin"/></svg>{{ c.place }}</span>{% endif %}
-      {% if c.closes %}<span class="closes"><svg class="i xs"><use href="#i-clock"/></svg>closes {{ c.closes }}</span>{% endif %}
-      <span class="faint">seen {{ c.seen }}</span>
+      {% set n = c.closes_in %}
+      {% if n is not none and n >= 0 %}<span class="due {{ 'soon' if n <= 3 else '' }}"><svg class="i xs"><use href="#i-clock"/></svg>{% if n == 0 %}closes today{% elif n == 1 %}closes tomorrow{% else %}closes in {{ n }} days{% endif %}</span>{% elif c.closes %}<span class="due over">closed {{ c.closes }}</span>{% endif %}
     </p>
     {{ reasons(c.reason) }}
   </div>
   <div class="row-end">
-    {% if with_status %}{{ status(c) }}{% endif %}
     {{ ring(c.score) }}
+    <span class="age" title="First seen {{ c.seen }}">{{ c.age or c.seen }}</span>
+  </div>
+  <div class="row-actions">
+    {% if c.url %}<a class="act" href="{{ c.url }}" target="_blank" rel="noopener noreferrer" title="Open the job's own page"><svg class="i xs"><use href="#i-out"/></svg><span>Open job</span></a>{% endif %}
+    <a class="act" href="/jobs/{{ c.id }}" title="Everything JobRadar knows about it"><span>Details</span><svg class="i xs"><use href="#i-arrow"/></svg></a>
   </div>
 </li>
 {%- endmacro %}

@@ -57,22 +57,8 @@
       });
     });
 
-    // ---- quick filters (Today) ----
     const list = document.querySelector("[data-list]");
     const rows = () => [...(list?.querySelectorAll(".row") ?? [])].filter((r) => !r.hidden);
-    const count = document.querySelector("[data-count]");
-    document.querySelectorAll("[data-filter]").forEach((pill) => {
-      pill.addEventListener("click", () => {
-        const tag = pill.dataset.filter;
-        document.querySelectorAll("[data-filter]").forEach((p) => p.setAttribute("aria-pressed", String(p === pill)));
-        list?.querySelectorAll(".row").forEach((r) => {
-          r.hidden = tag !== "all" && !(r.dataset.tags || "").split(" ").includes(tag);
-        });
-        if (count) count.textContent = `${rows().length} shown`;
-        select(-1);
-      });
-    });
-
     // ---- j / k / Enter on lists ----
     let at = -1;
     const select = (i) => {
@@ -84,6 +70,79 @@
         all[at].scrollIntoView({ block: "nearest", behavior: "smooth" });
       }
     };
+
+    // ---- Today: filter, find and sort, all at once ----
+    const toolbar = document.querySelector("[data-toolbar]");
+    if (toolbar && list) {
+      const all = [...list.querySelectorAll(".row")];
+      const pills = [...toolbar.querySelectorAll("[data-filter]")];
+      const find = toolbar.querySelector("[data-find]");
+      const sort = toolbar.querySelector("[data-sort]");
+      const shown = document.querySelector("[data-count]");
+      const none = document.querySelector("[data-none]");
+      const why = document.querySelector("[data-none-why]");
+      const NAMES = Object.fromEntries(pills.map((p) => [p.dataset.filter, p.querySelector("span").textContent]));
+      const SAVE = "jobradar-today";
+      const state = { tag: "all", sort: "score" };
+      try { Object.assign(state, JSON.parse(sessionStorage.getItem(SAVE) || "{}")); } catch { /* fresh */ }
+      const fromHash = window.location.hash.slice(1);
+      if (NAMES[fromHash]) state.tag = fromHash;
+      if (!NAMES[state.tag]) state.tag = "all";
+      sort.value = ["score", "new", "closes"].includes(state.sort) ? state.sort : "score";
+
+      const has = (row, tag) => tag === "all" || (row.dataset.tags || "").split(" ").includes(tag);
+      const matches = (row, words) => words.every((w) => row.dataset.text.includes(w));
+      const order = {
+        score: (a, b) => b.dataset.score - a.dataset.score || b.dataset.seen.localeCompare(a.dataset.seen),
+        new: (a, b) => b.dataset.seen.localeCompare(a.dataset.seen),
+        closes: (a, b) => a.dataset.closes - b.dataset.closes || b.dataset.score - a.dataset.score,
+      };
+
+      const apply = (animate) => {
+        const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+        const found = all.filter((r) => matches(r, words));
+        pills.forEach((p) => {
+          const tag = p.dataset.filter;
+          p.setAttribute("aria-pressed", String(tag === state.tag));
+          const n = found.filter((r) => has(r, tag)).length;
+          p.querySelector("[data-n]").textContent = n;
+          p.classList.toggle("zero", n === 0);
+        });
+        const visible = [];
+        all.forEach((r) => {
+          r.hidden = !(has(r, state.tag) && matches(r, words));
+          if (!r.hidden) visible.push(r);
+        });
+        [...all].sort(order[state.sort]).forEach((r) => list.append(r));
+        if (animate) {
+          visible.forEach((r, i) => {
+            r.classList.remove("enter");
+            void r.offsetWidth;
+            r.style.setProperty("--i", String(Math.min(i, 12)));
+            r.classList.add("enter");
+          });
+        }
+        const filtered = state.tag !== "all" || words.length;
+        shown.textContent = filtered
+          ? `Showing ${visible.length} of ${all.length}` + (state.tag !== "all" ? ` · ${NAMES[state.tag]}` : "") + (words.length ? ` · “${find.value.trim()}”` : "")
+          : `Showing all ${all.length} · ${sort.selectedOptions[0].text.toLowerCase()}`;
+        none.hidden = visible.length > 0;
+        list.hidden = visible.length === 0;
+        if (!visible.length && why) {
+          why.textContent = words.length ? `No job here matches “${find.value.trim()}”.` : `None of these ${all.length} is tagged ${NAMES[state.tag].toLowerCase()}.`;
+        }
+        try { sessionStorage.setItem(SAVE, JSON.stringify({ tag: state.tag, sort: state.sort })); } catch { /* fine */ }
+        history.replaceState(null, "", state.tag === "all" ? window.location.pathname : `#${state.tag}`);
+        select(-1);
+      };
+      pills.forEach((p) => p.addEventListener("click", () => { state.tag = p.dataset.filter; apply(true); }));
+      sort.addEventListener("change", () => { state.sort = sort.value; apply(true); });
+      let t = 0;
+      find.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => apply(false), 80); });
+      find.addEventListener("keydown", (e) => { if (e.key === "Escape") { find.value = ""; apply(false); find.blur(); } });
+      document.querySelector("[data-reset]")?.addEventListener("click", () => { state.tag = "all"; find.value = ""; apply(true); });
+      apply(false);
+    }
 
     // ---- Ctrl+K palette ----
     const palette = document.getElementById("palette");
@@ -165,7 +224,7 @@
       if (e.key === "g") { g = true; setTimeout(() => { g = false; }, 900); return; }
       if (e.key === "/") {
         e.preventDefault();
-        const search = document.getElementById("q");
+        const search = document.getElementById("q") || document.getElementById("find");
         if (search) search.focus(); else window.location.href = "/jobs#search";
       } else if (e.key === "j") { select(at + 1); }
       else if (e.key === "k") { select(at - 1); }

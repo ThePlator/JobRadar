@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}JobRadar{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
-<script src="{{ url_for('static', path='app.js') }}"></script>
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<script src="{{ asset('app.js') }}"></script>
 </head>
 <body>
 {% include "_sprite.html" %}

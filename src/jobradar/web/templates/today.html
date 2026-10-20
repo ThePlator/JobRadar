@@ -57,13 +57,37 @@
   <p class="lede">Good matches (score {{ good }}+) from the last {{ days }} days you haven't acted on yet. Best first.</p>
 </div>
 {% if cards %}
-<div class="quick" role="group" aria-label="Quick filters">
-  {% for key, text in filters %}<button type="button" class="pill" data-filter="{{ key }}" aria-pressed="{{ 'true' if key == 'all' else 'false' }}">{{ text }}</button>{% endfor %}
-  <span class="quick-count faint" data-count>{{ cards|length }} shown</span>
+<div class="toolbar" data-toolbar>
+  <div class="seg" role="group" aria-label="Show">
+    {% for key, text in filters %}
+    <button type="button" class="pill" data-filter="{{ key }}" aria-pressed="{{ 'true' if key == 'all' else 'false' }}">
+      <svg class="i xs"><use href="#{{ {'all': 'i-grid', 'eligible': 'i-check', 'remote': 'i-wifi', 'internship': 'i-cap', 'closing': 'i-clock'}[key] }}"/></svg>
+      <span>{{ text }}</span><b class="pill-n" data-n>{{ cards|length if key == 'all' else '' }}</b>
+    </button>
+    {% endfor %}
+  </div>
+  <div class="tools">
+    <p class="showing" data-count aria-live="polite">Showing all {{ cards|length }}</p>
+    <div class="find">
+      <svg class="i xs"><use href="#i-search"/></svg>
+      <label class="sr" for="find">Filter these jobs</label>
+      <input id="find" type="search" placeholder="Filter these jobs…" autocomplete="off" data-find>
+    </div>
+    <div class="sort">
+      <svg class="i xs"><use href="#i-sort"/></svg>
+      <label class="sr" for="sort">Sort</label>
+      <select id="sort" data-sort>
+        <option value="score">Best match</option>
+        <option value="new">Newest first</option>
+        <option value="closes">Closing soonest</option>
+      </select>
+    </div>
+  </div>
 </div>
 <ul class="rows" data-list>
 {% for c in cards %}{{ row(c) }}{% endfor %}
 </ul>
+<div class="empty" data-none hidden><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p><b>Nothing here with this filter.</b> <span data-none-why></span> <button type="button" class="linkish" data-reset>Show all {{ cards|length }}</button></p></div>
 {% else %}
 <div class="empty"><svg class="blip sleep empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p>Nothing new scored {{ good }} or more in the last {{ days }} days. <a href="/jobs">See all jobs</a>.</p></div>
 {% endif %}
