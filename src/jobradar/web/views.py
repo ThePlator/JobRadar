@@ -6,6 +6,7 @@ page's content is tested without a server. Times are shown in `notify.timezone`.
 
 from __future__ import annotations
 
+import json
 import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -22,9 +23,13 @@ from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.skill_gaps import Gap, skill_gaps
 from jobradar.providers.base import MatchAnswers
 from jobradar.providers.skills_rule import compare_skills
+from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.digest import gather, part_of_day, pipeline_line, previous_slot
+from jobradar.sinks.email_actions import REPLIED
 from jobradar.sinks.email_template import Reason, day_month, posting_of, split_reason
+from jobradar.sinks.followups import MAX_REMINDERS, FollowUpReminder
 from jobradar.sinks.notion import experience_text, message_link, source_label
+from jobradar.sinks.notion_sync import FOLLOWED_UP
 
 LABELS = {
     JobStatus.NEW: "New",
@@ -46,11 +51,13 @@ FRESH_HOURS = 6  # a job first seen this recently is marked "new"
 PER_PAGE = 50
 
 # The Applications board: (column, the statuses in it).
-COLUMNS: list[tuple[str, list[JobStatus]]] = [
-    ("Shortlisted", [JobStatus.SHORTLISTED, JobStatus.RESUME_READY]),
-    ("Applied", [JobStatus.APPLIED]),
-    ("Interview", [JobStatus.INTERVIEW]),
-    ("Offer or rejected", [JobStatus.OFFER, JobStatus.REJECTED]),
+# The Applications board: (column, the status a card dropped there gets, the statuses in it).
+COLUMNS: list[tuple[str, JobStatus, list[JobStatus]]] = [
+    ("Shortlisted", JobStatus.SHORTLISTED, [JobStatus.SHORTLISTED, JobStatus.RESUME_READY]),
+    ("Applied", JobStatus.APPLIED, [JobStatus.APPLIED]),
+    ("Interview", JobStatus.INTERVIEW, [JobStatus.INTERVIEW]),
+    ("Offer", JobStatus.OFFER, [JobStatus.OFFER]),
+    ("Rejected", JobStatus.REJECTED, [JobStatus.REJECTED]),
 ]
 
 # All jobs: the "Show" choices. "jobs" leaves out what JobRadar hid or found wasn't a job.
@@ -256,13 +263,93 @@ def today(repo: Repo, min_score: int, now: datetime, tz: ZoneInfo) -> list[Card]
 
 
 @dataclass(frozen=True)
+class Track:
+    """Where an application stands, beyond its status."""
+
+    resume: bool  # a resume was built for it
+    replied: str | None  # the company wrote back: "interview", "test", "rejected"
+    followed_up: str  # the day you last followed up, "21 Oct", or ""
+    next_nudge: str  # when JobRadar will draft a follow-up, "29 Oct", or ""
+    nudge_in: int | None  # days until then (0: due now)
+    waited: int  # % of the wait to the next follow-up, for the meter
+    reminders: int  # follow-up drafts sent so far
+
+
+@dataclass(frozen=True)
+class BoardCard:
+    card: Card
+    track: Track
+
+
+@dataclass(frozen=True)
 class Column:
+    key: str  # the status a card dropped here gets
     title: str
-    cards: list[Card]
+    cards: list[BoardCard]
+    note: str  # one line under the title: "2 due for a follow-up"
 
 
-def board(repo: Repo, tz: ZoneInfo, now: datetime) -> list[Column]:
-    return [Column(title, [card(j, tz, now) for j in repo.jobs_in(sts)]) for title, sts in COLUMNS]
+REPLY_WORDS = {"interview": "Interview invite", "test": "Online test", "rejected": "Rejection"}
+
+
+def track(repo: Repo, job: Job, tz: ZoneInfo, now: datetime, nudges: FollowUpReminder) -> Track:
+    raw = repo.get_setting(REPLIED + job.id)
+    replied = None
+    if raw:
+        try:
+            replied = str(json.loads(raw).get("kind") or "") or None
+        except ValueError:
+            replied = None
+    followed = repo.get_setting(FOLLOWED_UP + job.id) or ""
+    next_nudge, nudge_in, waited, reminders = "", None, 0, 0
+    if job.status == JobStatus.APPLIED.value and job.user_status_at and replied is None:
+        _, since, reminders = nudges.status(job)
+        if reminders < MAX_REMINDERS:
+            due = since + nudges.after
+            nudge_in = max((due.astimezone(tz).date() - now.astimezone(tz).date()).days, 0)
+            next_nudge = f"{due.astimezone(tz).day} {due.astimezone(tz):%b}"
+            total = nudges.after.total_seconds()
+            waited = min(100, max(0, round(100 * (now - since).total_seconds() / total)))
+    return Track(
+        resume=repo.latest_artifact(job.id) is not None,
+        replied=replied,
+        followed_up=day_month(followed) if followed else "",
+        next_nudge=next_nudge,
+        nudge_in=nudge_in,
+        waited=waited,
+        reminders=reminders,
+    )
+
+
+def _note(key: JobStatus, cards: list[BoardCard]) -> str:
+    if not cards:
+        return ""
+    if key == JobStatus.SHORTLISTED:
+        ready = sum(1 for c in cards if c.track.resume)
+        return f"{ready} with a resume ready" if ready else "No resumes built yet"
+    if key == JobStatus.APPLIED:
+        due = sum(1 for c in cards if c.track.nudge_in == 0)
+        replied = sum(1 for c in cards if c.track.replied)
+        bits = [f"{due} due for a follow-up"] if due else []
+        bits += [f"{replied} replied"] if replied else []
+        days = [c.card.days for c in cards if c.card.days is not None]
+        if days and (average := round(sum(days) / len(days))) >= 1:
+            bits.append(f"waiting {average} day{'s' if average > 1 else ''} on average")
+        return " · ".join(bits)
+    if key == JobStatus.INTERVIEW:
+        return "Prepare, then set Offer or Rejected"
+    return ""
+
+
+def board(repo: Repo, settings: Settings, now: datetime) -> list[Column]:
+    tz = settings.config.notify.tz
+    nudges = FollowUpReminder(settings, repo, TaskQueue(repo))
+    columns = []
+    for title, key, statuses in COLUMNS:
+        cards = [BoardCard(card(j, tz, now), track(repo, j, tz, now, nudges))
+                 for j in repo.jobs_in(statuses)]  # fmt: skip
+        columns.append(Column(key.value, title, cards, _note(key, cards)))
+    return columns
 
 
 # ---- All jobs --------------------------------------------------------------------------------

@@ -35,7 +35,7 @@
   <button class="theme" id="theme" type="button" aria-label="Theme: follows your system"><svg class="i"><use href="#i-auto"/></svg><span>System</span></button>
 </aside>
 <div class="content">
-<main>
+<main class="{% block main_class %}{% endblock %}">
 {% block main %}{% endblock %}
 </main>
 <footer>Changes here reach Notion within a minute while <code>jobradar run</code> is running.

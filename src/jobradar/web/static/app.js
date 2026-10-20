@@ -238,6 +238,59 @@
       }
     });
 
+
+    // ---- Applications: drag a card to another column ----
+    const boardEl = document.querySelector("[data-board]");
+    if (boardEl) {
+      let dragged = null;
+      const columnOf = (status) => (status === "resume_ready" ? "shortlisted" : status);
+      boardEl.addEventListener("dragstart", (e) => {
+        const card = e.target.closest?.(".card");
+        if (!card) return;
+        dragged = card;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", card.dataset.id);
+        card.classList.add("dragging");
+        card.closest(".col")?.classList.add("from");
+        requestAnimationFrame(() => boardEl.classList.add("dragging"));
+      });
+      boardEl.addEventListener("dragend", () => {
+        dragged?.classList.remove("dragging");
+        boardEl.classList.remove("dragging");
+        boardEl.querySelectorAll("[data-drop]").forEach((c) => c.classList.remove("over", "from"));
+        dragged = null;
+      });
+      boardEl.querySelectorAll("[data-drop]").forEach((col) => {
+        col.addEventListener("dragover", (e) => {
+          if (!dragged || columnOf(dragged.dataset.status) === col.dataset.drop) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          col.classList.add("over");
+        });
+        col.addEventListener("dragleave", (e) => {
+          if (!col.contains(e.relatedTarget)) col.classList.remove("over");
+        });
+        col.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          col.classList.remove("over");
+          const card = dragged;
+          if (!card || columnOf(card.dataset.status) === col.dataset.drop) return;
+          const home = card.parentElement;
+          const into = col.querySelector(".cards");
+          if (into) into.prepend(card);  // move it at once; the server confirms
+          else card.hidden = true;  // dropped on an empty stage: it shows there after the reload
+          const out = await send(`/jobs/${encodeURIComponent(card.dataset.id)}/status`, { status: col.dataset.drop });
+          if (!out.ok) {
+            card.hidden = false;
+            home.prepend(card);
+            toast(out.message, null, true);
+            return;
+          }
+          reloadWith(out.message, out.undo ? { id: card.dataset.id, status: out.undo } : null);
+        });
+      });
+    }
+
     // ---- Ctrl+K palette ----
     const palette = document.getElementById("palette");
     const q = document.getElementById("palette-q");

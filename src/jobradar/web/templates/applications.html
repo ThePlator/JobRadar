@@ -1,49 +1,88 @@
 {% extends "base.html" %}
 {% from "_macros.html" import ring, avatar, status, bar, act_form with context %}
 {% block title %}Applications · JobRadar{% endblock %}
+{% block main_class %}wide{% endblock %}
 {% block main %}
-<div class="head">
-  <h1>Applications</h1>
-  <p class="lede">Every job you moved past New, the latest change first.</p>
+<div class="head board-head">
+  <div>
+    <p class="eyebrow">Your search</p>
+    <h1>Applications</h1>
+    <p class="lede"><span class="on-mouse">Drag a card to another column to change its status, or use its buttons.</span><span class="on-touch">Tap a card's buttons to move it along.</span></p>
+  </div>
 </div>
-<section class="panel funnel" aria-label="How far your applications get">
-  <div class="panel-head"><h2>Your funnel</h2><p class="faint">every job JobRadar found, down to offers</p></div>
-  <ol class="steps">
-    {% for st in funnel %}
-    <li><span class="step-name">{{ st.name }}</span><span class="step-n">{{ st.jobs }}</span>{{ bar(st.width, 'step-' ~ loop.index) }}<span class="step-rate faint">{{ st.rate }}</span></li>
-    {% endfor %}
-  </ol>
-</section>
 
+<ol class="pipeline" aria-label="How far your applications get">
+  {% for st in funnel %}
+  <li class="stage stage-{{ loop.index }}">
+    <span class="stage-name">{{ st.name }}</span>
+    <b class="stage-n">{{ st.jobs }}</b>
+    {% if st.rate %}<span class="stage-rate">{{ st.rate.split(' of ')[0] }}</span>{% endif %}
+  </li>
+  {% endfor %}
+</ol>
+
+{% set icons = {'shortlisted': 'i-star', 'applied': 'i-send', 'interview': 'i-chat', 'offer': 'i-trophy', 'rejected': 'i-x'} %}
+{% set hints = {'shortlisted': 'Shortlist a job from Today', 'applied': 'Tap “I applied” on a job', 'interview': 'Interview invites land here', 'offer': 'Here’s hoping', 'rejected': 'None so far'} %}
+<div class="board-wrap" data-board>
+  {% set empty = columns|rejectattr('cards')|list %}
+  {% if empty %}
+  <div class="dock" aria-label="Stages with nothing in them yet">
+    {% for col in empty %}
+    <div class="zone col-{{ col.key }}" data-drop="{{ col.key }}">
+      <span class="col-icon"><svg class="i"><use href="#{{ icons[col.key] }}"/></svg></span>
+      <span class="zone-text"><b>{{ col.title }} <span class="count">0</span></b><small>{{ hints[col.key] }}</small></span>
+      <span class="zone-drop" aria-hidden="true">Drop here</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 <div class="board">
-{% for col in columns %}
-  <section class="col col-{{ loop.index }}" aria-labelledby="col-{{ loop.index }}">
-    <h2 id="col-{{ loop.index }}"><span>{{ col.title }}</span> <span class="count">{{ col.cards|length }}</span></h2>
-    {% if col.cards %}
+{% for col in columns if col.cards %}
+  <section class="col col-{{ col.key }}{{ ' is-busy' if col.cards|length > 2 else '' }}" data-drop="{{ col.key }}" aria-labelledby="col-{{ col.key }}">
+    <header class="col-head">
+      <span class="col-icon"><svg class="i"><use href="#{{ icons[col.key] }}"/></svg></span>
+      <h2 id="col-{{ col.key }}">{{ col.title }}</h2>
+      <span class="count">{{ col.cards|length }}</span>
+    </header>
+    {% if col.note %}<p class="col-note">{{ col.note }}</p>{% endif %}
     <ul class="cards">
-    {% for c in col.cards %}
-      <li class="card" data-id="{{ c.id }}">
+    {% for b in col.cards %}{% set c = b.card %}{% set t = b.track %}
+      <li class="card" data-id="{{ c.id }}" data-status="{{ c.status }}" draggable="true">
         <div class="card-top">
           {{ avatar(c, 'sm') }}
           <div class="card-names">
-            <a class="card-title" href="/jobs/{{ c.id }}">{{ c.company or c.role }}</a>
-            {% if c.company %}<p class="card-role">{{ c.role }}</p>{% endif %}
+            <a class="card-title" href="/jobs/{{ c.id }}" draggable="false">{{ c.company or c.role }}</a>
           </div>
-        </div>
-        <p class="card-foot">
           {{ ring(c.score, 'sm') }}
-          {% if c.status in ('resume_ready', 'offer', 'rejected') %}{{ status(c) }}{% endif %}
-          {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'today' if c.days == 0 else (c.days|string + ' d ago') }}</span>{% endif %}
-          {% if c.status == 'applied' and c.days is not none and c.days >= quiet_after %}<span class="quiet">{{ c.days }} days quiet</span>{% endif %}
+        </div>
+        {% if c.company %}<p class="card-role">{{ c.role }}</p>{% endif %}
+        {% if t.resume or t.replied or t.followed_up or c.status == 'resume_ready' %}
+        <ul class="card-marks">
+          {% if t.replied %}<li class="mark reply"><svg class="i xs"><use href="#i-mail"/></svg>Replied: {{ {'interview': 'interview invite', 'test': 'online test', 'rejected': 'rejection'}.get(t.replied, t.replied) }}</li>{% endif %}
+          {% if t.resume %}<li class="mark"><svg class="i xs"><use href="#i-file"/></svg>Resume</li>{% endif %}
+          {% if t.followed_up %}<li class="mark"><svg class="i xs"><use href="#i-check"/></svg>Followed up {{ t.followed_up }}</li>{% endif %}
+        </ul>
+        {% endif %}
+        {% if t.next_nudge %}
+        <div class="nudge {{ 'due' if t.nudge_in == 0 else '' }}">
+          <p><span>{% if t.nudge_in == 0 %}Follow-up due now{% elif t.nudge_in == 1 %}Follow-up tomorrow{% else %}Follow-up in {{ t.nudge_in }} days{% endif %}</span><span class="faint">{{ t.next_nudge }}</span></p>
+          {{ bar(t.waited, 'fair' if t.nudge_in == 0 else '') }}
+        </div>
+        {% endif %}
+        <p class="card-foot">
+          {% if c.status in ('resume_ready',) %}{{ status(c) }}{% endif %}
+          {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'moved today' if c.days == 0 else ('moved ' ~ c.days ~ ' d ago') }}</span>{% endif %}
+          {% if c.place %}<span class="faint"><svg class="i xs"><use href="#i-pin"/></svg>{{ c.place.split(' · ')[0] }}</span>{% endif %}
         </p>
-        {% if c.actions %}<div class="card-acts" data-id="{{ c.id }}">{% for action, text in c.actions %}{{ act_form(c, action, text, 'chip-btn' ~ (' primary' if loop.first else '')) }}{% endfor %}</div>{% endif %}
+        {% if c.actions %}<div class="card-acts">{% for action, text in c.actions %}{{ act_form(c, action, text, 'chip-btn' ~ (' primary' if loop.first else '')) }}{% endfor %}</div>{% endif %}
       </li>
     {% endfor %}
     </ul>
-    {% else %}
-    <p class="col-empty">Nothing here yet.</p>
-    {% endif %}
+    <p class="drop-hint" aria-hidden="true">Drop to set {{ col.title }}</p>
   </section>
+{% else %}
+  <div class="empty big"><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><div><h1>No applications yet</h1><p>Shortlist or tap “I applied” on a job from <a href="/">Today</a>, and it shows up here.</p></div></div>
 {% endfor %}
+</div>
 </div>
 {% endblock %}

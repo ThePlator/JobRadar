@@ -57,13 +57,31 @@ def test_board_puts_each_status_in_its_column(repo: Repo, clock: FakeClock) -> N
     add(repo, "a2", status=JobStatus.APPLIED, you=True)
     add(repo, "x", status=JobStatus.REJECTED, you=True)
     add(repo, "skip", status=JobStatus.SKIPPED, you=True)
-    columns = {c.title: [card.id for card in c.cards] for c in views.board(repo, TZ, clock())}
+    board = views.board(repo, settings(), clock())
+    columns = {c.key: [b.card.id for b in c.cards] for c in board}
     assert columns == {
-        "Shortlisted": ["r", "s"],
-        "Applied": ["a2", "a1"],  # the latest change first
-        "Interview": [],
-        "Offer or rejected": ["x"],
+        "shortlisted": ["r", "s"],
+        "applied": ["a2", "a1"],  # the latest change first
+        "interview": [],
+        "offer": [],
+        "rejected": ["x"],
     }
+
+
+def test_board_cards_track_follow_ups_and_replies(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "quiet", company="Rubrik", status=JobStatus.APPLIED, you=True)
+    add(repo, "heard", company="Acme", status=JobStatus.APPLIED, you=True)
+    repo.set_setting("company_replied:heard", json.dumps({"kind": "interview"}))
+    repo.save_artifact("quiet", "resume", 1, "out.pdf", "{}")
+    clock.advance(4 * 86400)
+    applied = {b.card.id: b for b in views.board(repo, settings(), clock())[1].cards}
+    quiet, heard = applied["quiet"].track, applied["heard"].track
+    assert (quiet.resume, quiet.nudge_in, quiet.next_nudge, quiet.waited) == (True, 6, "18 Oct", 40)
+    assert heard.replied == "interview" and heard.next_nudge == ""  # no nudging after a reply
+    repo.set_setting("followed_up:quiet", "2026-10-11")  # you followed up: the wait restarts
+    again = {b.card.id: b for b in views.board(repo, settings(), clock())[1].cards}["quiet"].track
+    assert again.followed_up == "11 Oct" and again.next_nudge == "21 Oct"
+    assert views.board(repo, settings(), clock())[1].note.startswith("1 replied")
 
 
 def test_search_and_show(repo: Repo, clock: FakeClock) -> None:
