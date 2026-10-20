@@ -934,9 +934,9 @@ def web() -> None:
 
     logs.setup()
     settings = _settings()
-    repo, _ = application.open_store()
+    repo, queue = application.open_store()
     try:
-        _run(serve(settings, repo))
+        _run(serve(settings, repo, queue))
     except NoFreePort as e:
         _fail(str(e))
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import ring, avatar, status, bar %}
+{% from "_macros.html" import ring, avatar, status, bar, act_form with context %}
 {% block title %}Applications · JobRadar{% endblock %}
 {% block main %}
 <div class="head">
@@ -22,7 +22,7 @@
     {% if col.cards %}
     <ul class="cards">
     {% for c in col.cards %}
-      <li class="card">
+      <li class="card" data-id="{{ c.id }}">
         <div class="card-top">
           {{ avatar(c, 'sm') }}
           <div class="card-names">
@@ -36,6 +36,7 @@
           {% if c.days is not none %}<span class="faint"><svg class="i xs"><use href="#i-clock"/></svg>{{ 'today' if c.days == 0 else (c.days|string + ' d ago') }}</span>{% endif %}
           {% if c.status == 'applied' and c.days is not none and c.days >= quiet_after %}<span class="quiet">{{ c.days }} days quiet</span>{% endif %}
         </p>
+        {% if c.actions %}<div class="card-acts" data-id="{{ c.id }}">{% for action, text in c.actions %}{{ act_form(c, action, text, 'chip-btn' ~ (' primary' if loop.first else '')) }}{% endfor %}</div>{% endif %}
       </li>
     {% endfor %}
     </ul>

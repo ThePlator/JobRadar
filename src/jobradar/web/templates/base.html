@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}JobRadar{% endblock %}</title>
+<meta name="jobradar-token" content="{{ token }}">
 <link rel="stylesheet" href="{{ asset('app.css') }}">
 <script src="{{ asset('app.js') }}"></script>
 </head>
@@ -37,8 +38,9 @@
 <main>
 {% block main %}{% endblock %}
 </main>
-<footer>Read-only for now: change a status with the buttons in Blip's emails, or in Notion, then reload.
+<footer>Changes here reach Notion within a minute while <code>jobradar run</code> is running.
   <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> <kbd>d</kbd> go to a page</span></footer>
+<div class="toast" data-toast role="status" aria-live="polite" hidden><span class="toast-dot"></span><span data-toast-text></span><button type="button" class="toast-undo" data-undo hidden>Undo</button></div>
 <dialog class="palette" id="palette" aria-label="Jump to a job">
   <form method="dialog" class="palette-box">
     <div class="palette-input"><svg class="i"><use href="#i-search"/></svg><input id="palette-q" type="search" placeholder="Company or role…" autocomplete="off" aria-controls="palette-list"><kbd>Esc</kbd></div>

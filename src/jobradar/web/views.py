@@ -17,6 +17,7 @@ from jobradar.clock import to_iso
 from jobradar.config import Settings
 from jobradar.db.models import Artifact, Job, JobStatus
 from jobradar.db.repo import Repo
+from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.skill_gaps import Gap, skill_gaps
 from jobradar.providers.base import MatchAnswers
@@ -147,6 +148,7 @@ class Card:
     seen_at: str  # first seen, ISO, for sorting
     age: str  # "3 h ago"
     fresh: bool  # first seen in the last few hours
+    actions: list[tuple[str, str]]  # the buttons for its status: (action, label)
 
 
 def initials(name: str) -> str:
@@ -179,6 +181,28 @@ QUICK_FILTERS = [
     ("all", "All"), ("eligible", "Eligible"), ("remote", "Remote or hybrid"),
     ("internship", "Internships"), ("closing", "Closing soon"),
 ]  # fmt: skip
+
+
+BUTTON_LABELS = {
+    "applied": "I applied", "shortlist": "Shortlist", "skip": "Not interested",
+    "interview": "Interview", "followed up": "I followed up", "offer": "Offer",
+    "rejected": "Rejected",
+}  # fmt: skip
+# The buttons each status shows, most likely first. (The rules allow a little more, e.g.
+# Interview straight from New; that's in Change status.)
+_BUTTONS: dict[str, list[str]] = {
+    JobStatus.NEW.value: ["applied", "shortlist", "skip"],
+    JobStatus.HIDDEN.value: ["shortlist", "applied"],
+    JobStatus.SHORTLISTED.value: ["applied", "skip"],
+    JobStatus.RESUME_READY.value: ["applied", "skip"],
+    JobStatus.SKIPPED.value: ["shortlist", "applied"],
+    JobStatus.APPLIED.value: ["interview", "followed up", "rejected"],
+    JobStatus.INTERVIEW.value: ["offer", "rejected"],
+}
+
+
+def buttons(job: Job) -> list[tuple[str, str]]:
+    return [(a, BUTTON_LABELS[a]) for a in _BUTTONS.get(job.status, []) if rules.can(a, job)]
 
 
 def card(job: Job, tz: ZoneInfo, now: datetime | None = None) -> Card:
@@ -215,6 +239,7 @@ def card(job: Job, tz: ZoneInfo, now: datetime | None = None) -> Card:
         seen_at=job.created_at,
         age=ago(job.created_at, now) if now is not None else "",
         fresh=now is not None and now - _at(job.created_at) < timedelta(hours=FRESH_HOURS),
+        actions=buttons(job),
     )
 
 

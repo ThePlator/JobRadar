@@ -74,7 +74,7 @@
     // ---- Today: filter, find and sort, all at once ----
     const toolbar = document.querySelector("[data-toolbar]");
     if (toolbar && list) {
-      const all = [...list.querySelectorAll(".row")];
+      let all = [...list.querySelectorAll(".row")];
       const pills = [...toolbar.querySelectorAll("[data-filter]")];
       const find = toolbar.querySelector("[data-find]");
       const sort = toolbar.querySelector("[data-sort]");
@@ -143,7 +143,100 @@
       find.addEventListener("keydown", (e) => { if (e.key === "Escape") { find.value = ""; apply(false); find.blur(); } });
       document.querySelector("[data-reset]")?.addEventListener("click", () => { state.tag = "all"; find.value = ""; apply(true); });
       apply(false);
+      document.addEventListener("jobradar:changed", () => {
+        all = [...list.querySelectorAll(".row")];
+        apply(false);
+      });
     }
+
+
+    // ---- buttons: change a status without leaving the page ----
+    const TOKEN = document.querySelector('meta[name="jobradar-token"]')?.content || "";
+    const toastEl = document.querySelector("[data-toast]");
+    const toastText = document.querySelector("[data-toast-text]");
+    const undoBtn = document.querySelector("[data-undo]");
+    let toastTimer = 0;
+    let undoing = null;
+    const toast = (message, undo = null, warn = false) => {
+      if (!toastEl) return;
+      toastText.textContent = message;
+      toastEl.classList.toggle("warn", warn);
+      undoing = undo;
+      undoBtn.hidden = !undo;
+      toastEl.hidden = false;
+      toastEl.classList.remove("show");
+      void toastEl.offsetWidth;
+      toastEl.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastEl.hidden = true; }, undo ? 8000 : 5000);
+    };
+    const send = async (url, fields) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "X-JobRadar-Token": TOKEN, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(fields),
+      });
+      try { return await res.json(); } catch { return { ok: false, message: `Something went wrong (${res.status}). Reload and try again.` }; }
+    };
+    // After a reload (board, job page), show the toast the change left behind.
+    try {
+      const left = JSON.parse(sessionStorage.getItem("jobradar-toast") || "null");
+      sessionStorage.removeItem("jobradar-toast");
+      if (left) toast(left.message, left.undo);
+    } catch { /* fine */ }
+    const reloadWith = (message, undo) => {
+      try { sessionStorage.setItem("jobradar-toast", JSON.stringify({ message, undo })); } catch { /* fine */ }
+      window.location.reload();
+    };
+    undoBtn?.addEventListener("click", async () => {
+      if (!undoing) return;
+      const { id, status } = undoing;
+      undoBtn.disabled = true;
+      const out = await send(`/jobs/${encodeURIComponent(id)}/status`, { status });
+      undoBtn.disabled = false;
+      if (out.ok) reloadWith(`Undone. ${out.message}`, null);
+      else toast(out.message, null, true);
+    });
+
+    document.addEventListener("submit", async (e) => {
+      const form = e.target;
+      if (!(form instanceof HTMLFormElement) || !(form.matches("[data-act]") || form.matches("[data-set]"))) return;
+      e.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      const fields = Object.fromEntries(new FormData(form));
+      // getAttribute: a field named "action" hides form.action
+      const url = form.getAttribute("action");
+      const id = decodeURIComponent(url.split("/jobs/")[1].split("/")[0]);
+      const out = await send(url, fields);
+      button.disabled = false;
+      if (!out.ok) { toast(out.message, null, true); return; }
+      const undo = out.undo ? { id, status: out.undo } : null;
+      const row = form.closest(".row");
+      if (row && document.querySelector("[data-toolbar]")) {  // Today lists only untouched jobs
+        row.classList.add("leaving");
+        const badge = document.querySelector('.nav a[href="/"] .badge');
+        if (badge) {
+          const left = Math.max(0, Number(badge.textContent) - 1);
+          badge.textContent = String(left);
+          badge.hidden = left === 0;
+        }
+        row.addEventListener("animationend", () => {
+          row.remove();
+          document.dispatchEvent(new Event("jobradar:changed"));
+        }, { once: true });
+        toast(out.message, undo);
+      } else if (row && out.row) {  // All jobs: the row updates in place
+        const fresh = document.createElement("template");
+        fresh.innerHTML = out.row.trim();
+        const next = fresh.content.firstElementChild;
+        next.classList.add("flash");
+        row.replaceWith(next);
+        toast(out.message, undo);
+      } else {
+        reloadWith(out.message, undo);  // the board and the job page re-render
+      }
+    });
 
     // ---- Ctrl+K palette ----
     const palette = document.getElementById("palette");

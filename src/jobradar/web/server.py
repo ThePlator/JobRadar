@@ -8,6 +8,7 @@ import socket
 
 from jobradar.config import Settings
 from jobradar.db.repo import Repo
+from jobradar.queue.tasks import TaskQueue
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def free_port(host: str, port: int) -> int:
     )
 
 
-async def serve(settings: Settings, repo: Repo) -> None:
+async def serve(settings: Settings, repo: Repo, queue: TaskQueue | None = None) -> None:
     import uvicorn
 
     from jobradar.web.app import create_app
@@ -53,7 +54,7 @@ async def serve(settings: Settings, repo: Repo) -> None:
     host = f"[{web.host}]" if ":" in web.host else web.host
     log.info("Dashboard: http://%s:%d", host, port)
     config = uvicorn.Config(
-        create_app(settings, repo),
+        create_app(settings, repo, queue=queue),
         host=web.host,
         port=port,
         log_level="warning",
