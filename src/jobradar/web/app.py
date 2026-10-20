@@ -154,7 +154,7 @@ def create_app(
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
-        columns = views.board(repo, tz, clock())
+        columns = views.board(repo, settings, clock())
         return render(request, "applications.html", "applications", columns=columns,
                       quiet_after=config.notify.followup_after_days,
                       funnel=views.funnel(repo, good))  # fmt: skip
