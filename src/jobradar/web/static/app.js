@@ -251,13 +251,13 @@
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", card.dataset.id);
         card.classList.add("dragging");
-        card.closest(".col").classList.add("from");
+        card.closest(".col")?.classList.add("from");
         requestAnimationFrame(() => boardEl.classList.add("dragging"));
       });
       boardEl.addEventListener("dragend", () => {
         dragged?.classList.remove("dragging");
         boardEl.classList.remove("dragging");
-        boardEl.querySelectorAll(".col").forEach((c) => c.classList.remove("over", "from"));
+        boardEl.querySelectorAll("[data-drop]").forEach((c) => c.classList.remove("over", "from"));
         dragged = null;
       });
       boardEl.querySelectorAll("[data-drop]").forEach((col) => {
@@ -276,10 +276,12 @@
           const card = dragged;
           if (!card || columnOf(card.dataset.status) === col.dataset.drop) return;
           const home = card.parentElement;
-          col.querySelector(".cards").prepend(card);  // move it at once; the server confirms
-          col.querySelector(".col-empty")?.setAttribute("hidden", "");
+          const into = col.querySelector(".cards");
+          if (into) into.prepend(card);  // move it at once; the server confirms
+          else card.hidden = true;  // dropped on an empty stage: it shows there after the reload
           const out = await send(`/jobs/${encodeURIComponent(card.dataset.id)}/status`, { status: col.dataset.drop });
           if (!out.ok) {
+            card.hidden = false;
             home.prepend(card);
             toast(out.message, null, true);
             return;

@@ -22,9 +22,23 @@
 </ol>
 
 {% set icons = {'shortlisted': 'i-star', 'applied': 'i-send', 'interview': 'i-chat', 'offer': 'i-trophy', 'rejected': 'i-x'} %}
-<div class="board" data-board>
-{% for col in columns %}
-  <section class="col col-{{ col.key }}{{ ' is-empty' if not col.cards else '' }}{{ ' is-busy' if col.cards|length > 2 else '' }}" data-drop="{{ col.key }}" aria-labelledby="col-{{ col.key }}">
+{% set hints = {'shortlisted': 'Shortlist a job from Today', 'applied': 'Tap “I applied” on a job', 'interview': 'Interview invites land here', 'offer': 'Here’s hoping', 'rejected': 'None so far'} %}
+<div class="board-wrap" data-board>
+  {% set empty = columns|rejectattr('cards')|list %}
+  {% if empty %}
+  <div class="dock" aria-label="Stages with nothing in them yet">
+    {% for col in empty %}
+    <div class="zone col-{{ col.key }}" data-drop="{{ col.key }}">
+      <span class="col-icon"><svg class="i"><use href="#{{ icons[col.key] }}"/></svg></span>
+      <span class="zone-text"><b>{{ col.title }} <span class="count">0</span></b><small>{{ hints[col.key] }}</small></span>
+      <span class="zone-drop" aria-hidden="true">Drop here</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+<div class="board">
+{% for col in columns if col.cards %}
+  <section class="col col-{{ col.key }}{{ ' is-busy' if col.cards|length > 2 else '' }}" data-drop="{{ col.key }}" aria-labelledby="col-{{ col.key }}">
     <header class="col-head">
       <span class="col-icon"><svg class="i"><use href="#{{ icons[col.key] }}"/></svg></span>
       <h2 id="col-{{ col.key }}">{{ col.title }}</h2>
@@ -64,12 +78,11 @@
       </li>
     {% endfor %}
     </ul>
-    <div class="col-empty" {% if col.cards %}hidden{% endif %}>
-      <svg class="blip mini-blip{{ ' sleep' if col.key in ('offer', 'interview') else '' }}" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
-      <p>{{ {'shortlisted': 'Shortlist a job from Today', 'applied': 'Tap “I applied” on a job', 'interview': 'Interview invites land here', 'offer': 'Here’s hoping', 'rejected': 'None so far'}[col.key] }}</p>
-    </div>
     <p class="drop-hint" aria-hidden="true">Drop to set {{ col.title }}</p>
   </section>
+{% else %}
+  <div class="empty big"><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><div><h1>No applications yet</h1><p>Shortlist or tap “I applied” on a job from <a href="/">Today</a>, and it shows up here.</p></div></div>
 {% endfor %}
+</div>
 </div>
 {% endblock %}

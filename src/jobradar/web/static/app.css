@@ -284,25 +284,33 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: v
 .board { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 /* Columns size to what's in them: a busy column takes the room and lays its cards out in a
    grid; an empty one shrinks to a slim drop zone. */
-.board .col { flex: 1 1 230px; }
-.board .col.is-busy { flex: 3 1 480px; }
-.board .col.is-empty { flex: 0 1 150px; min-width: 132px; }
-.col.is-busy .cards { grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); }
-.col.is-empty .col-empty { padding: 12px 8px; }
-.col.is-empty .col-note { display: none; }
-@media (max-width: 1440px) {
-  .board .col.is-busy { flex-basis: 340px; }
-  .board .col.is-empty { flex-basis: 128px; min-width: 112px; }
-  .col.is-empty .col-head h2 { font-size: 12.5px; }
-  .col.is-empty .col-empty p { font-size: 11.5px; }
+.board .col { flex: 1 1 280px; }
+.board .col.is-busy { flex: 3 1 560px; }
+.col.is-busy .cards { grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+
+/* Stages with nothing in them: a slim row of drop targets above the board. */
+.dock { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.zone {
+  --col: var(--faint); position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; min-width: 0;
+  background: color-mix(in srgb, var(--col) 7%, var(--card)); border: 1.5px dashed color-mix(in srgb, var(--col) 35%, var(--line));
+  transition: background .15s ease, border-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
+.zone-text { display: grid; min-width: 0; }
+.zone-text b { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.zone-text .count { font-size: 11px; padding: 0 6px; }
+.zone-text small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zone-drop { display: none; margin-left: auto; font-size: 11.5px; font-weight: 800; color: var(--col); white-space: nowrap; }
+.board-wrap.dragging .zone { border-style: solid; border-color: var(--col); }
+.board-wrap.dragging .zone .zone-drop { display: inline; }
+.zone.over { background: color-mix(in srgb, var(--col) 18%, var(--card)); transform: translateY(-2px); box-shadow: 0 0 0 3px color-mix(in srgb, var(--col) 28%, transparent); }
 .col {
   --col: var(--faint); position: relative; min-width: 0; padding: 10px; border-radius: 16px;
   background: color-mix(in srgb, var(--col) 6%, var(--raise)); border: 1px solid color-mix(in srgb, var(--col) 22%, var(--line));
   transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.col-shortlisted { --col: var(--fair); } .col-applied { --col: var(--accent); } .col-interview { --col: #8250df; }
-.col-offer { --col: var(--good); } .col-rejected { --col: var(--bad); }
+.col-shortlisted, .zone.col-shortlisted { --col: var(--fair); } .col-applied { --col: var(--accent); } .col-interview { --col: #8250df; }
+.zone.col-applied { --col: var(--accent); } .zone.col-interview { --col: #8250df; }
+.col-offer, .zone.col-offer { --col: var(--good); } .col-rejected, .zone.col-rejected { --col: var(--bad); }
 .col-head { display: flex; align-items: center; gap: 8px; padding: 2px 2px 0; }
 .col-head h2 { flex: 1; margin: 0; font-size: 13px; letter-spacing: .02em; text-transform: none; color: var(--ink); font-weight: 800; }
 .col-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; background: color-mix(in srgb, var(--col) 16%, var(--card)); color: var(--col); }
@@ -336,8 +344,7 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: v
 .col-empty p { margin: 0; }
 .mini-blip { width: 34px; opacity: .8; }
 .drop-hint { display: none; margin: 8px 0 0; padding: 12px; text-align: center; font-size: 12px; font-weight: 800; color: var(--col); border: 2px dashed var(--col); border-radius: 12px; }
-.board.dragging .col:not(.from) .drop-hint { display: block; }
-.board.dragging .col:not(.from) .col-empty { display: none; }
+.board-wrap.dragging .col:not(.from) .drop-hint { display: block; }
 .col.over { background: color-mix(in srgb, var(--col) 14%, var(--raise)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--col) 30%, transparent); }
 .col.over .drop-hint { background: color-mix(in srgb, var(--col) 10%, var(--card)); }
 .quiet { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--fair-soft); color: var(--fair); }
@@ -497,7 +504,10 @@ footer .keys kbd + kbd { margin-left: -2px; }
 .row-actions { flex-wrap: wrap; align-items: center; }
 .row.leaving { animation: leave .38s cubic-bezier(.4, 0, .2, 1) forwards; pointer-events: none; }
 .row.flash { animation: flash 1.2s ease-out; }
-.card-acts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--line); }
+.card-acts { display: flex; align-items: center; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.card-acts .chip-btn { white-space: nowrap; }
+.card-acts .a-rejected, .card-acts .a-skip { margin-left: auto; background: none; border-color: transparent; color: var(--muted); }
+.card-acts .act-form:has(.a-rejected), .card-acts .act-form:has(.a-skip) { margin-left: auto; }
 .chip-btn { font: inherit; font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--raise); color: var(--ink); cursor: pointer; }
 .chip-btn:hover { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .chip-btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -591,7 +601,7 @@ footer .keys kbd + kbd { margin-left: -2px; }
   .row-actions { grid-column: 1 / -1; }
   .seg .pill span { display: none; }
   .seg .pill[aria-pressed="true"] span { display: inline; }
-  .board .col, .board .col.is-busy, .board .col.is-empty { flex: 1 1 100%; }
+  .board .col, .board .col.is-busy { flex: 1 1 100%; }
   .col.is-busy .cards { grid-template-columns: minmax(0, 1fr); }
   .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ring.lg { width: 60px; height: 60px; }
