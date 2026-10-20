@@ -230,3 +230,55 @@ async def test_a_gmail_timeout_is_a_quiet_retry(
     monkeypatch.setattr(email_actions, "fetch", slow)
     with pytest.raises(RetryableError, match="inbox not reachable"):
         await reader(repo, queue, clock).check_now()
+
+
+class ArchiveImap:
+    """Just enough of Gmail's IMAP to archive: LIST, STORE and MOVE, recorded."""
+
+    def __init__(self, gmail: bool = True, move: str = "OK", folders: list[bytes] | None = None):
+        self.capabilities = ("IMAP4REV1", "X-GM-EXT-1") if gmail else ("IMAP4REV1",)
+        self.calls: list[tuple[str, ...]] = []
+        self.move = move
+        self.folders = (
+            folders
+            if folders is not None
+            else [
+                b'(\\HasNoChildren) "/" "INBOX"',
+                b'(\\All \\HasNoChildren) "/" "[Gmail]/All Mail"',
+                b'(\\HasNoChildren \\Sent) "/" "[Gmail]/Sent Mail"',
+            ]
+        )
+
+    def list(self) -> tuple[str, list[bytes]]:
+        return "OK", self.folders
+
+    def uid(self, command: str, *args: str) -> tuple[str, list[bytes]]:
+        self.calls.append((command, *args))
+        return (self.move if command == "MOVE" else "OK"), [b""]
+
+
+def test_gmail_archive_moves_to_all_mail() -> None:
+    imap = ArchiveImap()
+    email_actions.archive(imap, ["7", "9"])  # type: ignore[arg-type]
+    assert imap.calls == [
+        ("STORE", "7", "+FLAGS", "(\\Seen)"),
+        ("STORE", "9", "+FLAGS", "(\\Seen)"),
+        ("MOVE", "7,9", '"[Gmail]/All Mail"'),  # not -X-GM-LABELS \Inbox: Gmail ignores that
+    ]
+
+
+def test_all_mail_in_another_language() -> None:
+    imap = ArchiveImap(folders=[b'(\\HasNoChildren \\All) "/" "[Google Mail]/Alle Nachrichten"'])
+    assert email_actions.all_mail(imap) == '"[Google Mail]/Alle Nachrichten"'  # type: ignore[arg-type]
+
+
+def test_archive_elsewhere_or_failing_only_marks_read(caplog: pytest.LogCaptureFixture) -> None:
+    other = ArchiveImap(gmail=False)
+    email_actions.archive(other, ["1"])  # type: ignore[arg-type]
+    assert [c[0] for c in other.calls] == ["STORE"]
+    refused = ArchiveImap(move="NO")
+    email_actions.archive(refused, ["1"])  # type: ignore[arg-type]
+    assert "button emails not archived" in caplog.text
+    no_folder = ArchiveImap(folders=[b'(\\HasNoChildren) "/" "INBOX"'])
+    email_actions.archive(no_folder, ["1"])  # type: ignore[arg-type]
+    assert [c[0] for c in no_folder.calls] == ["STORE"]
