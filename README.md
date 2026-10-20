@@ -1,29 +1,29 @@
 # JobRadar
 
-**One inbox for every job posted in the groups you follow — deduplicated, ranked, and ready to apply.**
+**One inbox for every job posted in the Telegram groups and company boards you follow: deduplicated, ranked, and ready to apply.**
 
 **Website:** [jobradar.theplator.dev](https://jobradar.theplator.dev/), see how it works and try the post reader in your browser.
 
-JobRadar is an open-source, self-hosted agent that watches your Telegram job channels, pulls out each job's details (free rules first, an LLM only when needed), judges how well every job fits your profile with **[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev)**, emails you only about strong and certain matches, builds a tailored one-page LaTeX resume, and lays everything out in a Notion dashboard. You review and click Submit; JobRadar never applies for you.
+JobRadar is an open-source, self-hosted agent. It watches your Telegram job channels and the company job boards you pick, pulls out each job's details (free rules first, an LLM only when needed), scores how well each job fits your profile, emails you only about strong matches you're eligible for, builds a tailored one-page LaTeX resume, and lays everything out on a local dashboard and in Notion. You review and click Submit; JobRadar never applies for you.
 
-> **Status:** v0.1 (Telegram → Notion, dedupe, ad filtering), v0.2 part A (page reading) and free extraction (page data and post labels first, Gemini only as fallback) the Match Score (your profile vs each job, with a reason), hiding jobs you're not eligible for, scam flags and email alerts (dry run by default) work today. Jev matching and email alerts (v0.2 part B) are designed and next. See the [roadmap](#roadmap).
+> **Status:** pre-1.0, and I use it every day for my own job search. Working today: Telegram and company-board sources, dedupe, ad and scam filtering, free extraction with a Gemini fallback, the Match Score, email alerts and digests, tailored resumes, follow-up reminders, replies from companies, and a local dashboard. Not done yet: a one-command Docker setup, [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) matching, and running without Notion. See the [roadmap](#roadmap).
 
 ---
 
 ## Why
 
-If you are a fresher in India, you probably follow 10–50 Telegram and WhatsApp groups that post hundreds of links a day. Most are duplicates, irrelevant, or scams. Good postings get missed, deadlines pass, and every application needs a resume tweak and the same form answers typed again.
+If you are a fresher in India, you probably follow 10 to 50 Telegram and WhatsApp groups that post hundreds of links a day. Most are duplicates, irrelevant, or scams. Good postings get missed, deadlines pass, and every application needs a resume tweak and the same form answers typed again.
 
 JobRadar fixes that:
 
-- **Never miss a posting.** Every followed channel is watched in real time, with backfill on first run.
-- **One job, one row.** A job posted in 10 groups shows up once, with a "Seen In" count.
-- **Ranked by fit.** Jev answers focused questions about each job (are you eligible, is it a role you want, do your skills cover it, does the location work), each with a confidence. Code turns them into a 0–100 Match Score with a reason: *Good fit · 82 · eligible ✓ · Python, SQL ✓ · missing Docker · Remote ✓*.
-- **Free first.** Most details come from the job page's structured data and the post's own "Company: … Role: …" lines. An LLM is only called when those fall short.
-- **Scams flagged.** Registration fees, personal-email-only HR and unrealistic pay raise a Scam Risk flag that is never hidden.
-- **Tailored resumes, automatically.** Jobs scoring at or above your threshold get a one-page PDF built only from facts in your profile. A validator blocks any skill you don't have.
-- **Apply in under 5 minutes.** Form answers are pre-written as copyable blocks on each Notion page, plus a cover letter on request.
-- **Alerts you can trust.** An email only when a job is a strong match, Jev is confident, you're eligible and it isn't a likely scam. One email per job, a daily cap, plus closing-deadline reminders and a morning and evening digest.
+- **Never miss a posting.** Every followed channel is watched in real time, with backfill on first run. Company boards (Greenhouse, Lever, Ashby, SmartRecruiters, Workday, Oracle) are read directly every 20 to 30 minutes, so many jobs arrive before any channel reposts them.
+- **One job, one row.** A job posted in 10 groups, or one role posted for three cities, shows up once, with a "Seen In" count.
+- **Ranked by fit.** Each job is checked against your profile: are you eligible, is it a role you want, do your skills cover it, does the location work. Code turns the answers into a 0–100 Match Score with a reason: *Good fit · 82 · eligible ✓ · Python, SQL ✓ · missing Docker · Remote ✓*.
+- **Free first.** Most details come from the job page's structured data and the post's own "Company: … Role: …" lines. An LLM is only called when those fall short: 138 of the first 181 Telegram jobs needed no AI call at all.
+- **Scams flagged.** Registration fees, personal-email-only HR and unrealistic pay raise a Scam Risk flag. A likely scam is never emailed.
+- **Tailored resumes that only say true things.** Strong matches get a one-page PDF built only from facts in your profile. A checker undoes any rewrite that adds a number, tool or claim your profile doesn't have.
+- **Alerts you can trust.** An email only when a job is a strong match, you're eligible, it's fresh and it isn't a likely scam. One email per job, a daily cap, a morning and evening digest, and closing-deadline reminders.
+- **After you apply.** Tap **I applied** in an email or on the dashboard. JobRadar drafts a follow-up after 10 quiet days and spots interview invites, tests and rejections in your inbox (it suggests the status change; it never makes it on its own).
 
 ## How it works
 
@@ -31,13 +31,14 @@ JobRadar fixes that:
 flowchart TB
     subgraph Sources
         TG["Telegram channels<br/>and groups"]
-        BOT["Jobs you forward<br/>by email"]
+        BD["Company job boards<br/>Greenhouse · Lever · Workday …"]
+        FW["Jobs you forward<br/>by email"]
     end
 
     subgraph JobRadar["JobRadar (one process on your machine)"]
         direction LR
-        I["Ingest<br/>links · dedupe · hide ads"] --> X["Extract details<br/>page data → post labels →<br/>rules + Jev pick → LLM fallback"]
-        X --> M["Match with Jev<br/>eligible · role · skills · location"]
+        I["Ingest<br/>links · dedupe · hide ads"] --> X["Extract details<br/>page data → post labels →<br/>LLM fallback"]
+        X --> M["Match<br/>eligible · role · skills · location"]
         M --> D{"Decide"}
         R["Resume builder (LaTeX)<br/>+ form-answer kit"]
         D -- "score ≥ auto_resume_above" --> R
@@ -45,106 +46,108 @@ flowchart TB
 
     PR[/"Your profile<br/>(no name, email, phone)"/] --> M
 
-    subgraph You["Your dashboard"]
+    subgraph You["What you see"]
+        W["Local dashboard"]
         N["Notion database"]
-        A["Email alert"]
-        G["Google Drive PDFs"]
+        A["Email alerts<br/>and digests"]
+        P["Resume PDFs<br/>on your computer"]
     end
 
     Sources --> I
     I -- "row in ~1 s" --> N
-    D -- "Match Score · reason ·<br/>Hidden or Inbox" --> N
-    D -- "strong + confident" --> A
-    R --> G
-    G -. "resume link" .-> N
-    N -- "Shortlisted / Skipped" --> D
+    D -- "Match Score · reason ·<br/>Hidden or Inbox" --> W
+    D --> N
+    D -- "strong + eligible" --> A
+    R --> P
+    W -- "Shortlisted / Applied / …" --> D
+    N -- "Shortlisted / Applied / …" --> D
 ```
 
-1. **Ingest:** messages from your channels are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears in Notion within a second.
-2. **Extract:** the job page is fetched, and details are filled cheapest first: structured data on the page, the post's own labels, rules that find candidate values with Jev picking the right one, and an LLM only if role or company is still missing.
-3. **Match:** one Jev request per job answers eligibility, role fit, skills coverage, seniority and location, each with a confidence. Code combines them with your weights into a Match Score and a reason line. If Jev isn't available, an LLM or a skills-overlap rule takes over.
-4. **Decide:** confidently ineligible jobs are hidden with the reason; likely scams are flagged and never emailed; uncertain matches go to the Inbox marked "unsure"; strong, confident matches also send an email.
-5. **Build and apply:** strong matches (or any job you set to **Shortlisted**) get a tailored resume and form answers. Open the Notion page, read the reason, open the resume, copy the answers, submit.
+1. **Ingest:** messages from your channels and new board postings are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears in Notion within a second.
+2. **Extract:** the job page is fetched, and details are filled cheapest first: structured data on the page, the post's own labels, then an LLM only if role or company is still missing. Board postings that aren't in India, aren't tech or are senior are skipped before any AI call.
+3. **Match:** one LLM request per job answers eligibility, role fit, skills coverage, seniority and location, each with a confidence. Code combines them with your weights into a Match Score and a reason line. Without an LLM key, a skills-overlap rule scores instead (and never alerts).
+4. **Decide:** confidently ineligible jobs are hidden with the reason; likely scams are flagged and never emailed; uncertain matches go to the Inbox marked "unsure"; strong, eligible, fresh matches also send an email. The first alert goes out about 30 seconds after the job is matched.
+5. **Build and apply:** strong matches (or any job you set to **Shortlisted**) get a tailored resume and form answers. Open the job, read the reason, open the resume, copy the answers, submit.
 
-## Notion dashboard
+## Where you see your jobs
 
-Each job is one page in a Notion database you duplicate from the JobRadar template.
+**Dashboard.** `jobradar run` also serves a page at http://127.0.0.1:8080, read from JobRadar's own database: **Today** (good matches from the last 3 days you haven't acted on, with filters and search), **Applications** (a drag-and-drop board from Shortlisted to Offer, with follow-up timers), **All jobs**, the **Digest**, and a page per job (how the score was made, which skills you have or lack, resumes, the follow-up draft). Buttons change a status and Notion follows. It only listens on 127.0.0.1 and refuses requests from other sites.
+
+**Email.** Alerts, digests and reminders have **I applied** and **Not interested** buttons that work from your phone's mail app.
+
+**Notion.** Each job is also one page in a Notion database. JobRadar adds any columns it needs on start.
 
 | Property | What it shows |
 |---|---|
 | Role, Company, Location, Work Mode | Extracted from the posting |
 | Match Score | 0–100 fit against your profile |
 | Status | New → Shortlisted → Applied → Interview → Offer (plus Rejected, Skipped, Hidden) |
-| Deadline | Application deadline, if stated |
+| Deadline, Posted On | Application deadline and publish date, if stated |
 | Skills, Experience, Salary | Extracted requirements |
 | Apply Link | Canonical application URL |
 | Resume | Link to the newest tailored PDF on your computer |
 | Seen In | How many of your groups posted it |
-| Source | Where it was seen: "Telegram · Freshershunt", "Greenhouse · Stripe" (added automatically) |
+| Source | Where it was seen: "Telegram · Freshershunt", "Greenhouse · Stripe" |
 | Scam Risk | Low / Medium / High |
-
-Views included: **Inbox**, **Top matches**, **Closing soon**, **Board** (kanban by status) and **Applied**.
 
 Anything you write outside the agent-owned "JobRadar" toggle on a page is never overwritten.
 
 ## Quick start
 
-> These steps describe the v1.0 setup and will work once the first release ships.
-
-**You need:** Docker, a Telegram account, a Notion account, a Google account (for Drive and email), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key.
+**You need:** Python 3.11+ and [uv](https://docs.astral.sh/uv/), a Telegram account, a Notion account, a Gmail account (for alerts, with an app password), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key. For resume PDFs, also [Tectonic](https://tectonic-typesetting.github.io/) or `texlive-latex-extra`.
 
 ```bash
 git clone https://github.com/ThePlator/JobRadar.git
 ```
 
-(After v1.0 the CLI will also be on PyPI as `jobradar-agent`.)
-
 ```bash
-cd JobRadar && cp .env.example .env && cp config.example.yaml config/config.yaml && cp profile.example.yaml config/profile.yaml
+cd JobRadar && cp .env.example .env && uv sync --extra web
 ```
 
-Fill in `.env`, `config/config.yaml` and `config/profile.yaml` (see [Configuration](#configuration)), then run first-time setup. It logs in to Telegram, runs the Google OAuth flow and checks your Notion database:
+Fill in `.env` (see [Configuration](#configuration)), then run first-time setup. It copies the example configs into `config/`, logs in to Telegram (a code arrives in your Telegram app; nothing is posted) and checks your Notion database:
 
 ```bash
-docker compose run --rm jobradar init
+uv run jobradar init
 ```
 
-Start it:
+Edit `config/config.yaml` and `config/profile.yaml`. `uv run jobradar chats` lists the Telegram chats you can read, with the ids to paste in. Then start it:
 
 ```bash
-docker compose up -d
+uv run jobradar run
 ```
 
-Target: running in under 15 minutes on a laptop, home server or a 1 vCPU / 1 GB VPS.
+Alerts start in **dry run**: they're saved to `data/alerts/` instead of sent, so you can check them for a few days before turning email on. To keep it running after you close the terminal, see [docs/COMMANDS.md](docs/COMMANDS.md#start-stop-restart). A Docker image is planned for v1.0.
 
 ## Configuration
 
 JobRadar uses three files. All are validated at start-up, and a bad value stops the app with a clear message.
 
-### `.env` — secrets only, never committed
+### `.env`: secrets only, never committed
 
 | Variable | Where to get it |
 |---|---|
 | `TG_API_ID`, `TG_API_HASH` | [my.telegram.org](https://my.telegram.org) → API development tools |
-| `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` | Your email and an app password ([Gmail](https://myaccount.google.com/apppasswords)); used to send alerts and read forwarded jobs |
+| `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` | Your email and an app password ([Gmail](https://myaccount.google.com/apppasswords)); used to send alerts and read your own button replies |
 | `NOTIFY_TO` | Where alerts and digests go (defaults to `EMAIL_ADDRESS`) |
-| `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your duplicated database |
-| `TYPESAFE_API_KEY` | [typesafe.ai](https://typesafe.ai) (early access): Jev matching. Optional; without it an LLM matches instead |
-| `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console: fallback extraction and matching. Optional for extraction: without it, jobs are read from page data and post labels only |
-| `GDRIVE_FOLDER_ID` | The Drive folder that will hold your resumes |
+| `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your database |
+| `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console: extraction fallback, matching and resume tailoring. Without one, jobs are read from page data and post labels only and scored by the skills rule |
 
-### `config.yaml` — what to watch and how to filter
+### `config.yaml`: what to watch and how to filter
 
 ```yaml
 sources:
   telegram:
     chats: ["@offcampusjobs", "@freshersjobs", -1001234567890]
     backfill_days: 3
+  boards:
+    greenhouse: {Stripe: stripe}
+    lever: {Meesho: meesho}
+    workday: {NVIDIA: nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite}
 
 llm:
   extract_model: "gemini/gemini-flash-lite-latest"
   extract_mode: fallback    # LLM only when page data and post labels miss role or company
-  writer_model: "gemini/gemini-pro-latest"
+  writer_model: "gemini/gemini-flash-latest"
   daily_budget_inr: 15
 
 filters:
@@ -159,19 +162,17 @@ scoring:
   auto_resume_above: 85   # at or above → resume built automatically (null = only on Shortlisted)
 
 matching:
-  providers: [llm, skills_rule]   # tried in order (jev joins in v0.2 B3)
+  providers: [llm, skills_rule]   # tried in order
   weights: {skills_coverage: 0.40, role_alignment: 0.30, seniority_fit: 0.15, location_ok: 0.15}
   min_confidence: 0.5     # below this: marked "unsure", never emailed
   branch_strict: false    # true: "CSE/IT only" jobs count as not eligible
 ```
 
-Changing `weights` re-ranks your jobs from stored answers at the next start, with no new model calls. Editing `profile.yaml` or `filters` matches open jobs again.
+Changing `weights` re-ranks your jobs from stored answers at the next start, with no new model calls. Editing `profile.yaml` or `filters` matches open jobs again. `jobradar boards add <link>` adds a company board after checking it exists. [config.example.yaml](config.example.yaml) lists every setting.
 
-Run `jobradar chats` to list every chat your account can read, with the ids to paste here.
+### `profile.yaml`: the only source of resume facts
 
-### `profile.yaml` — the only source of resume facts
-
-Your education, skills, experience, projects (each bullet with an `id` and tags) and reusable form answers such as notice period and expected CTC. The resume builder can rephrase your bullets to match a job's wording, but it can't add skills, tools, numbers or claims that aren't in this file.
+Your education, skills, experience, projects (each bullet with an `id` and tags) and reusable form answers such as notice period and expected CTC. The resume builder can choose, order and rephrase your bullets to match a job's wording, but it can't add skills, tools, numbers or claims that aren't in this file.
 
 ## CLI
 
@@ -179,75 +180,75 @@ Every command with examples, log reading, settings and fixes: [docs/COMMANDS.md]
 
 | Command | What it does |
 |---|---|
-| `jobradar init` | Copy example configs, Telegram login, Google OAuth, Notion schema check |
-| `jobradar run` | Start sources, workers and scheduler (Docker default) |
+| `jobradar init` | Copy example configs, Telegram login, Notion schema check |
+| `jobradar run` | Start sources, workers, scheduler and the dashboard |
+| `jobradar web` | Only the dashboard |
 | `jobradar chats` | List Telegram chats you can read, with ids |
 | `jobradar add <url>` | Process one link manually |
-| `jobradar extract --missing` | Read jobs listed before extraction was enabled |
-| `jobradar extract --compare` | Check free extraction against earlier LLM answers, field by field (`--refetch` downloads pages again for their JobPosting data) |
-| `jobradar digest --now` | Send the morning/evening digest for the current window right away |
+| `jobradar boards [add <link> \| remove <name> \| --check]` | Company boards you watch, their health and newest posting |
+| `jobradar resume <job-id>` | Build a resume now (`jobradar resume` alone previews your profile) |
+| `jobradar digest --now` | Send the digest for the current window right away |
 | `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
-| `jobradar stats [--days 3]` | Posts, jobs, reposts merged, likely duplicates, hidden ads, failed tasks |
-| `jobradar resume <job-id> [--template modern]` | Rebuild a resume now |
+| `jobradar followups [--now]` | Applied jobs and when their follow-up draft is due |
+| `jobradar skills` | Skills your good matches ask for that your profile lacks |
+| `jobradar stats [--days 7]` | Posts, jobs, reposts merged, hidden ads, your funnel, failed tasks |
 | `jobradar retry --failed` | Re-queue failed tasks |
-| `jobradar doctor` | Check keys, Tectonic, Playwright, Notion properties, Drive access |
-| `jobradar digest --now` | Send the morning/evening digest for the current window right away |
-| `jobradar alerts --test` | Send yourself one test email to check that alerts reach you |
-| `jobradar stats [--days 7]` | Jobs seen, unique, hidden, shortlisted, applied, LLM spend |
 
 You can also add jobs by forwarding any email, message text or link to your JobRadar mail folder (for Gmail: a `JobRadar` label with a filter).
 
 ## Privacy and safety
 
-- **Runs on your machine.** Your profile, keys, Telegram session and PDFs stay local. Resumes are saved on your computer; only facts from profile.yaml (never your name or contact details) go to the LLM that tailors them.
-- **Email stays narrow.** JobRadar uses an app password, emails only you, reads only its own folder, and accepts forwards only from your address.
-- **Minimal data to providers.** Matching sends TypeSafe the job text and a compact profile (education, skills, experience, preferences), never your name, email or phone. Fallback extraction sends only job text to your LLM provider.
-- **Read-only on Telegram.** JobRadar reads with your account but never sends messages, joins groups or messages recruiters.
-- **You submit every application.** No auto-apply and no scraping behind logins.
+- **Runs on your machine.** Your profile, keys, Telegram session, database and PDFs stay local. The dashboard listens only on 127.0.0.1.
+- **Minimal data to providers.** Matching and resume tailoring send your LLM provider the job text and a compact profile (education, skills, experience, preferences), never your name, email or phone. Extraction sends only job text.
+- **Email stays narrow.** JobRadar uses an app password and emails only you. From your inbox it reads only its own button emails (signed, and only from your address) and new mail from companies you applied to.
+- **Read-only on Telegram.** JobRadar reads with your account, only the chats you list. It never sends messages, joins groups or messages recruiters.
+- **You submit every application.** No auto-apply and no scraping behind logins. Company boards are read through their public job APIs; watched pages obey robots.txt.
 - **Prompt-injection aware.** Job pages are passed to the LLM as delimited data, outputs are schema-validated, and the model has no tools.
 - **Guard your session file.** `data/tg.session` gives full access to your Telegram account. It is `chmod 600` and git-ignored; never share it.
 
-> You are responsible for following the terms of service of every platform you connect. The WhatsApp source uses an unofficial client that can get a number banned; it is off by default, and a spare number is strongly recommended.
+> You are responsible for following the terms of service of every platform you connect. The WhatsApp source uses an unofficial client that can get a number banned; it is experimental, off by default, and a spare number is strongly recommended.
 
 ## Cost
 
-Most details come from free rules. Matching with Jev costs about ₹0.01 per job at TypeSafe's published price, which TypeSafe says may be subsidised. An LLM (about ₹0.10 per job with Gemini flash-lite) is only used when the rules fall short or Jev is unavailable. The target is under ₹300/month at 300 unique jobs a day. Dedupe runs before any model call, answers are cached, and a daily budget cap pauses model work when reached.
+Most details come from free rules, and dedupe runs before any model call. With Gemini's free tier my own use costs nothing; at list prices an LLM call is about ₹0.10 (≈ $0.001) per job with flash-lite. Answers are cached, and a daily budget cap (`llm.daily_budget_inr`) pauses model work when reached.
 
 ## Roadmap
 
-| Release | Scope | Exit gate |
+| Release | Scope | State |
 |---|---|---|
-| **v0.1 Ingest (MVP)** ✓ | Telegram listener, link cleanup, dedupe, ad filtering, SQLite queue, one Notion row per job, `stats` | 3 days of real channels with under 5% duplicates (0.9% so far) |
-| **v0.2 A Read jobs** ✓ | Page fetching, Gemini extraction, Notion columns and details | |
-| **v0.2 B Match and alert** (in progress) | Free extraction layers ✓, Match Score with Gemini ✓, decide step and email alerts ✓, digests, Jev matching with confidence, Jev candidate picks | Over 90% extraction accuracy on 100 labelled jobs; alerts you would act on |
-| **v0.2 C Text-only posts** | Posts without links, poster OCR, reposts with different links | |
-| **v0.3 Resume** | profile.yaml, LaTeX templates, Tectonic, validator, Drive upload, auto + Shortlisted triggers | One-page PDF and zero unknown skills across 50 jobs |
-| **v0.4 Apply kit** | Form answers, cover letter, forward-to-add by email | Shortlisted job to submitted form in under 5 minutes |
-| **v1.0 Public launch** | Docker image, Notion template, docs, CI; WhatsApp as experimental | New user running in under 15 minutes |
+| **v0.1 Ingest** | Telegram listener, link cleanup, dedupe, ad filtering, SQLite queue, one Notion row per job | ✓ |
+| **v0.2 Read and match** | Page reading, free extraction, Match Score, decide step, scam flags, email alerts, digests | ✓ |
+| **v0.2.5 Statuses and feeds** | Statuses from Notion and email buttons, company boards, still-open check, closing reminders | ✓ |
+| **v0.3 Resume** | profile.yaml, LaTeX templates, grounding checker, check as hiring software reads it, auto + Shortlisted triggers | ✓ |
+| **v0.4 Apply kit** | Form answers, cover letter, forward-to-add, follow-ups, replies from companies | ✓ |
+| **v0.5 Dashboard** | Local web dashboard; Notion becomes optional | in progress |
+| **Matching with Jev** | [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) answers the match questions with calibrated confidence, beside the LLM first | planned |
+| **Text-only posts** | Posts without links, poster OCR | planned |
+| **v1.0 Public release** | Docker image, PyPI (`jobradar-agent`), setup guide; WhatsApp as experimental | planned: new user running in under 15 minutes |
 
 ## Documentation
 
-- [Wiki](https://github.com/ThePlator/JobRadar/wiki): setup guide, Notion setup, configuration, commands, troubleshooting, FAQ
+- [Commands](docs/COMMANDS.md): every command, logs, settings and fixes
 - [Product Requirements (PRD)](docs/PRD.md): goals, user stories, requirements, metrics, risks
 - [High-Level Design (HLD)](docs/HLD.md): architecture, flows, integrations, deployment, security
 - [Low-Level Design (LLD)](docs/LLD.md): schema, models, module specs, prompts, Notion mapping, plugins
 
 ## Tech stack
 
-Python 3.11+ (asyncio) · Telethon · aiosmtplib + imap-tools · TypeSafe Jev (`typesafe-sdk`) · httpx · Playwright · trafilatura · Tesseract · LiteLLM + instructor · Jinja2 · Tectonic · SQLite + SQLModel · Notion API · Google Drive API · Docker · uv
+Python 3.11+ (asyncio) · Telethon · httpx · trafilatura · LiteLLM + instructor (Gemini or Groq) · SQLite + SQLModel (with full-text search) · FastAPI · Jinja2 · Tectonic / pdfLaTeX · aiosmtplib + imap-tools · Notion API · uv
 
 ## Contributing
 
-JobRadar is built to be extended without touching the core. Four plugin points are discovered via Python entry points:
+JobRadar is split into sources, site adapters, storage and sinks, so adding one doesn't touch the core. Discovering them as Python entry points (so a plugin can live in its own package) is planned for v1.0:
 
 | Extension point | Built in | Ideas |
 |---|---|---|
-| `jobradar.sources` | telegram, email_forward, whatsapp | Job-alert emails, RSS, Discord |
-| `jobradar.site_adapters` | generic, google_forms | Greenhouse, Lever, Workday public pages |
-| `jobradar.storage` | local, gdrive | Dropbox, S3 |
+| `jobradar.sources` | telegram, boards, pages, email_forward, whatsapp (experimental) | Job-alert emails, RSS, Discord |
+| `jobradar.site_adapters` | generic, google_forms | More hiring-site pages |
+| `jobradar.storage` | local | Google Drive, S3 |
 | `jobradar.sinks` | notion, email_notify | Telegram bot, Slack, Google Sheets |
 
-Resume templates are plain `.tex.j2` files in `templates/`. CI runs ruff, mypy, pytest, a compile check on every template, gitleaks and a Docker build.
+Resume templates are plain `.tex.j2` files. CI runs ruff, mypy, pytest (660+ tests), gitleaks and a Docker build on every change.
 
 Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md); for help, see [SUPPORT.md](SUPPORT.md).
 
