@@ -61,7 +61,7 @@ On every start, JobRadar catches up on Telegram posts it missed, re-scores open 
 | Command | What it does |
 |---|---|
 | `jobradar run` | Start everything: Telegram reader, page reading, matching, Notion sync, alerts and digests |
-| `jobradar web` | The dashboard: today's good matches, your applications board, every job and one job's full page, at http://127.0.0.1:8080. Needs `uv sync --extra web` |
+| `jobradar web` | The dashboard at http://127.0.0.1:8080: today's good matches, your applications board, every job, the digest, and buttons to change a status (Notion follows). Needs `uv sync --extra web` |
 | `jobradar init` | First-time setup (see above) |
 | `jobradar chats` | List Telegram chats with their ids |
 | `jobradar add <url>` | Process one job link by hand and add it to Notion |
@@ -159,7 +159,7 @@ Starts the dashboard and prints its address, normally http://127.0.0.1:8080; ope
 - **All jobs**: search by company or role, and show jobs by status (hidden ones and "not a job" are left out unless you pick them).
 - **A job's page**: why it scored what it did, the job's details, where it was posted, your status history, the resumes and letters built for it, and the page text JobRadar read.
 
-It's read-only for now: change a status with the email buttons or in Notion, then reload. Only this computer can open it (`web.host: 127.0.0.1`). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
+Change a status right on the page: **I applied**, **Shortlist** and **Not interested** on new jobs; **Interview**, **I followed up**, **Rejected** and **Offer** on applications (each button only moves a job forward, like the email buttons); and **Change status** on a job's page for any status, to fix a mistake. A toast offers **Undo**. Notion follows within a minute while `jobradar run` is running (the change waits in the queue until then). Shortlisting a job with no resume queues one, as in Notion. Only this computer can open it (`web.host: 127.0.0.1`). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
 
 ### `jobradar replies --check`
 

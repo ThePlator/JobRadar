@@ -360,3 +360,62 @@ def test_all_jobs_sort_by_time(repo: Repo, clock: FakeClock) -> None:
     order = lambda sort: [c.id for c in views.all_jobs(repo, TZ, "jobs", "", 1, sort=sort).cards]  # noqa: E731
     assert order("new") == ["second", "first"] and order("old") == ["first", "second"]
     assert order("score") == ["second", "first"] and order("nonsense") == order("new")
+
+
+# ---- changing a status from the page -----------------------------------------------------------
+
+
+def test_buttons_need_the_page_token(client: TestClient, repo: Repo) -> None:
+    add(repo, "j", company="Rubrik")
+    token = repo.get_setting("web_token")
+    assert token and f'content="{token}"' in client.get("/").text
+    assert client.post("/jobs/j/act", content="action=applied").status_code == 403
+    bad = {"x-jobradar-token": "guess", "content-type": "application/x-www-form-urlencoded"}
+    assert client.post("/jobs/j/act", content="action=applied", headers=bad).status_code == 403
+    other_site = {"x-jobradar-token": token, "origin": "https://evil.example",
+                  "content-type": "application/x-www-form-urlencoded"}  # fmt: skip
+    assert (
+        client.post("/jobs/j/act", content="action=applied", headers=other_site).status_code == 403
+    )
+    job = repo.get_job("j")
+    assert job is not None and job.status == "new"
+
+
+def test_a_button_click(client: TestClient, repo: Repo) -> None:
+    add(repo, "j", company="Rubrik")
+    token = repo.get_setting("web_token") or ""
+    headers = {"x-jobradar-token": token, "content-type": "application/x-www-form-urlencoded"}
+    out = client.post("/jobs/j/act", content="action=applied", headers=headers).json()
+    assert (out["ok"], out["status"], out["undo"]) == (True, "applied", "new")
+    assert 'data-id="j"' in out["row"] and "Interview" in out["row"]  # the row's next buttons
+    again = client.post("/jobs/j/act", content="action=skip", headers=headers)
+    assert again.status_code == 409 and "is Applied now" in again.json()["message"]
+    undo = client.post("/jobs/j/status", content="status=new", headers=headers).json()
+    assert undo["ok"] and undo["status"] == "new"
+    assert (
+        client.post("/jobs/nope/act", content="action=applied", headers=headers).status_code == 404
+    )
+
+
+def test_without_javascript_a_form_post_comes_back(client: TestClient, repo: Repo) -> None:
+    add(repo, "j")
+    token = repo.get_setting("web_token") or ""
+    form = {"content-type": "application/x-www-form-urlencoded"}
+    back = client.post("/jobs/j/act", content=f"action=shortlist&token={token}&next=/jobs%3Fq%3Dx",
+                       headers=form, follow_redirects=False)  # fmt: skip
+    assert back.status_code == 303 and back.headers["location"] == "/jobs?q=x"
+    away = client.post("/jobs/j/status", content=f"status=new&token={token}&next=//evil.com",
+                       headers=form, follow_redirects=False)  # fmt: skip
+    assert away.headers["location"] == "/"  # never to another site
+    assert [st for st, _ in repo.status_history("j")] == ["shortlisted", "new"]
+
+
+def test_cards_show_the_next_steps(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "n")
+    add(repo, "a", status=JobStatus.APPLIED, you=True)
+    add(repo, "i", status=JobStatus.INTERVIEW, you=True)
+    add(repo, "o", status=JobStatus.OFFER, you=True)
+    acts = lambda job_id: [a for a, _ in views.card(repo.get_job(job_id), TZ).actions]  # type: ignore[arg-type]  # noqa: E731
+    assert acts("n") == ["applied", "shortlist", "skip"]
+    assert acts("a") == ["interview", "followed up", "rejected"]
+    assert acts("i") == ["offer", "rejected"] and acts("o") == []

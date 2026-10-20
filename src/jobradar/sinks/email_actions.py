@@ -35,19 +35,21 @@ import secrets
 import ssl
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from email.message import EmailMessage
 from email.policy import default as default_policy
 from email.utils import getaddresses, parsedate_to_datetime
-from typing import Any, Literal, Protocol
+from pathlib import Path
+from typing import Literal, Protocol
 from urllib.parse import quote
 
 from jobradar.clock import Clock, utcnow
 from jobradar.config import Settings
 from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
+from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.dedupe import sha1
-from jobradar.pipeline.task_types import NOTION_STATUS, REPLY_CHECK
+from jobradar.pipeline.task_types import REPLY_CHECK
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
-from jobradar.sinks.notion_sync import FOLLOWED_UP
 
 log = logging.getLogger(__name__)
 
@@ -67,23 +69,10 @@ _SUBJECT = re.compile(
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _HR_WORDS = re.compile(r"hr|career|recruit|talent|hiring|jobs|people|placement", re.IGNORECASE)
 
-# What each action may change: the job's current status must be one of these.
-_FROM: dict[str, set[str]] = {
-    "applied": {s.value for s in (JobStatus.DISCOVERED, JobStatus.EXTRACTED, JobStatus.NEW,
-                                  JobStatus.SHORTLISTED, JobStatus.RESUME_READY,
-                                  JobStatus.HIDDEN, JobStatus.SKIPPED)},
-    "skip": {s.value for s in (JobStatus.DISCOVERED, JobStatus.EXTRACTED, JobStatus.NEW,
-                               JobStatus.SHORTLISTED, JobStatus.RESUME_READY, JobStatus.HIDDEN)},
-    "followed up": {JobStatus.APPLIED.value},
-    "interview": {s.value for s in (JobStatus.NEW, JobStatus.SHORTLISTED,
-                                    JobStatus.RESUME_READY, JobStatus.APPLIED)},
-    "rejected": {s.value for s in (JobStatus.NEW, JobStatus.SHORTLISTED, JobStatus.RESUME_READY,
-                                   JobStatus.APPLIED, JobStatus.INTERVIEW)},
-}  # fmt: skip
+# The rules are shared with the dashboard (pipeline/status_rules.py).
+_FROM = rules.FROM
 NOTION_OPTION = {"applied": "Applied", "skip": "Skipped", "interview": "Interview",
                  "rejected": "Rejected"}  # fmt: skip
-_STATUS = {"applied": JobStatus.APPLIED, "skip": JobStatus.SKIPPED,
-           "interview": JobStatus.INTERVIEW, "rejected": JobStatus.REJECTED}  # fmt: skip
 
 
 def _title(job: Job) -> str:
@@ -157,6 +146,56 @@ class Actions:
         if not addresses or not addresses <= self.senders:
             return False
         return not re.search(r"\b(?:spf|dkim|dmarc)=(?:fail|softfail)\b", auth_results or "", re.I)
+
+
+def dashboard_url(settings: Settings) -> str:
+    web = settings.config.web
+    return f"http://{web.host}:{web.port}"
+
+
+_WORDS = {"applied": "I applied", "skip": "Not interested", "followed up": "I followed up",
+          "interview": "Yes, set Interview", "rejected": "Yes, set Rejected"}  # fmt: skip
+
+
+def build_ignored(
+    ignored: list[tuple[Job, str]], sender: str, to: str, dashboard: str
+) -> EmailMessage:
+    """'Not interested ignored for SDE @ Rubrik: it's Applied.' with a link to change it."""
+    from jobradar.sinks.email_template import esc, layout
+
+    first, action = ignored[0]
+    subject = (
+        f"[JobRadar] “{_WORDS.get(action, action)}” didn't change {_title(first)}"
+        if len(ignored) == 1
+        else f"[JobRadar] {len(ignored)} button emails didn't change anything"
+    )
+    why = (
+        "Buttons only move a job forward, so an old email can't undo a later step. "
+        "To change it anyway, use Change status on the job's page in your dashboard."
+    )
+    lines, rows = [], []
+    for job, act in ignored:
+        now = rules.YOURS.get(JobStatus(job.status), job.status)
+        link = f"{dashboard}/jobs/{job.id}"
+        lines.append(f"- {_WORDS.get(act, act)}: {_title(job)} is {now} already. {link}")
+        rows.append(
+            "<tr><td style='padding:10px 0;border-top:1px solid #d0d7de;font-size:14px'>"
+            f"<b>{esc(_WORDS.get(act, act))}</b> on <b>{esc(_title(job))}</b>: it's "
+            f"<b>{esc(now)}</b> already. <a href='{esc(link)}'>Change it in the dashboard</a>"
+            "</td></tr>"
+        )
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = to
+    msg.set_content("\n".join([why, "", *lines]) + "\n\n— JobRadar\n")
+    footer = "The dashboard runs on your computer: start it with <code>jobradar web</code>."
+    msg.add_alternative(
+        layout("JobRadar", "Nothing changed", why, subject.removeprefix("[JobRadar] "),
+               "".join(rows), footer),
+        subtype="html",
+    )  # fmt: skip
+    return msg
 
 
 def recruiter_email(job: Job, apply_url: str | None, post: str | None) -> str | None:
@@ -287,6 +326,8 @@ class ReplyReader:
         self.clock = clock
         self.tz = settings.config.notify.tz
         self.companies = companies  # replies from companies you applied to (same login)
+        self.ignored: list[tuple[Job, str]] = []  # buttons that couldn't apply, this check
+        self.preview_dir: Path | None = None  # dry run: where the "ignored" email is saved
 
     def schedule(self, delay: float = 0, key: str = "a") -> None:
         self.queue.enqueue(REPLY_CHECK, key, delay=delay)
@@ -309,6 +350,7 @@ class ReplyReader:
             raise RetryableError(f"inbox not reachable right now: {e}") from e
         done: list[str] = []
         handled: list[str] = []
+        self.ignored = []
         try:
             for mail in incoming:
                 key = DONE + sha1(mail.message_id)[:16]
@@ -331,7 +373,26 @@ class ReplyReader:
         finally:
             with contextlib.suppress(imaplib.IMAP4.error, OSError):
                 imap.logout()
+        if self.ignored:
+            self._tell_ignored(self.ignored)
         return done
+
+    def _tell_ignored(self, ignored: list[tuple[Job, str]]) -> None:
+        """Email you about button emails that changed nothing, so it isn't a silent no."""
+        from jobradar.sinks.email_notify import PREVIEW_DIR, save_preview, smtp_send
+
+        secrets = self.settings.secrets
+        sender = secrets.email_address or "jobradar@localhost"
+        msg = build_ignored(ignored, sender, secrets.notify_address or sender,
+                            dashboard_url(self.settings))  # fmt: skip
+        try:
+            if self.settings.config.notify.dry_run:
+                save_preview(msg, (self.preview_dir or PREVIEW_DIR)
+                             / f"ignored-{self.clock():%Y%m%d-%H%M%S}.html")  # fmt: skip
+            else:
+                smtp_send(self.settings, msg)
+        except OSError as e:  # the status is right either way; this is only a note
+            log.warning("couldn't send the ignored-button note", extra={"error": str(e)})
 
     def apply(self, mail: Incoming) -> str | None:
         parsed = self.actions.parse(mail.subject)
@@ -346,18 +407,12 @@ class ReplyReader:
         if job is None:
             return f"{action}: job {prefix} not found"
         title = _title(job)
-        if job.status not in _FROM[action]:
+        day = (mail.sent or self.clock()).astimezone(self.tz).date()
+        outcome = rules.act(self.repo, self.queue, job, action, day, build_resumes=False)
+        if not outcome.ok:
             about = {"job_id": job.id[:10], "action": action, "status": job.status}
             log.info("button email ignored: status has moved on", extra=about)
+            self.ignored.append((job, action))
             return f"{action} ignored for {title}: it's {job.status} now"
-        payload: dict[str, Any]
-        if action == "followed up":
-            day = (mail.sent or self.clock()).astimezone(self.tz).date().isoformat()
-            self.repo.set_setting(FOLLOWED_UP + job.id, day)
-            payload = {"followed_up": day}
-        else:
-            self.repo.set_user_status(job.id, _STATUS[action])
-            payload = {"status": NOTION_OPTION[action]}
-        self.queue.enqueue(NOTION_STATUS, job.id, payload)
         log.info("your email action", extra={"job_id": job.id[:10], "action": action})
         return f"{action}: {title}"

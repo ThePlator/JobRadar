@@ -32,9 +32,17 @@
 <svg class="bar {{ kind }}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-bg" width="100" height="8"/><rect class="bar-fg" width="{{ [pct, 0]|max }}" height="8"/></svg>
 {%- endmacro %}
 
+{% macro act_form(c, action, text, cls='act') -%}
+<form method="post" action="/jobs/{{ c.id }}/act" class="act-form" data-act>
+  <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="action" value="{{ action }}">
+  <input type="hidden" name="next" value="{% if request is defined %}{{ request.url.path }}{{ '?' ~ request.url.query if request.url.query else '' }}{% else %}/jobs{% endif %}">
+  <button type="submit" class="{{ cls }} a-{{ action|replace(' ', '-') }}">{{ text }}</button>
+</form>
+{%- endmacro %}
+
 {% macro row(c, with_status=false) -%}
 {%- set tier = 'none' if c.score is none else ('good' if c.score >= good else ('fair' if c.score >= fair else 'poor')) -%}
-<li class="row tier-{{ tier }}" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}"
+<li class="row tier-{{ tier }}" data-id="{{ c.id }}" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}"
     data-score="{{ c.score if c.score is not none else -1 }}" data-seen="{{ c.seen_at }}"
     data-closes="{{ c.closes_in if c.closes_in is not none and c.closes_in >= 0 else 9999 }}"
     data-text="{{ (c.role ~ ' ' ~ c.company ~ ' ' ~ c.place)|lower }}">
@@ -58,6 +66,8 @@
     <span class="age" title="First seen {{ c.seen }}">{{ c.age or c.seen }}</span>
   </div>
   <div class="row-actions">
+    {% for action, text in c.actions %}{{ act_form(c, action, text, 'act do' ~ (' primary' if loop.first else '')) }}{% endfor %}
+    {% if c.actions %}<span class="act-gap"></span>{% endif %}
     {% if c.url %}<a class="act" href="{{ c.url }}" target="_blank" rel="noopener noreferrer" title="Open the job's own page"><svg class="i xs"><use href="#i-out"/></svg><span>Open job</span></a>{% endif %}
     <a class="act" href="/jobs/{{ c.id }}" title="Everything JobRadar knows about it"><span>Details</span><svg class="i xs"><use href="#i-arrow"/></svg></a>
   </div>

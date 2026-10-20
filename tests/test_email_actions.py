@@ -284,3 +284,30 @@ def test_archive_elsewhere_or_failing_only_marks_read(caplog: pytest.LogCaptureF
     no_folder = ArchiveImap(folders=[b'(\\HasNoChildren) "/" "INBOX"'])
     email_actions.archive(no_folder, ["1"])  # type: ignore[arg-type]
     assert [c[0] for c in no_folder.calls] == ["STORE"]
+
+
+async def test_an_ignored_button_tells_you(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add(repo, status=JobStatus.APPLIED)  # you applied, then tapped "Not interested" on it
+
+    class FakeImap:
+        def logout(self) -> None:
+            pass
+
+    sent: list[Any] = []
+    monkeypatch.setattr(
+        email_actions, "fetch", lambda s, since: (FakeImap(), [mail(subject("skip"))])
+    )
+    monkeypatch.setattr(email_actions, "archive", lambda imap, uids: None)
+    monkeypatch.setattr("jobradar.sinks.email_notify.smtp_send", lambda s, m: sent.append(m))
+    r = reader(repo, queue, clock)
+    assert await r.check_now() == ["skip ignored for Software Engineer @ Acme: it's applied now"]
+    assert (
+        sent[0]["Subject"] == "[JobRadar] “Not interested” didn't change Software Engineer @ Acme"
+    )
+    body = str(sent[0].get_body(("plain",)).get_content())
+    assert "is Applied already" in body and f"http://127.0.0.1:8080/jobs/{JOB}" in body
+    job = repo.get_job(JOB)
+    assert job is not None and job.status == JobStatus.APPLIED.value
+    assert await r.check_now() == [] and len(sent) == 1  # handled once: no second note

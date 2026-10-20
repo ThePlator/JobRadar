@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import ring, avatar, status, reasons, bar %}
+{% from "_macros.html" import ring, avatar, status, reasons, bar, act_form with context %}
 {% block title %}{{ job.card.role }}{% if job.card.company %} @ {{ job.card.company }}{% endif %} · JobRadar{% endblock %}
 {% block main %}
 <article class="job">
@@ -12,6 +12,22 @@
     </div>
     {{ ring(job.card.score, 'lg') }}
   </header>
+
+  <section class="panel decide" aria-label="Your status">
+    <div class="decide-quick">
+      <h2>Your move</h2>
+      {% if job.card.actions %}<div class="decide-btns">{% for action, text in job.card.actions %}{{ act_form(job.card, action, text, 'btn' ~ ('' if loop.first else ' quiet')) }}{% endfor %}</div>
+      {% else %}<p class="faint small">No next step for {{ job.card.status_label }}. Use Change status if it's wrong.</p>{% endif %}
+    </div>
+    <form method="post" action="/jobs/{{ job.card.id }}/status" class="change" data-set>
+      <label for="set-status">Change status</label>
+      <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="next" value="{{ request.url.path }}">
+      <select id="set-status" name="status">
+        {% for st, text in statuses %}<option value="{{ st.value }}" {% if st.value == job.card.status or (st.value == 'shortlisted' and job.card.status == 'resume_ready') %}selected{% endif %}>{{ text }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn quiet">Save</button>
+    </form>
+  </section>
 
   <div class="take">
     <svg class="blip take-blip{{ ' happy' if job.card.score and job.card.score >= good else '' }}" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
@@ -35,6 +51,7 @@
     </ul>
   </section>
   {% endif %}
+
 
   <p class="links">
     {% if job.url %}<a class="btn" href="{{ job.url }}" target="_blank" rel="noopener noreferrer">Open the job <svg class="i xs"><use href="#i-out"/></svg></a>{% endif %}
