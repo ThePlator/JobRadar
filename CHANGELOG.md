@@ -146,6 +146,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The default extraction model is `gemini/gemini-flash-lite-latest`.
 
 ### Fixed
+- Handled button emails (I applied, Not interested…) stayed in the Gmail inbox, only marked read: Gmail accepts taking the Inbox label off while the inbox is open but ignores it. They're now moved to All Mail, which is what Gmail's Archive does, and a failure is logged instead of passing silently.
 - Oracle career sites (Zensar, Cummins…) often state the years of experience only in their own fields ("Minimum Experience (In Years)": 4) or a short summary, not in the description, so a 4-7 year Java Developer job looked open to freshers and was emailed. Those fields are now read, and `max_experience_years` hides such jobs.
 - `jobradar stats` called every hidden job an ad. It now breaks hidden jobs down by reason (not eligible, weak match, not a job, hidden by you, ad or promo link) and lists only real ads as ads.
 - An ad with a company name but no role (a "free webinar" post) no longer counts as a job; the matcher hides any that got through.

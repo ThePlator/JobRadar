@@ -236,13 +236,38 @@ def fetch(settings: Settings, since: date) -> tuple[imaplib.IMAP4_SSL, list[Inco
     return imap, found
 
 
+_LIST_ROW = re.compile(rb'^\(([^)]*)\) (?:"[^"]*"|NIL) (.+)$')
+
+
+def all_mail(imap: imaplib.IMAP4_SSL) -> str | None:
+    """Gmail's All Mail folder, as LIST names it (quoted): "[Gmail]/All Mail", or in other
+    languages "[Google Mail]/Alle Nachrichten" and so on. It's the one flagged \\All."""
+    typ, rows = imap.list()
+    for row in rows if typ == "OK" else []:
+        found = _LIST_ROW.match(row) if isinstance(row, bytes) else None
+        if found and b"\\All" in found.group(1).split():
+            return found.group(2).decode()
+    return None
+
+
 def archive(imap: imaplib.IMAP4_SSL, uids: list[str]) -> None:
-    """Gmail: take them out of the Inbox (still in All Mail). Elsewhere: mark them read."""
-    gmail = "X-GM-EXT-1" in {str(c).upper() for c in imap.capabilities}
+    """Gmail: move them to All Mail, which is what Gmail's Archive does. (Taking the \\Inbox
+    label off while INBOX is open is accepted and silently ignored, so they never left.)
+    Other servers: mark them read."""
     for uid in uids:
         imap.uid("STORE", uid, "+FLAGS", "(\\Seen)")
-        if gmail:
-            imap.uid("STORE", uid, "-X-GM-LABELS", "(\\Inbox)")
+    if "X-GM-EXT-1" not in {str(c).upper() for c in imap.capabilities}:
+        return
+    target = all_mail(imap)
+    if target is None:
+        log.warning("Gmail's All Mail folder not found: button emails stay in the inbox, read")
+        return
+    try:
+        typ, data = imap.uid("MOVE", ",".join(uids), target)
+    except imaplib.IMAP4.error as e:
+        typ, data = "NO", [str(e).encode()]
+    if typ != "OK":
+        log.warning("button emails not archived", extra={"error": str(data)[:200]})
 
 
 class ReplyReader:
