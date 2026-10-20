@@ -249,12 +249,14 @@ class ArchiveImap:
             ]
         )
 
-    def list(self) -> tuple[str, list[bytes]]:
-        return "OK", self.folders
-
     def uid(self, command: str, *args: str) -> tuple[str, list[bytes]]:
         self.calls.append((command, *args))
         return (self.move if command == "MOVE" else "OK"), [b""]
+
+    # Last: in the class body, a method named list hides the builtin from annotations after it
+    # (Python < 3.14 evaluates them at once).
+    def list(self) -> tuple[str, "list[bytes]"]:
+        return "OK", self.folders
 
 
 def test_gmail_archive_moves_to_all_mail() -> None:
