@@ -40,7 +40,7 @@
 </form>
 {%- endmacro %}
 
-{% macro row(c, with_status=false) -%}
+{% macro row(c, with_status=false, snippet=none) -%}
 {%- set tier = 'none' if c.score is none else ('good' if c.score >= good else ('fair' if c.score >= fair else 'poor')) -%}
 <li class="row tier-{{ tier }}" data-id="{{ c.id }}" data-tags="{{ c.tags }}" data-href="/jobs/{{ c.id }}"
     data-score="{{ c.score if c.score is not none else -1 }}" data-seen="{{ c.seen_at }}"
@@ -59,6 +59,7 @@
       {% set n = c.closes_in %}
       {% if n is not none and n >= 0 %}<span class="due {{ 'soon' if n <= 3 else '' }}"><svg class="i xs"><use href="#i-clock"/></svg>{% if n == 0 %}closes today{% elif n == 1 %}closes tomorrow{% else %}closes in {{ n }} days{% endif %}</span>{% elif c.closes %}<span class="due over">closed {{ c.closes }}</span>{% endif %}
     </p>
+    {% if snippet %}<p class="snippet">{{ snippet }}</p>{% endif %}
     {{ reasons(c.reason) }}
   </div>
   <div class="row-end">

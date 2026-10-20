@@ -154,3 +154,54 @@ def compact_profile(
 def profile_version(compact: dict[str, Any]) -> str:
     """Changes whenever anything matching sees changes; jobs are then matched again."""
     return sha1(json.dumps(compact, sort_keys=True, ensure_ascii=False))[:16]
+
+
+_ITEMS = r"(?P<items>[^\]\n]*)\](?P<tail>[ \t]*(?:#.*)?)$"
+_ADDITIONAL = re.compile(r"^(?P<lead>[ \t]+additional:[ \t]*\[)" + _ITEMS, re.MULTILINE)
+_FLAT = re.compile(r"^(?P<lead>skills:[ \t]*\[)" + _ITEMS, re.MULTILINE)
+_PLAIN_ITEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .+#/&()-]*$")
+
+
+def add_skill(path: Path, name: str, now: str) -> str:
+    """Add one skill to profile.yaml without touching anything else: to the one-line
+    `additional: [...]` list under `skills:` (or a one-line flat `skills: [...]`). Keeps a
+    backup first (profile.yaml.bak-<now>) and puts it back if the result doesn't read as the
+    same profile plus the skill. Returns the backup's name; raises ConfigError otherwise."""
+    from jobradar.providers.skills_rule import profile_skill_keys, skill_key
+
+    name = " ".join(name.split())[:60]
+    if not name:
+        raise ConfigError("no skill name given")
+    before = load_profile(path)
+    if skill_key(name) in profile_skill_keys(before):
+        raise ConfigError(f"{name} is already in your profile")
+    text = path.read_text(encoding="utf-8")
+    item = name if _PLAIN_ITEM.match(name) and ": " not in name else json.dumps(name)
+    for pattern in (_ADDITIONAL, _FLAT):
+        found = pattern.search(text)
+        if found:
+            items = found.group("items").rstrip()
+            joined = f"{items}, {item}" if items.strip() else item
+            new = (text[: found.start()] + found.group("lead") + joined + "]"
+                   + found.group("tail") + text[found.end():])  # fmt: skip
+            break
+    else:
+        raise ConfigError(
+            "couldn't find a one-line `additional: [...]` list under skills: in profile.yaml; "
+            "add the skill there yourself"
+        )
+    backup = path.with_name(f"{path.name}.bak-{now}")
+    backup.write_text(text, encoding="utf-8")
+    path.write_text(new, encoding="utf-8")
+    try:
+        after = load_profile(path)
+        same = {k: v for k, v in after.items() if k != "skills"} == {
+            k: v for k, v in before.items() if k != "skills"
+        }
+        if not same or skill_key(name) not in profile_skill_keys(after):
+            raise ConfigError("the edited profile didn't read back as expected")
+    except ConfigError:
+        path.write_text(text, encoding="utf-8")  # put it back exactly as it was
+        backup.unlink(missing_ok=True)
+        raise
+    return backup.name

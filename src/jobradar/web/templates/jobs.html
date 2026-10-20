@@ -2,39 +2,59 @@
 {% from "_macros.html" import row with context %}
 {% block title %}All jobs · JobRadar{% endblock %}
 {% block main %}
+{% set f = found.filters %}
 <div class="head">
   <h1>All jobs</h1>
-  <p class="lede">{{ found.total }} job{{ '' if found.total == 1 else 's' }}{% if found.words %} matching “{{ found.words }}”{% endif %}, {% for v, t in sorts if v == found.sort %}{{ t|lower }}{% endfor %}.</p>
+  <p class="lede">{{ found.total }} job{{ '' if found.total == 1 else 's' }}{% if found.words %} mentioning “{{ found.words }}”{% endif %}{% if f.active %} with {{ f.active }} filter{{ '' if f.active == 1 else 's' }}{% endif %}, {% for v, t in sorts if v == found.sort %}{{ t|lower }}{% endfor %}.</p>
 </div>
-<form class="filters" method="get" action="/jobs" role="search">
-  <div class="search">
-    <svg class="i"><use href="#i-search"/></svg>
-    <label class="sr" for="q">Company or role</label>
-    <input id="q" name="q" type="search" value="{{ found.words }}" placeholder="Search company or role" maxlength="100">
-    <kbd>/</kbd>
+<form class="finder" method="get" action="/jobs" role="search">
+  <div class="finder-top">
+    <div class="search">
+      <svg class="i"><use href="#i-search"/></svg>
+      <label class="sr" for="q">Search every job</label>
+      <input id="q" name="q" type="search" value="{{ found.words }}" placeholder="Search anything: kafka, data engineer, pune, rubrik…" maxlength="100">
+      <kbd>/</kbd>
+    </div>
+    <label class="sr" for="show">Show</label>
+    <select id="show" name="show">
+      {% for value, text in choices %}<option value="{{ value }}" {% if value == found.show %}selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+    <label class="sr" for="sort-all">Sort</label>
+    <select id="sort-all" name="sort" data-autosubmit>
+      {% for value, text in sorts %}{% if value != 'relevance' or found.words %}<option value="{{ value }}" {% if value == found.sort %}selected{% endif %}>{{ text }}</option>{% endif %}{% endfor %}
+    </select>
+    <button type="submit">Search</button>
   </div>
-  <label class="sr" for="show">Show</label>
-  <select id="show" name="show">
-    {% for value, text in choices %}<option value="{{ value }}" {% if value == found.show %}selected{% endif %}>{{ text }}</option>{% endfor %}
-  </select>
-  <label class="sr" for="sort-all">Sort</label>
-  <select id="sort-all" name="sort" data-autosubmit>
-    {% for value, text in sorts %}<option value="{{ value }}" {% if value == found.sort %}selected{% endif %}>{{ text }}</option>{% endfor %}
-  </select>
-  <button type="submit">Filter</button>
+  <details class="finder-more" {% if f.active %}open{% endif %}>
+    <summary><svg class="i xs"><use href="#i-sort"/></svg>Filters{% if f.active %} <b class="badge hot">{{ f.active }}</b>{% endif %}</summary>
+    <div class="finder-grid">
+      <label>Score<select name="min" data-autosubmit>{% for v, t in min_scores %}<option value="{{ v }}" {% if (f.min_score or 0) == v %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+      <label>First seen<select name="within" data-autosubmit>{% for v, t in withins %}<option value="{{ v }}" {% if (f.within or 0) == v %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></label>
+      <label>Place<input name="place" type="text" value="{{ f.place }}" placeholder="e.g. Pune, Bangalore" maxlength="60"></label>
+      <label>Source<select name="source" data-autosubmit>
+        <option value="0">Anywhere</option>
+        {% for group, label in [('telegram', 'Telegram'), ('board', 'Company boards'), ('page', 'Watched pages'), ('manual', 'Added by you'), ('email', 'Email')] %}
+          {% set items = sources|selectattr(1, 'equalto', group)|list %}
+          {% if items %}<optgroup label="{{ label }}">{% for id, _, title in items %}<option value="{{ id }}" {% if f.source == id %}selected{% endif %}>{{ title }}</option>{% endfor %}</optgroup>{% endif %}
+        {% endfor %}
+      </select></label>
+      <label class="check"><input type="checkbox" name="remote" value="1" data-autosubmit {% if f.remote %}checked{% endif %}>Remote or hybrid only</label>
+      {% if f.active or found.words %}<a class="clear" href="/jobs?show={{ found.show }}">Clear search and filters</a>{% endif %}
+    </div>
+  </details>
 </form>
 {% if found.cards %}
 <ul class="rows" data-list>
-{% for c in found.cards %}{{ row(c, with_status=true) }}{% endfor %}
+{% for c in found.cards %}{{ row(c, with_status=true, snippet=found.snippets.get(c.id)) }}{% endfor %}
 </ul>
 {% if found.pages > 1 %}
 <nav class="pager" aria-label="Pages of jobs">
-  {% if found.page > 1 %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;sort={{ found.sort }}&amp;page={{ found.page - 1 }}">← Previous</a>{% else %}<span></span>{% endif %}
+  {% if found.page > 1 %}<a href="{{ found.query(found.page - 1) }}">← Previous</a>{% else %}<span></span>{% endif %}
   <span>Page {{ found.page }} of {{ found.pages }}</span>
-  {% if found.page < found.pages %}<a href="/jobs?show={{ found.show }}&amp;q={{ found.words|urlencode }}&amp;sort={{ found.sort }}&amp;page={{ found.page + 1 }}">Next →</a>{% else %}<span></span>{% endif %}
+  {% if found.page < found.pages %}<a href="{{ found.query(found.page + 1) }}">Next →</a>{% else %}<span></span>{% endif %}
 </nav>
 {% endif %}
 {% else %}
-<div class="empty"><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p>No jobs match. Try another word, or Show: Everything.</p></div>
+<div class="empty"><svg class="blip empty-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg><p>No jobs match{% if found.words %} “{{ found.words }}”{% endif %}. Try fewer words, fewer filters, or Show: Everything.</p></div>
 {% endif %}
 {% endblock %}

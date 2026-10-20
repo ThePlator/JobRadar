@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_macros.html" import avatar, ring with context %}
+{% block title %}{{ s.name }} · Skills · JobRadar{% endblock %}
+{% block main %}
+<div class="head digest-head">
+  <div>
+    <p class="eyebrow"><a href="/skills?days={{ s.days }}">Skills</a> · last {{ s.days }} days</p>
+    <h1>{{ s.name }}: what they really want</h1>
+    <p class="lede">{{ s.verdict }}{% if s.start %} {{ s.start }}{% endif %}</p>
+  </div>
+  <nav class="windows" aria-label="Time window">
+    {% for d, text in [(7, '7 days'), (30, '30 days'), (90, '90 days')] %}<a href="/skills/{{ s.key|urlencode }}?days={{ d }}" {% if d == s.days %}aria-current="page"{% endif %}>{{ text }}</a>{% endfor %}
+  </nav>
+</div>
+
+<section class="stats five" aria-label="How {{ s.name }} is asked for">
+  <div class="stat"><b>{{ s.asked }}</b><span>good matches name it</span></div>
+  <div class="stat {{ 'warn' if s.counts['must'] + s.counts['listed'] else '' }}"><b>{{ s.counts['must'] + s.counts['listed'] }}</b><span>must have it</span></div>
+  <div class="stat"><b>{{ s.counts['either'] }}</b><span>any one of a few</span></div>
+  <div class="stat"><b>{{ s.counts['nice'] }}</b><span>nice to have</span></div>
+  <div class="stat good"><b>{{ s.counts['covered'] }}</b><span>covered by your skills</span></div>
+</section>
+
+<div class="skills-grid">
+  <section class="panel skill-panel">
+    <div class="panel-head"><h2>What exactly they name</h2><p class="faint">in or right after the lines about {{ s.name }}</p></div>
+    {% if s.topics %}
+    <ol class="skill-list">
+      {% for t in s.topics %}
+      <li class="topic-row">
+        <span class="skill-name" title="{{ t.label }}">{{ t.label }}</span>
+        <span class="skill-bar"><svg class="bar fair" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="bar-bg" width="100" height="8"/><rect class="bar-fg" width="{{ t.width }}" height="8"/></svg></span>
+        <span class="skill-n">{{ t.jobs }} job{{ '' if t.jobs == 1 else 's' }}</span>
+        <span class="topic-jobs">{% for c in t.cards %}<a href="/jobs/{{ c.id }}">{{ c.company or c.role }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}<p class="faint">They name {{ s.name }} on its own, without anything more specific. The quotes below show how.</p>{% endif %}
+    {% if s.alongside %}
+    <h3 class="sub">Asked for in the same breath</h3>
+    <ul class="chips">{% for n, c, have in s.alongside %}<li class="{{ 'have' if have else '' }}" title="{{ 'You have this' if have else 'Not in your profile' }}">{% if have %}<svg class="i xs"><use href="#i-check"/></svg>{% endif %}{{ n }} <small>{{ c }}</small></li>{% endfor %}</ul>
+    {% endif %}
+    {% if s.missing %}
+    <form method="post" action="/skills/know" class="know">
+      <input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="next" value="/skills?days={{ s.days }}"><input type="hidden" name="skill" value="{{ s.name }}">
+      <button type="submit" class="chip-btn"><svg class="i xs"><use href="#i-check"/></svg>I know {{ s.name }}: add it to my profile</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="panel skill-panel">
+    <div class="panel-head"><h2>In their words</h2><p class="faint">strictest first</p></div>
+    <ul class="quotes">
+      {% for q in s.quotes %}
+      <li class="quote {{ q.kind }}">
+        <div class="quote-head">
+          {{ avatar(q.card, 'sm') }}
+          <a href="/jobs/{{ q.card.id }}"><b>{{ q.card.company or q.card.role }}</b><span>{{ q.card.role }}</span></a>
+          {{ ring(q.card.score, 'sm') }}
+        </div>
+        <p class="quote-kind"><span class="kind {{ q.kind }}">{{ q.label }}</span>{% if q.note %} <span class="faint">{{ q.note }}</span>{% endif %}</p>
+        {% if q.html %}<blockquote>{{ q.html }}</blockquote>{% else %}<p class="faint small">Listed in the job's skills; its text doesn't say more.</p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+<p class="faint small">Read from each job's page and post. "Any one of" means the job lists {{ s.name }} with alternatives (like "AWS, Azure or GCP"); "covered" means one of those alternatives is already in your profile.</p>
+{% endblock %}

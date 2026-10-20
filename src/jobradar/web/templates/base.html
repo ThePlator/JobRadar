@@ -20,6 +20,7 @@
     <a href="/" {% if nav == 'today' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-today"/></svg><span>Today</span>{% if ov.today %}<b class="badge hot">{{ ov.today }}</b>{% endif %}</a>
     <a href="/applications" {% if nav == 'applications' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-board"/></svg><span>Applications</span><b class="badge">{{ ov.active }}</b></a>
     <a href="/jobs" {% if nav == 'jobs' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-list"/></svg><span>All jobs</span><b class="badge">{{ ov.jobs }}</b></a>
+    <a href="/skills" {% if nav == 'skills' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-spark"/></svg><span>Skills</span></a>
     <a href="/digest" {% if nav == 'digest' %}aria-current="page"{% endif %}><svg class="i"><use href="#i-mail"/></svg><span>Digest</span></a>
   </nav>
   <div class="agent {{ 'awake' if ov.awake else 'asleep' }}">
@@ -39,7 +40,7 @@
 {% block main %}{% endblock %}
 </main>
 <footer>Changes here reach Notion within a minute while <code>jobradar run</code> is running.
-  <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> <kbd>d</kbd> go to a page</span></footer>
+  <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> <kbd>s</kbd> <kbd>d</kbd> go to a page</span></footer>
 <div class="toast" data-toast role="status" aria-live="polite" hidden><span class="toast-dot"></span><span data-toast-text></span><button type="button" class="toast-undo" data-undo hidden>Undo</button></div>
 <dialog class="palette" id="palette" aria-label="Jump to a job">
   <form method="dialog" class="palette-box">

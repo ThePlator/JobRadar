@@ -95,7 +95,8 @@ def test_search_and_show(repo: Repo, clock: FakeClock) -> None:
     ids = lambda show="jobs", q="": {c.id for c in views.all_jobs(repo, TZ, show, q, 1).cards}  # noqa: E731
     assert ids() == {"r", "d", "p"}  # hidden and not-a-job left out
     assert ids(q="rubrik") == {"r"} and ids(q="data eng") == {"d"}
-    assert ids(q="%") == {"p"}  # a literal %, not "anything"
+    assert ids(q="%") == ids()  # no words in it: no search
+    assert ids(q='" OR *') == set()  # operators are only words here: no error, no match
     assert ids(show="hidden") == {"h"} and ids(show="everything") == {"r", "d", "p", "h", "n"}
     assert ids(show="nonsense") == ids()
 
@@ -558,3 +559,137 @@ def test_alert_emails_link_to_the_dashboard(repo: Repo, tmp_path: Path) -> None:
     assert "http://127.0.0.1:8080/jobs/j" in str(msg.get_body(("plain",)).get_content())  # type: ignore[union-attr]
     off = with_storage(tmp_path, enabled=False)
     assert dashboard_link(off) is None
+
+
+# ---- full-text search and filters -----------------------------------------------------------
+
+
+def test_search_reads_the_whole_job(repo: Repo, clock: FakeClock) -> None:
+    add(repo, "k", company="Acme", role="Backend Engineer", locations=["Pune"], work_mode="hybrid",
+        skills_required=["Kafka"])  # fmt: skip
+    repo.save_page("k", "https://acme.com/k", "Backend", "You will build event pipelines on Kafka.")
+    add(repo, "g", company="Globex", role="Frontend Developer", locations=["Bangalore"])
+    repo.save_page("g", "https://acme.com/g", "Frontend", "React and TypeScript, onsite.")
+    found = lambda q="", **f: views.all_jobs(repo, TZ, "jobs", q, 1, clock(),  # noqa: E731
+                                             filters=views.Filters(**f))  # fmt: skip
+    hit = found("kafka pipelines")
+    assert [c.id for c in hit.cards] == ["k"]
+    assert "<mark>pipelines</mark>" in str(hit.snippets["k"])
+    assert [c.id for c in found("typescr").cards] == ["g"]  # a prefix finds the word
+    assert [c.id for c in found(place="pune").cards] == ["k"]
+    assert [c.id for c in found(remote=True).cards] == ["k"]  # hybrid counts
+    assert {c.id for c in found().cards} == {"k", "g"}
+    # A page fetched later gets into the index on the next search.
+    clock.advance(60)
+    repo.save_page("g", "https://acme.com/g", "Frontend", "React, TypeScript and some Kafka.")
+    assert {c.id for c in found("kafka").cards} == {"k", "g"}
+
+
+def test_filters_by_score_age_and_source(repo: Repo, clock: FakeClock) -> None:
+    source = repo.upsert_source(Platform.TELEGRAM, "-1009", "Freshershunt")
+    assert source.id is not None
+    add(repo, "old", score=95)
+    clock.advance(5 * 86400)
+    add(repo, "weak", score=55)
+    add(repo, "tg", score=92)
+    raw, _ = repo.save_raw_message(source.id, "5", "2026-10-13T08:00:00.000000Z", "post")
+    repo.add_job_source("tg", raw)
+    ids = lambda **f: {c.id for c in views.all_jobs(repo, TZ, "jobs", "", 1, clock(),  # noqa: E731
+                                                    filters=views.Filters(**f)).cards}  # fmt: skip
+    assert ids(min_score=90) == {"old", "tg"} and ids(within=3) == {"weak", "tg"}
+    assert ids(source=source.id) == {"tg"} and ids(min_score=90, within=3) == {"tg"}
+    assert repo.sources() == [(source.id, "telegram", "Freshershunt")]
+
+
+def test_all_jobs_page_with_filters(client: TestClient, repo: Repo) -> None:
+    add(repo, "k", company="Acme", role="Kafka Engineer", score=91)
+    page = client.get("/jobs", params={"q": "kafka", "min": 90, "remote": "", "sort": "relevance"})
+    assert page.status_code == 200 and "Kafka Engineer" in page.text and "1 filter" in page.text
+    assert client.get("/jobs", params={"min": 37}).status_code == 200  # an odd value: ignored
+
+
+# ---- Skills ------------------------------------------------------------------------------------
+
+PROFILE_YAML = """basics:
+  name: Sameer Kumar   # me
+skills:
+  languages: [Python, SQL]
+  additional: ["Machine Learning (feature engineering, model training)", Agile]  # keep this
+experience: []
+"""
+
+
+def test_add_skill_touches_one_line(tmp_path: Path) -> None:
+    from jobradar.config import ConfigError
+    from jobradar.profile import add_skill, load_profile
+
+    path = tmp_path / "profile.yaml"
+    path.write_text(PROFILE_YAML)
+    backup = add_skill(path, "AWS", "20261020-1300")
+    assert (
+        backup == "profile.yaml.bak-20261020-1300"
+        and (tmp_path / backup).read_text() == PROFILE_YAML
+    )
+    after = path.read_text()
+    assert "Agile, AWS]  # keep this" in after and "# me" in after  # comments stay
+    assert after.count("\n") == PROFILE_YAML.count("\n")
+    assert "AWS" in load_profile(path)["skills"]["additional"]
+    add_skill(path, "Node.js: backend", "x")  # needs quotes in YAML
+    assert load_profile(path)["skills"]["additional"][-1] == "Node.js: backend"
+    with pytest.raises(ConfigError, match="already"):
+        add_skill(path, "aws", "y")
+    flat = tmp_path / "flat.yaml"
+    flat.write_text("skills:\n  - Python\n")
+    with pytest.raises(ConfigError, match="yourself"):
+        add_skill(flat, "AWS", "z")
+    assert flat.read_text() == "skills:\n  - Python\n"
+
+
+def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeClock) -> None:
+    from jobradar.config import AppConfig, Settings
+
+    path = tmp_path / "profile.yaml"
+    path.write_text(PROFILE_YAML)
+    base = settings().config.model_dump()
+    base["matching"]["profile_path"] = str(path)
+    s = Settings(config=AppConfig.model_validate(base), secrets=settings().secrets)
+    for n in range(3):
+        add(repo, f"j{n}", company=f"Co{n}", score=90)
+        repo.save_page(f"j{n}", f"https://acme.com/j{n}", "Role", "Python, AWS and Kubernetes.")
+    add(repo, "j3", company="Co3", score=80)
+    repo.save_page("j3", "https://acme.com/j3", "Role", "Good knowledge of Python or C++.")
+    page = views.skills_page(repo, s, views_profile(path), clock(), 30)
+    assert page.looked_at == 4  # C++ isn't missing: that job takes Python instead
+    assert [(r.name, r.jobs, r.trend) for r in page.missing] == [
+        ("AWS", 3, None),
+        ("Kubernetes", 3, None),
+    ]
+    assert [r.name for r in page.have] == ["Python"] and len(page.missing[0].samples) == 3
+    client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
+    assert "Skills you keep missing" in client.get("/skills").text
+    aws = client.get("/skills/aws")
+    assert aws.status_code == 200 and "AWS: what they really want" in aws.text
+    assert "3 of 3 jobs ask for AWS outright" in aws.text and "<mark>AWS</mark>" in aws.text
+    cpp = client.get("/skills/c%2B%2B").text
+    assert "The one job naming C++ takes Python instead, which you have." in cpp
+    assert client.get("/skills/cobol").status_code == 404
+    form = {"content-type": "application/x-www-form-urlencoded"}
+    assert client.post("/skills/know", content="skill=AWS", headers=form).status_code == 403
+    token = repo.get_setting("web_token") or ""
+    out = client.post(
+        "/skills/know", content="skill=AWS", headers=form | {"x-jobradar-token": token}
+    )
+    assert out.json()["ok"] and "AWS" in path.read_text()
+    assert "AWS" not in [
+        r.name for r in views.skills_page(repo, s, views_profile(path), clock(), 30).missing
+    ]
+    again = client.post(
+        "/skills/know", content="skill=AWS", headers=form | {"x-jobradar-token": token}
+    )
+    assert again.status_code == 409 and "already" in again.json()["message"]
+
+
+def views_profile(path: Path) -> dict[str, Any]:
+    from jobradar.profile import load_profile
+
+    return load_profile(path)
