@@ -973,6 +973,134 @@ class Repo:
             query = select(Job).where(*where).order_by(*by).limit(limit).offset(offset)
             return list(s.exec(query)), int(total)
 
+    # ---- full-text search (the dashboard's All jobs) ------------------------------------
+
+    _FTS = (
+        "CREATE VIRTUAL TABLE IF NOT EXISTS job_fts USING fts5(job_id UNINDEXED, role, company, "
+        "places, skills, body, tokenize = 'unicode61 remove_diacritics 2')"
+    )
+
+    def jobs_to_index(self, since: str | None) -> list[str]:
+        """Jobs whose searchable text may have changed since `since` (all when None): the job
+        itself, its page, or a new post about it."""
+        with self._tx() as c:
+            c.execute(text(self._FTS))
+            if since is None:
+                rows = c.execute(text("SELECT id FROM job")).all()
+            else:
+                rows = c.execute(
+                    text(
+                        "SELECT id FROM job WHERE updated_at > :since "
+                        "UNION SELECT job_id FROM fetched_page WHERE fetched_at > :since "
+                        "UNION SELECT js.job_id FROM job_source js "
+                        "JOIN raw_message m ON m.id = js.raw_message_id "
+                        "WHERE m.received_at > :since"
+                    ),
+                    {"since": since},
+                ).all()
+        return [str(r[0]) for r in rows]
+
+    def index_jobs(self, rows: list[tuple[str, str, str, str, str, str]]) -> None:
+        """(job id, role, company, places, skills, body) into the search index, replacing."""
+        if not rows:
+            return
+        with self._tx() as c:
+            c.execute(text(self._FTS))
+            for chunk in range(0, len(rows), 200):
+                part = rows[chunk : chunk + 200]
+                c.execute(
+                    text("DELETE FROM job_fts WHERE job_id IN :ids").bindparams(
+                        bindparam("ids", expanding=True)
+                    ),
+                    {"ids": [r[0] for r in part]},
+                )
+                c.execute(
+                    text(
+                        "INSERT INTO job_fts (job_id, role, company, places, skills, body) "
+                        "VALUES (:id, :role, :company, :places, :skills, :body)"
+                    ),
+                    [
+                        {
+                            "id": r[0],
+                            "role": r[1],
+                            "company": r[2],
+                            "places": r[3],
+                            "skills": r[4],
+                            "body": r[5],
+                        }
+                        for r in part
+                    ],
+                )
+
+    def find_jobs(
+        self,
+        statuses: list[str] | None,
+        match: str | None,
+        min_score: int | None,
+        since: str | None,
+        source_id: int | None,
+        order: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[tuple[Job, str | None]], int]:
+        """A page of jobs for All jobs, with a text snippet around what `match` (an FTS5
+        query) found, and how many match in all. `order`: new, old, score, or relevance."""
+        where: list[str] = ["1 = 1"]
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        join = ""
+        if match:
+            join = "JOIN job_fts f ON f.job_id = j.id"
+            where.append("job_fts MATCH :match")
+            params["match"] = match
+        if statuses is not None:
+            marks = ", ".join(f":st{i}" for i in range(len(statuses)))
+            where.append(f"j.status IN ({marks})" if statuses else "0 = 1")
+            params |= {f"st{i}": st for i, st in enumerate(statuses)}
+        if min_score is not None:
+            where.append("j.score >= :min")
+            params["min"] = min_score
+        if since is not None:
+            where.append("j.created_at >= :since")
+            params["since"] = since
+        if source_id is not None:
+            where.append(
+                "EXISTS (SELECT 1 FROM job_source js JOIN raw_message m ON m.id = js.raw_message_id"
+                " WHERE js.job_id = j.id AND m.source_id = :src)"
+            )
+            params["src"] = source_id
+        by = {
+            "old": "j.created_at, j.id",
+            "score": "j.score IS NULL, j.score DESC, j.created_at DESC",
+            "relevance": "bm25(job_fts, 0, 8, 6, 3, 4, 1)" if match else "j.created_at DESC",
+        }.get(order, "j.created_at DESC, j.id")
+        snippet = "snippet(job_fts, -1, char(2), char(3), '…', 14)" if match else "NULL"
+        cond = " AND ".join(where)
+        with self._tx() as c:
+            c.execute(text(self._FTS))
+            total = c.execute(text(f"SELECT count(*) FROM job j {join} WHERE {cond}"),  # noqa: S608
+                              params).one()[0]  # fmt: skip
+            rows = c.execute(
+                text(f"SELECT j.id, {snippet} FROM job j {join} WHERE {cond} "  # noqa: S608
+                     f"ORDER BY {by} LIMIT :limit OFFSET :offset"),
+                params,
+            ).all()  # fmt: skip
+        ids = [str(r[0]) for r in rows]
+        with Session(self.engine) as s:
+            found = {j.id: j for j in s.exec(select(Job).where(col(Job.id).in_(ids)))}
+        return [(found[r[0]], r[1]) for r in rows if r[0] in found], int(total)
+
+    def sources(self) -> list[tuple[int, str, str]]:
+        """(id, platform, title) of every source that posted a job, by title."""
+        with self._tx() as c:
+            rows = c.execute(
+                text(
+                    "SELECT s.id, s.platform, coalesce(s.title, s.chat_id) FROM source s "
+                    "WHERE EXISTS (SELECT 1 FROM raw_message m JOIN job_source js "
+                    "ON js.raw_message_id = m.id WHERE m.source_id = s.id) ORDER BY 3"
+                )
+            ).all()
+        return [(int(r[0]), str(r[1]), str(r[2])) for r in rows]
+
     def last_activity(self) -> str | None:
         """When JobRadar last read anything: a message received or a board checked."""
         with self._tx() as c:

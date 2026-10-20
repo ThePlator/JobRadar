@@ -438,7 +438,7 @@ Config: `web: {enabled: true, host: 127.0.0.1, port: 8080}`. Dependencies `fasta
 - [x] Read-only pages: `jobradar web` starts the server; Today, Applications, All jobs, Job page from the existing database. No buttons yet
 - [x] Buttons: `pipeline/status_rules.py` shared with the email buttons; status buttons and Change status menu; page token on every POST and a Host header check; Notion write queued like the email buttons
 - [x] Inside `jobradar run` (one thing to start); resume and cover letter links with the ATS report (files served by artifact id, never by path); Build resume button; follow-up and company-reply chips
-- [ ] Skills page, full-text search, phone layout, light and dark themes matching the site; alert and digest emails link to the job page too
+- [x] Skills page, full-text search, phone layout, light and dark themes matching the site; alert and digest emails link to the job page too
 - [ ] `notion.enabled: false` stops every Notion call cleanly; Tailscale guide for phone access; README and website describe the dashboard
 
 **Security** (from the first step that has buttons): any site open in the same browser can send requests to `127.0.0.1:8080`, so every POST needs a token only JobRadar's pages carry; requests with a foreign `Host` are rejected (DNS rebinding); the server listens on 127.0.0.1 only, and the phone goes through Tailscale, never `0.0.0.0`; Jinja2 autoescape on.

@@ -9,11 +9,15 @@ from __future__ import annotations
 import json
 import re
 import zlib
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
+
+from markupsafe import Markup
 
 from jobradar.clock import to_iso
 from jobradar.config import Settings
@@ -21,10 +25,11 @@ from jobradar.db.models import Artifact, Job, JobStatus
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.schemas import JobPosting
-from jobradar.pipeline.skill_gaps import Gap, skill_gaps
+from jobradar.pipeline.skill_gaps import Demand, Gap, demand, skill_gaps
 from jobradar.pipeline.task_types import BUILD_RESUME
+from jobradar.profile import skill_names, skill_warnings
 from jobradar.providers.base import MatchAnswers
-from jobradar.providers.skills_rule import compare_skills
+from jobradar.providers.skills_rule import compare_skills, skill_key
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.digest import gather, part_of_day, pipeline_line, previous_slot
 from jobradar.sinks.email_actions import REPLIED
@@ -32,6 +37,7 @@ from jobradar.sinks.email_template import Reason, day_month, posting_of, split_r
 from jobradar.sinks.followups import MAX_REMINDERS, Draft, FollowUpReminder
 from jobradar.sinks.notion import experience_text, message_link, source_label
 from jobradar.sinks.notion_sync import FOLLOWED_UP
+from jobradar.web import search as fts
 
 LABELS = {
     JobStatus.NEW: "New",
@@ -366,6 +372,40 @@ class JobList:
     show: str
     words: str
     sort: str = "new"
+    filters: Filters = field(default_factory=lambda: Filters())
+    snippets: dict[str, Markup] = field(default_factory=dict)  # job id -> where it matched
+
+    def query(self, page: int) -> str:
+        """This search's address on another page."""
+        f = self.filters
+        pairs = {"q": self.words, "show": self.show, "sort": self.sort, "min": f.min_score or "",
+                 "within": f.within or "", "place": f.place, "remote": "1" if f.remote else "",
+                 "source": f.source or "", "page": page}  # fmt: skip
+        return "/jobs?" + urlencode({k: v for k, v in pairs.items() if v not in ("", None)})
+
+
+@dataclass
+class Filters:
+    min_score: int | None = None
+    within: int | None = None  # days
+    place: str = ""
+    remote: bool = False
+    source: int | None = None
+
+    @property
+    def active(self) -> int:
+        return sum(bool(x) for x in (self.min_score, self.within, self.place, self.remote,
+                                     self.source))  # fmt: skip
+
+
+MIN_SCORES = [(0, "Any score"), (50, "50+"), (75, "75+"), (90, "90+")]
+WITHIN = [
+    (0, "Any time"),
+    (1, "Last 24 h"),
+    (3, "Last 3 days"),
+    (7, "Last week"),
+    (30, "Last month"),
+]
 
 
 def show_statuses(show: str) -> list[str] | None:
@@ -377,7 +417,8 @@ def show_statuses(show: str) -> list[str] | None:
     return [s.value for s in SHOW_JOBS]
 
 
-SORTS = [("new", "Newest first"), ("old", "Oldest first"), ("score", "Best match")]
+SORTS = [("new", "Newest first"), ("old", "Oldest first"), ("score", "Best match"),
+         ("relevance", "Most relevant")]  # fmt: skip
 
 
 def all_jobs(
@@ -388,18 +429,28 @@ def all_jobs(
     page: int,
     now: datetime | None = None,
     sort: str = "new",
+    filters: Filters | None = None,
 ) -> JobList:
+    filters = filters or Filters()
+    now = now or datetime.now(UTC)
     if show not in dict(SHOW_CHOICES):
         show = "jobs"
     words = words.strip()[:100]
-    _, total = repo.search_jobs(show_statuses(show), words, 0, 0)
+    if sort not in dict(SORTS) or (sort == "relevance" and not words):
+        sort = "relevance" if words and sort not in dict(SORTS) else "new"
+    query = fts.match(words, filters.place, filters.remote)
+    if query:
+        fts.refresh(repo, now)
+    since = to_iso(now - timedelta(days=filters.within)) if filters.within else None
+    args = (show_statuses(show), query, filters.min_score or None, since, filters.source, sort)
+    _, total = repo.find_jobs(*args, 0, 0)
     pages = max(1, -(-total // PER_PAGE))
     page = min(max(page, 1), pages)
-    if sort not in dict(SORTS):
-        sort = "new"
-    offset = (page - 1) * PER_PAGE
-    jobs, total = repo.search_jobs(show_statuses(show), words, PER_PAGE, offset, sort)
-    return JobList([card(j, tz, now) for j in jobs], total, page, pages, show, words, sort)
+    found, total = repo.find_jobs(*args, PER_PAGE, (page - 1) * PER_PAGE)
+    return JobList(
+        [card(j, tz, now) for j, _ in found], total, page, pages, show, words, sort, filters,
+        {j.id: fts.snippet(snip) for j, snip in found if snip},
+    )  # fmt: skip
 
 
 # ---- One job ---------------------------------------------------------------------------------
@@ -925,4 +976,87 @@ def digest(
         failed=data.failed,
         gaps=gaps,
         gap_jobs=gap_jobs,
+    )
+
+
+# ---- Skills ------------------------------------------------------------------------------------
+
+SKILL_WINDOWS = [(7, "7 days"), (30, "30 days"), (90, "90 days")]
+
+
+@dataclass(frozen=True)
+class SkillRow:
+    name: str
+    jobs: int
+    share: int  # % of the good matches looked at
+    width: int  # % of the top skill, for the bar
+    trend: int | None  # jobs asking for it vs the window before; None: nothing to compare
+    samples: list[Card]  # the best few jobs that asked for it
+
+
+@dataclass
+class SkillsPage:
+    days: int
+    looked_at: int
+    min_score: int
+    missing: list[SkillRow]
+    have: list[SkillRow]
+    warnings: list[str]
+
+
+def _rows(
+    counts: Counter[str],
+    earlier: Counter[str] | None,
+    d: Demand,
+    repo: Repo,
+    tz: ZoneInfo,
+    now: datetime,
+    top: int,
+    names: dict[str, str],
+) -> list[SkillRow]:
+    def name(key: str) -> str:
+        for candidate in (names.get(key), d.name(key)):
+            if candidate and not candidate.islower():
+                return candidate
+        plain = names.get(key) or key
+        return plain[:1].upper() + plain[1:]
+
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], name(kv[0]).casefold()))[:top]
+    peak = max([1, *(n for _, n in ranked)])
+    rows = []
+    for key, n in ranked:
+        samples = [card(j, tz, now) for i in d.jobs[key][:4] if (j := repo.get_job(i))]
+        trend = None if earlier is None else n - earlier.get(key, 0)
+        rows.append(SkillRow(name(key), n, round(100 * n / max(d.looked_at, 1)),
+                             round(100 * n / peak), trend, samples))  # fmt: skip
+    return rows
+
+
+def skills_page(
+    repo: Repo, settings: Settings, profile: dict[str, Any] | None, now: datetime, days: int
+) -> SkillsPage:
+    """The skills your good matches ask for: the ones your profile lacks (what to learn, or
+    to add if you know them) and the ones it has (what to put first on a resume)."""
+    days = days if days in dict(SKILL_WINDOWS) else 30
+    min_score = settings.config.scoring.alert_above
+    tz = settings.config.notify.tz
+    if not profile:
+        return SkillsPage(days, 0, min_score, [], [], ["profile.yaml couldn't be read"])
+    window = timedelta(days=days)
+    d = demand(repo, profile, now - window, None, min_score)
+    before = demand(repo, profile, now - 2 * window, now - window, min_score)
+    # How you wrote each skill in profile.yaml ("Next.js"), for the ones you have.
+    yours: dict[str, str] = {}
+    for full in skill_names(profile):
+        plain = full.split(" (")[0]
+        for part in [plain, *re.split(r"/|\s&\s", plain)]:  # "Docker & Docker Compose": Docker
+            yours.setdefault(skill_key(part), part.strip())
+    gone, had = (None, None) if not before.looked_at else (before.missing, before.have)
+    return SkillsPage(
+        days=days,
+        looked_at=d.looked_at,
+        min_score=min_score,
+        missing=_rows(d.missing, gone, d, repo, tz, now, 20, {}),
+        have=_rows(d.have, had, d, repo, tz, now, 12, yours),
+        warnings=skill_warnings(profile),
     )

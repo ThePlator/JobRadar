@@ -150,6 +150,16 @@
     }
 
 
+    // Slide an element out, then remove it: on the animation's end, or after a moment anyway
+    // (a hidden tab never runs the animation, and the element must still go).
+    const leave = (el, then = () => {}) => {
+      let gone = false;
+      const go = () => { if (gone) return; gone = true; el.remove(); then(); };
+      el.classList.add("leaving");
+      el.addEventListener("animationend", (e) => { if (e.target === el) go(); });
+      setTimeout(go, 520);
+    };
+
     // ---- buttons: change a status without leaving the page ----
     const TOKEN = document.querySelector('meta[name="jobradar-token"]')?.content || "";
     const toastEl = document.querySelector("[data-toast]");
@@ -221,10 +231,7 @@
           badge.textContent = String(left);
           badge.hidden = left === 0;
         }
-        row.addEventListener("animationend", () => {
-          row.remove();
-          document.dispatchEvent(new Event("jobradar:changed"));
-        }, { once: true });
+        leave(row, () => document.dispatchEvent(new Event("jobradar:changed")));
         toast(out.message, undo);
       } else if (row && out.row) {  // All jobs: the row updates in place
         const fresh = document.createElement("template");
@@ -277,6 +284,20 @@
       watchBuild(panel.dataset.id, Number(panel.dataset.count), "");
     }
 
+    // ---- Skills: "I know this" ----
+    document.addEventListener("submit", async (e) => {
+      const form = e.target;
+      if (!(form instanceof HTMLFormElement) || !form.matches("[data-know]")) return;
+      e.preventDefault();
+      const button = form.querySelector("button");
+      button.disabled = true;
+      const out = await send(form.getAttribute("action"), Object.fromEntries(new FormData(form)));
+      if (!out.ok) { button.disabled = false; toast(out.message, null, true); return; }
+      const row = form.closest("[data-skill-row]");
+      if (row) leave(row);
+      toast(out.message);
+    });
+
     // ---- the follow-up draft: copy it ----
     document.querySelector("[data-copy]")?.addEventListener("click", async () => {
       const subject = document.querySelector("[data-copy-subject]").textContent.trim();
@@ -292,6 +313,42 @@
         toast("Selected: press Ctrl+C to copy.");
       }
     });
+
+
+    // ---- Today on a phone: swipe a card right to shortlist, left for not interested ----
+    if (document.querySelector("[data-toolbar]") && matchMedia("(pointer: coarse)").matches) {
+      const SWIPE = 90;
+      let row = null, x0 = 0, y0 = 0, dx = 0, sideways = null;
+      const formFor = (r, action) => r.querySelector(`form[data-act] input[name=action][value="${action}"]`)?.form;
+      document.addEventListener("touchstart", (e) => {
+        row = e.target.closest(".row");
+        if (!row || e.target.closest("button, a, input, select")) { row = null; return; }
+        x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; sideways = null;
+        if (!row.querySelector(".swipe-hint")) {
+          row.insertAdjacentHTML("beforeend", '<span class="swipe-hint right">Shortlist →</span><span class="swipe-hint left">← Not interested</span>');
+        }
+      }, { passive: true });
+      document.addEventListener("touchmove", (e) => {
+        if (!row) return;
+        const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0;
+        if (sideways === null && Math.abs(mx) + Math.abs(my) > 10) sideways = Math.abs(mx) > Math.abs(my) * 1.4;
+        if (!sideways) return;
+        dx = mx;
+        const can = formFor(row, dx > 0 ? "shortlist" : "skip");
+        row.classList.add("swiping");
+        row.classList.toggle("swipe-right", dx > 24 && !!can);
+        row.classList.toggle("swipe-left", dx < -24 && !!can);
+        row.style.transform = `translateX(${can ? dx : dx / 4}px)`;
+      }, { passive: true });
+      document.addEventListener("touchend", () => {
+        if (!row) return;
+        const done = row, form = Math.abs(dx) > SWIPE ? formFor(done, dx > 0 ? "shortlist" : "skip") : null;
+        done.classList.remove("swiping", "swipe-right", "swipe-left");
+        done.style.transform = "";
+        row = null;
+        if (form) form.requestSubmit();
+      });
+    }
 
     // ---- Applications: drag a card to another column ----
     const boardEl = document.querySelector("[data-board]");
@@ -418,7 +475,7 @@
       if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || palette?.open) return;
       if (g) {
         g = false;
-        const to = { t: "/", a: "/applications", j: "/jobs", d: "/digest" }[e.key];
+        const to = { t: "/", a: "/applications", j: "/jobs", s: "/skills", d: "/digest" }[e.key];
         if (to) { e.preventDefault(); window.location.href = to; }
         return;
       }
@@ -435,7 +492,7 @@
       }
     });
     // All jobs: changing the sort or Show applies it straight away
-    document.querySelectorAll("[data-autosubmit], #show").forEach((el) => {
+    document.querySelectorAll("[data-autosubmit], #show, .finder input[name=place]").forEach((el) => {
       el.addEventListener("change", () => el.form?.requestSubmit());
     });
     if (window.location.hash === "#search") document.getElementById("q")?.focus();

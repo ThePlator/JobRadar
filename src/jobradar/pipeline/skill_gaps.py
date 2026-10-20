@@ -103,3 +103,39 @@ def gap_line(gaps: list[Gap]) -> str:
     first, *rest = gaps
     return ", ".join([f"{first.name} in {first.jobs} good matches"]
                      + [f"{g.name} in {g.jobs}" for g in rest])  # fmt: skip
+
+
+@dataclass
+class Demand:
+    """How often your good matches in a window asked for each skill, split by whether your
+    profile lists it, with the jobs behind each count (for the Skills page)."""
+
+    looked_at: int
+    missing: Counter[str]
+    have: Counter[str]
+    jobs: dict[str, list[str]]  # skill key -> job ids, best score first
+
+    def name(self, key: str) -> str:
+        return NAMES.get(key, key)
+
+
+def demand(
+    repo: Repo, profile: dict[str, Any], since: datetime, until: datetime | None, min_score: int
+) -> Demand:
+    """Skill counts over good matches first seen from `since` (to `until`; None: up to now)."""
+    have_keys = {_canon(k) for k in profile_skill_keys(profile)}
+    jobs = sorted(
+        (j for j in repo.jobs_created_since(to_iso(since), to_iso(until) if until else None)
+         if (j.score or 0) >= min_score and j.status != JobStatus.DISCARDED.value),
+        key=lambda j: -(j.score or 0),
+    )  # fmt: skip
+    missing: Counter[str] = Counter()
+    have: Counter[str] = Counter()
+    by_skill: dict[str, list[str]] = {}
+    for job in jobs:
+        page = repo.get_page(job.id)
+        keys = job_skill_keys(job, (page.text or "") if page else "", own_post(repo, job.id) or "")
+        for key in keys:
+            (have if key in have_keys else missing)[key] += 1
+            by_skill.setdefault(key, []).append(job.id)
+    return Demand(len(jobs), missing, have, by_skill)

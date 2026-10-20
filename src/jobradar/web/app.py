@@ -37,7 +37,7 @@ from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.task_types import BUILD_RESUME
-from jobradar.profile import load_profile
+from jobradar.profile import add_skill, load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.digest import build_digest, gather
 from jobradar.web import views
@@ -134,7 +134,20 @@ def create_app(
         good=good, fair=config.scoring.hide_below, asset=asset, token=token,
         statuses=list(rules.YOURS.items()),
     )  # fmt: skip
-    profile = your_profile(settings)
+    cache: dict[str, Any] = {"mtime": None, "profile": None}
+
+    def current_profile() -> dict[str, Any] | None:
+        """profile.yaml, read again whenever the file changes (e.g. "I know this")."""
+        path = config.matching.profile_path
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+        if cache["mtime"] != mtime:
+            cache["mtime"], cache["profile"] = mtime, your_profile(settings)
+        return cache["profile"]  # type: ignore[no-any-return]
+
+    profile = current_profile()
     basics = profile.get("basics") if profile else None
     name = str(basics.get("name") or "") if isinstance(basics, dict) else ""
 
@@ -177,15 +190,32 @@ def create_app(
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(
-        request: Request, show: str = "jobs", q: str = "", page: int = 1, sort: str = "new"
+        request: Request,
+        show: str = "jobs",
+        q: str = "",
+        page: int = 1,
+        sort: str = "",
+        min: int = 0,
+        within: int = 0,
+        place: str = "",
+        remote: str = "",
+        source: int = 0,
     ) -> HTMLResponse:
-        found = views.all_jobs(repo, tz, show, q, page, clock(), sort)
+        filters = views.Filters(
+            min_score=min if min in dict(views.MIN_SCORES) and min else None,
+            within=within if within in dict(views.WITHIN) and within else None,
+            place=place.strip()[:60],
+            remote=bool(remote),
+            source=source or None,
+        )
+        found = views.all_jobs(repo, tz, show, q, page, clock(), sort or "", filters)
         return render(request, "jobs.html", "jobs", found=found, choices=views.SHOW_CHOICES,
-                      sorts=views.SORTS)  # fmt: skip
+                      sorts=views.SORTS, min_scores=views.MIN_SCORES, withins=views.WITHIN,
+                      sources=repo.sources())  # fmt: skip
 
     @app.get("/digest", response_class=HTMLResponse)
     def digest(request: Request, w: str = "") -> HTMLResponse:
-        page = views.digest(repo, settings, clock(), w, profile)
+        page = views.digest(repo, settings, clock(), w, current_profile())
         return render(request, "digest.html", "digest", d=page)
 
     @app.get("/digest/email", response_class=HTMLResponse)
@@ -206,7 +236,7 @@ def create_app(
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
         detail = views.job_detail(
-            repo, job_id, tz, clock(), config.matching.weights, profile, settings
+            repo, job_id, tz, clock(), config.matching.weights, current_profile(), settings
         )
         if detail is None:
             raise HTTPException(status_code=404)
@@ -308,6 +338,32 @@ def create_app(
             "count": len(repo.artifacts_of(job_id)),
             "building": repo.task_waiting(BUILD_RESUME, job_id),
         })  # fmt: skip
+
+    # ---- skills ------------------------------------------------------------------------------
+
+    @app.get("/skills", response_class=HTMLResponse)
+    def skills(request: Request, days: int = 30) -> HTMLResponse:
+        page = views.skills_page(repo, settings, current_profile(), clock(), days)
+        return render(request, "skills.html", "skills", s=page)
+
+    @app.post("/skills/know")
+    async def know(request: Request) -> Response:
+        """ "I know this": add a skill to profile.yaml, so matching counts it."""
+        fields = await checked_form(request)
+        name = fields.get("skill", "")
+        stamp = clock().astimezone(tz).strftime("%Y%m%d-%H%M%S")
+        try:
+            backup = add_skill(config.matching.profile_path, name, stamp)
+        except ConfigError as e:
+            ok, message = False, str(e)
+        else:
+            ok = True
+            message = (f"Added {name} to your profile (backup: {backup}). Matching counts it "
+                       "from the next restart of jobradar run.")  # fmt: skip
+            log.info("your dashboard skill", extra={"skill": name[:60]})
+        if request.headers.get("x-jobradar-token"):
+            return JSONResponse({"ok": ok, "message": message}, status_code=200 if ok else 409)
+        return RedirectResponse(safe_next(fields.get("next")), status_code=303)
 
     @app.get("/api/search")
     def api_search(q: str = "") -> JSONResponse:
