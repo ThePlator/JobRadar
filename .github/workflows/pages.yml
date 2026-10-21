@@ -34,7 +34,7 @@ jobs:
           sed -i -e "s|href=\"styles.css\"|href=\"styles.css?v=$css\"|" \
                  -e "s|src=\"app.js\"|src=\"app.js?v=$js\"|" site/index.html
           grep -q "styles.css?v=$css" site/index.html && grep -q "app.js?v=$js" site/index.html
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - id: deployment
