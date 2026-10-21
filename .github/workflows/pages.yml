@@ -24,7 +24,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       # Browsers keep styles.css and app.js for 10 minutes; a new index.html with old styles
       # looks broken. Tag each link with its file's hash so a change is fetched at once.
       - name: Version the CSS and JS links
