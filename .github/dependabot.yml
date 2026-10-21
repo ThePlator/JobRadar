@@ -1,11 +1,18 @@
 version: 2
 updates:
+  # One PR per ecosystem per week instead of one per package.
   - package-ecosystem: uv
     directory: /
     schedule: { interval: weekly }
+    groups:
+      python-packages:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
