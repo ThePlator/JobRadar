@@ -204,21 +204,30 @@ button.mc-pill[aria-pressed="true"] { background: #e6f4ea; border-color: #137333
 .gap-bars i { height: 8px; border-radius: 99px; background: linear-gradient(90deg, #1a56db var(--w), #e8eefc var(--w)); }
 .gap-bars b { font: 500 12.5px var(--mono); color: #59636e; }
 
-/* When you ask why: a mock of the dashboard's skill page. */
-.dash-card { width: 470px; max-width: 100%; background: #0f141b; color: #e7ecf2; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font: 400 14px/1.45 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
-.dc-bar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: #1a212c; border-bottom: 1px solid #2a3442; }
-.dc-dots { display: inline-flex; gap: 5px; } .dc-dots i { width: 9px; height: 9px; border-radius: 50%; background: #3a4554; }
-.dc-url { font: 500 12px var(--mono); color: #9aa6b2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dc-body { padding: 14px 16px 16px; display: grid; gap: 8px; }
-.dc-eyebrow { font: 700 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: #7aa2ff; }
-.dc-title { font-weight: 800; font-size: 19px; letter-spacing: -.01em; }
-.dc-lede { color: #b4bfcb; }
-.dc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.dc-stats span { display: grid; padding: 7px 9px; border: 1px solid #2a3442; border-radius: 8px; font-size: 11.5px; color: #9aa6b2; }
-.dc-stats b { font-size: 20px; color: #e7ecf2; } .dc-stats b.bad { color: #ff8a80; } .dc-stats b.good { color: #5fe08a; }
-.dc-quote { border: 1px solid #2a3442; border-left: 3px solid #5fe08a; border-radius: 8px; padding: 7px 10px; font-size: 13.5px; }
-.dc-quote small { display: block; font-size: 11.5px; font-weight: 700; color: #5fe08a; margin-bottom: 2px; }
-.dc-quote mark { background: rgba(122, 162, 255, .22); color: #e7ecf2; font-weight: 700; padding: 0 2px; border-radius: 3px; }
+/* When you ask why: a mock of the dashboard's skill page, in the page's own theme. */
+.dash-card { --dc-bad: #cf222e; --dc-good: #1a7f37; width: 470px; max-width: 100%; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); font: 400 14px/1.45 var(--body); }
+:root[data-theme="dark"] .dash-card { --dc-bad: #ff7b72; --dc-good: #5fe08a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dash-card { --dc-bad: #ff7b72; --dc-good: #5fe08a; } }
+.dc-bar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 4%, var(--card)); }
+.dc-dots { display: inline-flex; gap: 5px; } .dc-dots i { width: 9px; height: 9px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.dc-url { font: 500 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-body { padding: 16px 18px 18px; }
+.dc-name { font: 800 54px/.9 var(--display); letter-spacing: -.05em; }
+.dc-lede { margin: 10px 0 14px; color: var(--muted); }
+.dc-roll { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.dash-card .t { display: block; width: 18px; height: 24px; border-radius: 4px; }
+.dash-card .t.must { background: var(--dc-bad); }
+.dash-card .t.listed { background: repeating-linear-gradient(45deg, var(--dc-bad) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1.5px var(--dc-bad); }
+.dash-card .t.covered { box-shadow: inset 0 0 0 1.5px var(--dc-good); }
+.dc-key { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--muted); }
+.dc-key li { display: inline-flex; align-items: center; gap: 6px; } .dc-key b { color: var(--ink); }
+.dash-card .dc-key .t, .dash-card .dc-group .t { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.dc-said { margin-top: 16px; }
+.dc-group { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-weight: 700; font-size: 13.5px; }
+.dc-said blockquote { margin: 0; padding: 7px 0 8px 12px; border-left: 3px solid color-mix(in srgb, var(--dc-good) 55%, transparent); color: var(--muted); font-size: 14px; }
+.dc-said blockquote + blockquote { border-top: 1px solid var(--line); }
+.dc-said small { display: block; margin-top: 3px; font-size: 12px; font-weight: 700; color: var(--ink); }
+.dc-said mark { background: none; color: var(--dc-good); font-weight: 800; box-shadow: inset 0 -.38em 0 color-mix(in srgb, var(--dc-good) 22%, transparent); }
 .mc-kind { color: #1f2328; }
 .mc-quote { font-size: 15px; margin: 2px 0 2px; }
 .mc-from { font-size: 12.5px; color: #59636e; }

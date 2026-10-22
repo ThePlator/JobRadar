@@ -668,7 +668,8 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
     client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
     assert "Skills you keep missing" in client.get("/skills").text
     aws = client.get("/skills/aws")
-    assert aws.status_code == 200 and "AWS: what they really want" in aws.text
+    assert aws.status_code == 200 and '<h1 class="sk-name">AWS</h1>' in aws.text
+    assert aws.text.count('class="tile k-must"') == 3 and "<b>3</b> must have" in aws.text
     assert "3 of 3 jobs ask for AWS outright" in aws.text and "<mark>AWS</mark>" in aws.text
     cpp = client.get("/skills/c%2B%2B").text
     assert "The one job naming C++ takes Python instead, which you have." in cpp

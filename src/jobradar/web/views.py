@@ -1106,6 +1106,11 @@ KIND_WORDS = {
     "nice": "Nice to have", "covered": "You're covered",
 }  # fmt: skip
 ORDER_KINDS = ["must", "listed", "either", "nice", "covered"]  # strictest first
+# How the quotes are grouped: "In its skill list" reads as a must have.
+GROUP_OF = {"must": "must", "listed": "must", "either": "either", "nice": "nice",
+            "covered": "covered"}  # fmt: skip
+GROUP_WORDS = [("must", "Must have"), ("either", "Any one of a few"), ("nice", "Nice to have"),
+               ("covered", "Covered by your skills")]  # fmt: skip
 QUOTE_CHARS = 240
 
 
@@ -1115,6 +1120,23 @@ class TopicRow:
     jobs: int
     width: int
     cards: list[Card]
+    kinds: list[str] = field(default_factory=list)  # each job's verdict, strictest first
+
+
+@dataclass(frozen=True)
+class Tile:
+    """One job in the roll call: how it asks for the skill."""
+
+    kind: str
+    job_id: str
+    title: str  # "Rubrik: must have", for the tooltip
+
+
+@dataclass(frozen=True)
+class QuoteGroup:
+    kind: str
+    title: str
+    quotes: list[Quote]
 
 
 @dataclass(frozen=True)
@@ -1141,6 +1163,10 @@ class SkillDetailPage:
     alongside: list[tuple[str, int, bool]]  # (name, jobs, you have it)
     quotes: list[Quote]
     missing: bool  # not in your profile (so "I know this" applies)
+    tiles: list[Tile] = field(default_factory=list)
+    groups: list[QuoteGroup] = field(default_factory=list)
+    legend: list[tuple[str, str, int]] = field(default_factory=list)  # (kind, words, jobs)
+    mood: str = ""  # Blip's: "happy" when your skills already cover most of these jobs
 
 
 def _quote(text: str, pattern: re.Pattern[str]) -> Markup:
@@ -1203,9 +1229,14 @@ def skill_detail_page(
     det = detail(key, d.jobs[key], d.texts, d.have_keys)
     cards = {i: card(j, tz, now) for i in d.jobs[key] if (j := repo.get_job(i))}
     peak = max([1, *(len(t.jobs) for t in det.topics)])
+    kind_of = {n.job_id: n.kind for n in det.needs}
+
+    def strictest(ids: list[str]) -> list[str]:
+        return sorted((kind_of[i] for i in ids), key=ORDER_KINDS.index)
+
     topics = [
         TopicRow(t.label, len(t.jobs), round(100 * len(t.jobs) / peak),
-                 [cards[i] for i in t.jobs[:3] if i in cards])
+                 [cards[i] for i in t.jobs[:3] if i in cards], strictest(t.jobs))
         for t in det.topics
     ]  # fmt: skip
     pattern = spelling(key)
@@ -1224,7 +1255,24 @@ def skill_detail_page(
         [f"Named most often with it: {', '.join(often)}." if often else "",
          f"{'Also' if often else 'Named'} once each: {', '.join(once)}." if once else ""]
     ).strip()  # fmt: skip
+    ordered = sorted((n for n in det.needs if n.job_id in cards),
+                     key=lambda n: ORDER_KINDS.index(n.kind))  # fmt: skip
+    tiles = [
+        Tile(n.kind, n.job_id,
+             f"{cards[n.job_id].company or cards[n.job_id].role}: {KIND_WORDS[n.kind].lower()}")
+        for n in ordered
+    ]  # fmt: skip
+    groups = []
+    for kind, title in GROUP_WORDS:
+        members = [q for q in quotes if GROUP_OF[q.kind] == kind]
+        if members:
+            groups.append(QuoteGroup(kind, title, members))
+    legend = [(g.kind, g.title, len(g.quotes)) for g in groups]
     return SkillDetailPage(
+        tiles=tiles,
+        groups=groups,
+        legend=legend,
+        mood="happy" if det.needed * 2 < len(det.needs) else "",
         key=key,
         name=names(key),
         days=days,
