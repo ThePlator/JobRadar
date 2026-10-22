@@ -117,7 +117,7 @@ class Actions:
                 "followed up": "followed up today", "interview": "Interview",
                 "rejected": "Rejected"}[action]  # fmt: skip
         body = (
-            f"Send this email as it is. JobRadar marks {_title(job)} as {what} in Notion within "
+            f"Send this email as it is. JobRadar marks {_title(job)} as {what} within "
             "a few minutes, then archives this email."
         )
         return mailto(self.address, self.subject(action, job), body)
@@ -149,8 +149,10 @@ class Actions:
 
 
 def dashboard_url(settings: Settings) -> str:
+    """Where links open the dashboard: `web.url` (e.g. through Tailscale, so they work on
+    your phone too) or this computer's address."""
     web = settings.config.web
-    return f"http://{web.host}:{web.port}"
+    return web.url or f"http://{web.host}:{web.port}"
 
 
 _WORDS = {"applied": "I applied", "skip": "Not interested", "followed up": "I followed up",

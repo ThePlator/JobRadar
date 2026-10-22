@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from jobradar.config import AppConfig, Secrets, Settings
+from jobradar.config import AppConfig, NotionConfig, Secrets, Settings
 from jobradar.db.models import JobStatus
 from jobradar.db.repo import Repo
 from jobradar.pipeline.task_types import DIGEST
@@ -172,3 +172,26 @@ def test_pipeline_line() -> None:
         "Your applications: 2 shortlisted · 15 applied · 3 interviews · 0 offers "
         "(+2 applied since then)"
     )
+
+
+async def test_digest_without_notion_points_at_the_dashboard(
+    repo: Repo, queue: TaskQueue, clock: FakeClock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[EmailMessage] = []
+    monkeypatch.setattr(digest_mod, "smtp_send", lambda s, m: sent.append(m))
+    for n in range(7):
+        add_job(repo, f"j{n}", JobStatus.NEW, 90 - n)
+    add_job(repo, "h", JobStatus.HIDDEN, 30, "weak match (30)")
+    with repo.engine.begin() as c:  # pages made while Notion was on
+        c.exec_driver_sql("UPDATE job SET notion_page_id = 'page-1'")
+    clock.advance(4 * 3600 + 30 * 60)
+    base = settings()
+    off = base.model_copy(
+        update={"config": base.config.model_copy(update={"notion": NotionConfig(enabled=False)})}
+    )
+    await Digest(off, repo, queue, clock=clock, preview_dir=tmp_path).send_now()
+    text = sent[0].get_body(("plain",)).get_content()
+    html_body = sent[0].get_body(("html",)).get_content()
+    assert "notion.so" not in text + html_body and "Notion" not in html_body
+    assert "more in Today on the dashboard." in text
+    assert "Find them on the dashboard: All jobs, Show hidden." in text

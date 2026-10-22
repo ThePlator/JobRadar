@@ -157,10 +157,10 @@ uv run jobradar web
 - **Today**: good matches (score at or above `scoring.alert_above`) from the last 3 days that you haven't acted on, best first.
 - **Applications**: a board of every job you moved past New: Shortlisted (and Resume ready), Applied, Interview, Offer or rejected.
 - **All jobs**: search everything about a job (its page, the posts about it, skills, places: "kafka" finds every job that mentions Kafka, with the words highlighted), filter by status, score, how recently it was first seen, place, remote or hybrid, and where it came from, and sort by newest, oldest, score or relevance.
-- **Skills**: the skills your good matches ask for that your profile doesn't list, and the ones it does, over 7, 30 or 90 days, each with the jobs that asked. **I know …** adds a skill to `profile.yaml` (to the one-line `additional: [...]` list under `skills:`, with a backup next to it) so matching counts it after the next restart.
+- **Skills**: the skills your good matches ask for that your profile doesn't list, and the ones it does, over 7, 30 or 90 days, each with the jobs that asked; **What exactly do they want?** opens a skill's own page (which jobs must have it, which take it as one of a few like "AWS, Azure or GCP", which call it a plus, which take a skill you already have instead, and the services or topics they name with it). **I know …** adds a skill to `profile.yaml` (to the one-line `additional: [...]` list under `skills:`, with a backup next to it) so matching counts it after the next restart.
 - **A job's page**: **Resume for this job** (every version: open the PDF, the cover letter written next to it, and the resume check: contact details, dates, headings, and which of the job's skills are on it), **Build resume** / **Build a new version** (the page updates when it's ready), the **follow-up email** for an Applied job (the same draft the reminder sends, with Copy and Open in mail), why it scored what it did, the job's details, where it was posted, your status history, the resumes and letters built for it, and the page text JobRadar read.
 
-Change a status right on the page: **I applied**, **Shortlist** and **Not interested** on new jobs; **Interview**, **I followed up**, **Rejected** and **Offer** on applications (each button only moves a job forward, like the email buttons); and **Change status** on a job's page for any status, to fix a mistake. A toast offers **Undo**. Notion follows within a minute while `jobradar run` is running (the change waits in the queue until then). Shortlisting a job with no resume queues one, as in Notion. Only this computer can open it (`web.host: 127.0.0.1`). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
+Change a status right on the page: **I applied**, **Shortlist** and **Not interested** on new jobs; **Interview**, **I followed up**, **Rejected** and **Offer** on applications (each button only moves a job forward, like the email buttons); and **Change status** on a job's page for any status, to fix a mistake. A toast offers **Undo**. Notion follows within a minute while `jobradar run` is running (the change waits in the queue until then), unless `notion.enabled: false`. Shortlisting a job with no resume queues one, as in Notion. Only this computer can open it (`web.host: 127.0.0.1`); to open it on your phone, share it over Tailscale and set `web.url` ([PHONE.md](PHONE.md)). If port 8080 is taken, it uses the next free one up to 8089 and says which; `web.port` sets another.
 
 ### `jobradar replies --check`
 
@@ -258,6 +258,9 @@ Common changes (`config/config.yaml`):
 | Re-weight the Match Score (free, no new Gemini calls) | `matching.weights` |
 | Add or remove a channel | `sources.telegram.chats` (ids from `jobradar chats`) |
 | Ignore a site or ad link | `links.deny: ["example.com/courses"]` |
+| Stop using Notion (the dashboard keeps everything) | `notion.enabled: false` |
+| Run without Telegram (boards, pages and forwarded email only) | `sources.telegram.enabled: false` |
+| Open the dashboard on your phone | `web.url: https://laptop.tail1234.ts.net` ([PHONE.md](PHONE.md)) |
 
 Editing `config/profile.yaml`, `filters` or `matching.branch_strict` re-matches all open jobs at the next start: about one Gemini call per job.
 

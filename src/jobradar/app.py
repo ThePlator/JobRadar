@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from jobradar.config import ConfigError, Settings
-from jobradar.db.repo import DEFAULT_DB_PATH, Repo, init_db, make_engine
+from jobradar.db.repo import DEFAULT_DB_PATH, Repo, TaskRecord, init_db, make_engine
 from jobradar.llm import LLM, load_prompt
 from jobradar.pipeline.extract import Extractor, backfill_published, backfill_role_keys
 from jobradar.pipeline.fetch import Fetcher
@@ -194,15 +194,19 @@ def make_matcher(
 class Pipeline:
     """Everything the worker runs, plus what needs closing on shutdown."""
 
-    def __init__(self, settings: Settings, repo: Repo, queue: TaskQueue, sink: notion.NotionSink):
+    def __init__(
+        self, settings: Settings, repo: Repo, queue: TaskQueue, sink: notion.NotionSink | None
+    ):
         self.ingest, self.expander = make_ingest(settings, repo, queue)
         self.fetcher = Fetcher()
-        handlers: dict[str, Handler] = {
-            PROCESS_MESSAGE: self.ingest.process_message,
-            NOTION_UPSERT: sink.handler(repo),
-            NOTION_BODY: sink.body_handler(repo),
-            NOTION_STATUS: sink.status_handler(repo),
-        }
+        handlers: dict[str, Handler] = {PROCESS_MESSAGE: self.ingest.process_message}
+        if sink is not None:
+            handlers[NOTION_UPSERT] = sink.handler(repo)
+            handlers[NOTION_BODY] = sink.body_handler(repo)
+            handlers[NOTION_STATUS] = sink.status_handler(repo)
+        else:  # Notion off: what the pipeline queues for it is dropped
+            for kind in (NOTION_UPSERT, NOTION_BODY, NOTION_STATUS, NOTION_POLL):
+                handlers[kind] = _skip
         llm_config = settings.config.llm
         llm = LLM(settings, repo) if llm_enabled(settings) else None  # shared: one rate limit
         alerts = make_alerts(settings, repo, queue)
@@ -226,12 +230,14 @@ class Pipeline:
             handlers[MATCH] = self.matcher.match
         if alerts is not None:
             handlers[SEND_ALERTS] = alerts.send
-        self.status_sync = StatusSync(
-            repo, queue, sink.client, sink.data_source_id, build_resumes=build
-        )
+        self.status_sync: StatusSync | None = None
+        if sink is not None:
+            self.status_sync = StatusSync(
+                repo, queue, sink.client, sink.data_source_id, build_resumes=build
+            )
+            handlers[NOTION_POLL] = self.status_sync.poll
         if self.resumes is not None:
             handlers[BUILD_RESUME] = self.resumes.build
-        handlers[NOTION_POLL] = self.status_sync.poll
         boards = settings.config.sources.boards
         self.boards: BoardWatcher | None = None
         if boards.enabled and boards.companies:
@@ -273,6 +279,17 @@ class Pipeline:
         await self.liveness.aclose()
 
 
+async def _skip(task: TaskRecord) -> None:
+    """A Notion task while Notion is off: nothing to do."""
+
+
+async def connect_notion(settings: Settings) -> notion.NotionSink | None:
+    """The Notion sink, or None when `notion.enabled` is false."""
+    if not settings.config.notion.enabled:
+        return None
+    return await notion.connect(settings)
+
+
 def start_dashboard(
     settings: Settings, repo: Repo, queue: TaskQueue, wake: Callable[[], None]
 ) -> Any | None:
@@ -292,13 +309,19 @@ def start_dashboard(
 
 
 async def run(settings: Settings) -> None:
-    """`jobradar run`: Telegram in, Notion out, until Ctrl+C / SIGTERM."""
-    settings.require("telegram", "notion")
+    """`jobradar run`: Telegram in; Notion, email and the dashboard out; until Ctrl+C."""
+    telegram = settings.config.sources.telegram.enabled
+    if telegram:
+        settings.require("telegram")
+    if settings.config.notion.enabled:
+        settings.require("notion")
     repo, queue = open_store()
     if reclaimed := queue.reclaim_stuck():
         log.info("re-queued tasks interrupted by the last shutdown", extra={"count": reclaimed})
 
-    sink = await notion.connect(settings)
+    sink = await connect_notion(settings)
+    if sink is None:
+        log.info("Notion is off (notion.enabled: false): track jobs on the dashboard")
     pipeline = Pipeline(settings, repo, queue, sink)
     worker = pipeline.worker
     if hidden := pipeline.ingest.sweep_promos():
@@ -311,12 +334,13 @@ async def run(settings: Settings) -> None:
         changed, queued = pipeline.matcher.catch_up()
         if changed or queued:
             log.info("matching caught up", extra={"changed": changed, "queued": queued})
-    if sink.added - notion.USER_COLUMNS:  # columns JobRadar just added: fill them on old pages
+    if sink is not None and sink.added - notion.USER_COLUMNS:  # new columns: fill old pages
         for job_id in (pages := repo.jobs_in_notion()):
             queue.enqueue(NOTION_UPSERT, job_id)
         log.info("filling new Notion columns", extra={"columns": ", ".join(sorted(sink.added)),
                                                      "pages": len(pages)})  # fmt: skip
-    pipeline.status_sync.schedule()  # then every 2 minutes
+    if pipeline.status_sync is not None:
+        pipeline.status_sync.schedule()  # then every 2 minutes
     if pipeline.boards is not None:
         pipeline.boards.schedule()  # then every minute: read the boards that are due
         log.info("watching company boards", extra={"boards": len(pipeline.boards.boards)})
@@ -336,7 +360,7 @@ async def run(settings: Settings) -> None:
     if pipeline.digest is not None:
         at = pipeline.digest.schedule_next()
         log.info("next digest", extra={"at": f"{at:%Y-%m-%d %H:%M}"})
-    source = TelegramSource(settings, repo)
+    source = TelegramSource(settings, repo) if telegram else None
     dashboard = start_dashboard(settings, repo, queue, worker.wake)
 
     loop = asyncio.get_running_loop()
@@ -346,35 +370,38 @@ async def run(settings: Settings) -> None:
             loop.add_signal_handler(sig, stopping.set)
 
     worker_task = asyncio.create_task(worker.run(), name="worker")
-    source_task = asyncio.create_task(
-        source.start(make_emit(repo, queue, worker.wake)), name="telegram"
+    source_task = (
+        asyncio.create_task(source.start(make_emit(repo, queue, worker.wake)), name="telegram")
+        if source is not None
+        else None
     )
     stop_wait = asyncio.create_task(stopping.wait())
     # The dashboard isn't in the wait below: if it fails, JobRadar keeps reading jobs.
     web_task = asyncio.create_task(dashboard.serve(), name="dashboard") if dashboard else None
     try:
-        done, _ = await asyncio.wait(
-            {worker_task, source_task, stop_wait}, return_when=asyncio.FIRST_COMPLETED
-        )
+        running = {worker_task, stop_wait, *([source_task] if source_task else [])}
+        done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
         for finished in done - {stop_wait}:
             finished.result()  # surface a crash in the source or worker
     finally:
         log.info("shutting down")
-        await source.stop()
+        if source is not None:
+            await source.stop()
         worker.stop()
         stop_wait.cancel()
         if dashboard is not None:
             dashboard.should_exit = True
-        await asyncio.gather(source_task, worker_task, *([web_task] if web_task else []),
-                             return_exceptions=True)  # fmt: skip
+        others = [t for t in (source_task, web_task) if t is not None]
+        await asyncio.gather(worker_task, *others, return_exceptions=True)
         await pipeline.aclose()
-        await sink.aclose()
+        if sink is not None:
+            await sink.aclose()
 
 
 async def drain(settings: Settings, max_seconds: float = 120) -> None:
     """Run queued work (e.g. after `jobradar add`) until nothing is ready, then return."""
     repo, queue = open_store()
-    sink = await notion.connect(settings)
+    sink = await connect_notion(settings)
     pipeline = Pipeline(settings, repo, queue, sink)
     task = asyncio.create_task(pipeline.worker.run())
     try:
@@ -386,4 +413,5 @@ async def drain(settings: Settings, max_seconds: float = 120) -> None:
         pipeline.worker.stop()
         await task
         await pipeline.aclose()
-        await sink.aclose()
+        if sink is not None:
+            await sink.aclose()

@@ -279,7 +279,7 @@ class CompanyReplies:
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_suggestions(replies, sender, secrets.notify_address or sender, self.actions,
-                                self.gmail)  # fmt: skip
+                                self.gmail, self.settings.config.notion.enabled)  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(
                 msg, self.preview_dir / f"replies-{self.clock():%Y%m%d-%H%M%S}.html"
@@ -298,7 +298,7 @@ _SUGGEST: dict[Kind, tuple[str, Action]] = {
 
 
 def build_suggestions(
-    replies: list[Reply], sender: str, to: str, actions: Actions, gmail: bool
+    replies: list[Reply], sender: str, to: str, actions: Actions, gmail: bool, notion: bool = True
 ) -> EmailMessage:
     if len(replies) == 1:
         r = replies[0]
@@ -308,7 +308,8 @@ def build_suggestions(
         subject = f"[JobRadar] {len(replies)} companies replied"
         title = f"{len(replies)} companies replied"
     subtitle = ("It looks like news about an application. Check their email, then tap the button "
-                "to update Notion. JobRadar never changes a status on its own.")  # fmt: skip
+                f"to update {'Notion' if notion else 'the job'}. JobRadar never changes a status "
+                "on its own.")  # fmt: skip
     rows, texts = [], [title, subtitle]
     for r in replies:
         label, action = _SUGGEST[r.kind]
@@ -319,7 +320,8 @@ def build_suggestions(
             buttons.append(
                 ("Open their email", f"https://mail.google.com/mail/#search/rfc822msgid%3A{mid}")
             )
-        card, text = job_card(r.job, notion=notion_url(r.job.notion_page_id), compact=True)
+        card, text = job_card(r.job, notion=notion_url(r.job.notion_page_id, notion),
+                              compact=True)  # fmt: skip
         quoted = (
             f"<div style='font-size:13px;color:{MUTED};margin:12px 0 4px'>Looks like: "
             f"<b style='color:{INK}'>{esc(label)}</b>{esc(', ' + r.day if r.day else '')}</div>"
