@@ -39,7 +39,12 @@ def _title(job: Job) -> str:
 
 
 def build_reminder(
-    jobs: list[Job], today: str, sender: str, to: str, actions: Actions | None = None
+    jobs: list[Job],
+    today: str,
+    sender: str,
+    to: str,
+    actions: Actions | None = None,
+    notion: bool = True,
 ) -> EmailMessage:
     def when(job: Job) -> str:
         return "today" if job.deadline == today else "tomorrow"
@@ -50,9 +55,9 @@ def build_reminder(
     else:
         subject = f"[JobRadar] {len(jobs)} jobs you shortlisted close soon"
         title = f"{len(jobs)} shortlisted jobs close soon"
-    subtitle = "You shortlisted these in Notion. Apply before they close."
+    subtitle = "You shortlisted these. Apply before they close."
     cards = [
-        job_card(job, notion=notion_url(job.notion_page_id),
+        job_card(job, notion=notion_url(job.notion_page_id, notion),
                  actions=actions.job_links(job) if actions else None)
         for job in jobs
     ]  # fmt: skip
@@ -126,7 +131,8 @@ class ClosingReminder:
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_reminder(jobs, today.isoformat(), sender, secrets.notify_address or sender,
-                             Actions.load(self.settings, self.repo))  # fmt: skip
+                             Actions.load(self.settings, self.repo),
+                             self.settings.config.notion.enabled)  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"reminder-{local:%Y%m%d-%H%M}.html")
             log.info(

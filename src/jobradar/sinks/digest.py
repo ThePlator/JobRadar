@@ -173,7 +173,9 @@ def build_digest(
     database_id: str | None,
     actions: Actions | None = None,
     dashboard: str | None = None,
+    notion: bool = True,
 ) -> EmailMessage:
+    """The digest email. With Notion off (`notion` false) it links to the dashboard instead."""
     part = part_of_day(data.until)
     strong = sum(1 for j in data.inbox if (j.score or 0) >= 75)
     hidden = sum(data.hidden.values())
@@ -212,13 +214,15 @@ def build_digest(
         text += ["", "TOP MATCHES"]
         for job in data.inbox[:TOP]:
             card, card_text = job_card(
-                job, notion=notion_url(job.notion_page_id), compact=True,
+                job, notion=notion_url(job.notion_page_id, notion), compact=True,
                 actions=actions.job_links(job) if actions else None, dashboard=dashboard,
             )  # fmt: skip
             rows.append(card)
             text.append(card_text)
         if len(data.inbox) > TOP:
-            more = f"{len(data.inbox) - TOP} more in your Notion Inbox."
+            where = ("your Notion Inbox" if notion else
+                     "Today on the dashboard" if dashboard else "your inbox")  # fmt: skip
+            more = f"{len(data.inbox) - TOP} more in {where}."
             rows.append(
                 f"<tr><td style='font-size:13px;color:{MUTED};padding:0 0 4px'>{esc(more)}</td></tr>"
             )
@@ -293,13 +297,15 @@ def build_digest(
 
     if data.hidden:
         detail = ", ".join(f"{n} {kind}" for kind, n in sorted(data.hidden.items()))
-        line = f"Hidden: {detail}. Find them in Notion under Status = Hidden."
+        where = ("in Notion under Status = Hidden" if notion else
+                 "on the dashboard: All jobs, Show hidden" if dashboard else "with jobradar")  # fmt: skip
+        line = f"Hidden: {detail}. Find them {where}."
         rows.append(
             f"<tr><td style='padding:18px 0 0;font-size:13px;color:{MUTED}'>{esc(line)}</td></tr>"
         )
         text += ["", line]
 
-    if database_id and (url := notion_url(database_id)):
+    if database_id and (url := notion_url(database_id, notion)):
         rows.append(
             f"<tr><td style='padding:20px 0 0'>{button('Open your Notion Inbox', url)}</td></tr>"
         )
@@ -387,6 +393,7 @@ class Digest:
         msg = build_digest(
             data, sender, secrets.notify_address or sender, secrets.notion_database_id,
             Actions.load(self.settings, self.repo), dashboard_link(self.settings),
+            self.settings.config.notion.enabled,
         )  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"digest-{now:%Y%m%d-%H%M}.html")

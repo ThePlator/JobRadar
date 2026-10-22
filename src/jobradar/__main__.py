@@ -76,7 +76,7 @@ def main(
 
 @app.command()
 def init() -> None:
-    """Copy example configs, log in to Telegram and check the Notion database."""
+    """Copy example configs, log in to Telegram and check the Notion database (each if on)."""
     for example, target in EXAMPLES.items():
         if target.exists():
             typer.echo(f"✓ {target} exists")
@@ -90,15 +90,21 @@ def init() -> None:
         from jobradar.sinks import notion
         from jobradar.sources.telegram import make_client, protect_session
 
-        settings.require("telegram")
-        client = make_client(settings)
-        typer.echo("Telegram login (a code is sent to your Telegram app; nothing is posted):")
-        await client.start()  # prompts for phone, code and 2FA password if needed
-        me = await client.get_me()
-        await client.disconnect()
-        protect_session()
-        typer.secho(f"✓ Telegram logged in as {getattr(me, 'username', None) or me.id}", fg="green")
+        if settings.config.sources.telegram.enabled:
+            client = make_client(settings)
+            typer.echo("Telegram login (a code is sent to your Telegram app; nothing is posted):")
+            await client.start()  # prompts for phone, code and 2FA password if needed
+            me = await client.get_me()
+            await client.disconnect()
+            protect_session()
+            who = getattr(me, "username", None) or me.id
+            typer.secho(f"✓ Telegram logged in as {who}", fg="green")
+        else:
+            typer.echo("Telegram is off (sources.telegram.enabled: false): no login needed.")
 
+        if not settings.config.notion.enabled:
+            typer.echo("Notion is off (notion.enabled: false): the dashboard is your tracker.")
+            return
         sink = await notion.connect(settings)
         await sink.aclose()
         typer.secho("✓ Notion database found and matches the template", fg="green")
@@ -142,7 +148,7 @@ def chats() -> None:
 
 @app.command()
 def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> None:
-    """Process one link manually and sync it to Notion."""
+    """Process one link by hand (it shows on the dashboard, and in Notion when that's on)."""
     from jobradar import app as application
     from jobradar.db.models import Platform
     from jobradar.pipeline.ingest import make_emit
@@ -152,7 +158,8 @@ def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> Non
     logs.setup()
 
     async def go() -> None:
-        settings.require("notion")
+        if settings.config.notion.enabled:
+            settings.require("notion")
         repo, queue = application.open_store()
         msg = IncomingMessage(
             platform=Platform.MANUAL,
@@ -167,7 +174,8 @@ def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> Non
         await application.drain(settings)
 
     _run(go())
-    typer.secho("✓ processed; check your Notion Inbox", fg="green")
+    where = "your Notion Inbox" if settings.config.notion.enabled else "the dashboard"
+    typer.secho(f"✓ processed; check {where}", fg="green")
 
 
 @app.command()

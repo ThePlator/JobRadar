@@ -39,7 +39,7 @@
 <main class="{% block main_class %}{% endblock %}">
 {% block main %}{% endblock %}
 </main>
-<footer>Changes here reach Notion within a minute while <code>jobradar run</code> is running.
+<footer>{% if notion %}Changes here reach Notion within a minute while <code>jobradar run</code> is running.{% else %}Changes here are saved in JobRadar right away.{% endif %}
   <span class="keys"><kbd>Ctrl K</kbd> jump to a job <kbd>/</kbd> search <kbd>j</kbd><kbd>k</kbd> move <kbd>Enter</kbd> open <kbd>g</kbd> then <kbd>t</kbd> <kbd>a</kbd> <kbd>j</kbd> <kbd>s</kbd> <kbd>d</kbd> go to a page</span></footer>
 <div class="toast" data-toast role="status" aria-live="polite" hidden><span class="toast-dot"></span><span data-toast-text></span><button type="button" class="toast-undo" data-undo hidden>Undo</button></div>
 <dialog class="palette" id="palette" aria-label="Jump to a job">

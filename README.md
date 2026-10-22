@@ -4,9 +4,9 @@
 
 **Website:** [jobradar.theplator.dev](https://jobradar.theplator.dev/), see how it works and try the post reader in your browser.
 
-JobRadar is an open-source, self-hosted agent. It reads company career sites directly (Greenhouse, Lever, Ashby, SmartRecruiters, Workday and Oracle boards, plus freehire.me's search across about 90 hiring systems), watches hiring-drive pages and your Telegram job channels, and takes jobs you forward by email. It reads each job page, pulls out each job's details (free rules first, an LLM only when needed), scores how well each job fits your profile, emails you only about strong matches you're eligible for, builds a tailored one-page LaTeX resume, and lays everything out on a local dashboard and in Notion. You review and click Submit; JobRadar never applies for you.
+JobRadar is an open-source, self-hosted agent. It reads company career sites directly (Greenhouse, Lever, Ashby, SmartRecruiters, Workday and Oracle boards, plus freehire.me's search across about 90 hiring systems), watches hiring-drive pages and your Telegram job channels, and takes jobs you forward by email. It reads each job page, pulls out each job's details (free rules first, an LLM only when needed), scores how well each job fits your profile, emails you only about strong matches you're eligible for, builds a tailored one-page LaTeX resume, and lays everything out on a local dashboard (and in Notion, if you want it). You review and click Submit; JobRadar never applies for you.
 
-> **Status:** pre-1.0, and I use it every day for my own job search. Working today: company boards, hiring-drive pages, Telegram and email-forward sources, dedupe, ad and scam filtering, free extraction with a Gemini fallback, the Match Score, email alerts and digests, tailored resumes, follow-up reminders, replies from companies, and a local dashboard. Not done yet: a one-command Docker setup, [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) matching, and running without Notion. See the [roadmap](#roadmap).
+> **Status:** pre-1.0, and I use it every day for my own job search. Working today: company boards, hiring-drive pages, Telegram and email-forward sources, dedupe, ad and scam filtering, free extraction with a Gemini fallback, the Match Score, email alerts and digests, tailored resumes, follow-up reminders, replies from companies, and a local dashboard. Notion and Telegram are optional. Not done yet: a one-command Docker setup and [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) matching. See the [roadmap](#roadmap).
 
 ---
 
@@ -49,7 +49,7 @@ flowchart TB
 
     subgraph You["What you see"]
         W["Local dashboard"]
-        N["Notion database"]
+        N["Notion (optional)"]
         A["Email alerts<br/>and digests"]
         P["Resume PDFs<br/>on your computer"]
     end
@@ -64,7 +64,7 @@ flowchart TB
     N -- "Shortlisted / Applied / …" --> D
 ```
 
-1. **Ingest:** new board postings, page changes and channel messages are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears in Notion within a second.
+1. **Ingest:** new board postings, page changes and channel messages are saved to a local SQLite queue before anything else happens, so nothing is lost on a restart. Links are expanded and cleaned, duplicates merged, channel ads hidden. The job appears on the dashboard (and in Notion, when on) within a second.
 2. **Extract:** the job page is fetched, and details are filled cheapest first: structured data on the page, the post's own labels, then an LLM only if role or company is still missing. Board postings that aren't in India, aren't tech or are senior are skipped before any AI call.
 3. **Match:** one LLM request per job answers eligibility, role fit, skills coverage, seniority and location, each with a confidence. Code combines them with your weights into a Match Score and a reason line. Without an LLM key, a skills-overlap rule scores instead (and never alerts).
 4. **Decide:** confidently ineligible jobs are hidden with the reason; likely scams are flagged and never emailed; uncertain matches go to the Inbox marked "unsure"; strong, eligible, fresh matches also send an email. The first alert goes out about 30 seconds after the job is matched.
@@ -72,11 +72,11 @@ flowchart TB
 
 ## Where you see your jobs
 
-**Dashboard.** `jobradar run` also serves a page at http://127.0.0.1:8080, read from JobRadar's own database: **Today** (good matches from the last 3 days you haven't acted on, with filters and search), **Applications** (a drag-and-drop board from Shortlisted to Offer, with follow-up timers), **All jobs**, the **Digest**, and a page per job (how the score was made, which skills you have or lack, resumes, the follow-up draft). Buttons change a status and Notion follows. It only listens on 127.0.0.1 and refuses requests from other sites.
+**Dashboard.** `jobradar run` also serves a page at http://127.0.0.1:8080, read from JobRadar's own database: **Today** (good matches from the last 3 days you haven't acted on, with filters and search), **Applications** (a drag-and-drop board from Shortlisted to Offer, with follow-up timers), **All jobs** (full-text search over every job's page and posts), **Skills** (what your good matches ask for that you lack, and for each skill what exactly they want: "AWS, Azure or GCP", "Python, Java or C++", the services they name), the **Digest**, and a page per job (how the score was made, which skills you have or lack, resumes, the follow-up draft). Buttons change a status, and Notion follows when it's on. It only listens on 127.0.0.1 and refuses requests from other sites; to open it on your phone, share it over your own [Tailscale](https://tailscale.com/) network ([docs/PHONE.md](docs/PHONE.md)).
 
 **Email.** Alerts, digests and reminders have **I applied** and **Not interested** buttons that work from your phone's mail app.
 
-**Notion.** Each job is also one page in a Notion database. JobRadar adds any columns it needs on start.
+**Notion (optional).** Each job can also be one page in a Notion database; JobRadar adds any columns it needs on start. Set `notion.enabled: false` to skip Notion entirely: no Notion account or key is needed, and the dashboard shows everything below.
 
 | Property | What it shows |
 |---|---|
@@ -95,7 +95,7 @@ Anything you write outside the agent-owned "JobRadar" toggle on a page is never 
 
 ## Quick start
 
-**You need:** Python 3.11+ and [uv](https://docs.astral.sh/uv/), a Telegram account, a Notion account, a Gmail account (for alerts, with an app password), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key. For resume PDFs, also [Tectonic](https://tectonic-typesetting.github.io/) or `texlive-latex-extra`.
+**You need:** Python 3.11+ and [uv](https://docs.astral.sh/uv/), a Gmail account (for alerts, with an app password), and a free [Gemini](https://aistudio.google.com/) or [Groq](https://console.groq.com/) API key. For resume PDFs, also [Tectonic](https://tectonic-typesetting.github.io/) or `texlive-latex-extra`.
 
 ```bash
 git clone https://github.com/ThePlator/JobRadar.git
@@ -105,7 +105,7 @@ git clone https://github.com/ThePlator/JobRadar.git
 cd JobRadar && cp .env.example .env && uv sync --extra web
 ```
 
-Fill in `.env` (see [Configuration](#configuration)), then run first-time setup. It copies the example configs into `config/`, logs in to Telegram (a code arrives in your Telegram app; nothing is posted) and checks your Notion database:
+Fill in `.env` (see [Configuration](#configuration)), then run first-time setup. It copies the example configs into `config/`, logs in to Telegram (a code arrives in your Telegram app; nothing is posted) and checks your Notion database, skipping either one you switched off:
 
 ```bash
 uv run jobradar init
@@ -117,7 +117,7 @@ Edit `config/config.yaml` and `config/profile.yaml`. `uv run jobradar chats` lis
 uv run jobradar run
 ```
 
-Telegram API keys are needed to start for now, even if you only want company boards; making each source optional is on the roadmap. Alerts start in **dry run**: they're saved to `data/alerts/` instead of sent, so you can check them for a few days before turning email on. To keep it running after you close the terminal, see [docs/COMMANDS.md](docs/COMMANDS.md#start-stop-restart). A Docker image is planned for v1.0.
+Telegram and Notion are optional: set `sources.telegram.enabled: false` or `notion.enabled: false` in `config/config.yaml` and their keys aren't needed. Alerts start in **dry run**: they're saved to `data/alerts/` instead of sent, so you can check them for a few days before turning email on. To keep it running after you close the terminal, see [docs/COMMANDS.md](docs/COMMANDS.md#start-stop-restart). A Docker image is planned for v1.0.
 
 ## Configuration
 
@@ -127,10 +127,10 @@ JobRadar uses three files. All are validated at start-up, and a bad value stops 
 
 | Variable | Where to get it |
 |---|---|
-| `TG_API_ID`, `TG_API_HASH` | [my.telegram.org](https://my.telegram.org) → API development tools |
+| `TG_API_ID`, `TG_API_HASH` | [my.telegram.org](https://my.telegram.org) → API development tools (not needed with `sources.telegram.enabled: false`) |
 | `EMAIL_ADDRESS`, `EMAIL_APP_PASSWORD` | Your email and an app password ([Gmail](https://myaccount.google.com/apppasswords)); used to send alerts and read your own button replies |
 | `NOTIFY_TO` | Where alerts and digests go (defaults to `EMAIL_ADDRESS`) |
-| `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your database |
+| `NOTION_TOKEN`, `NOTION_DATABASE_ID` | A Notion internal integration, shared with your database (not needed with `notion.enabled: false`) |
 | `GEMINI_API_KEY` or `GROQ_API_KEY` | Google AI Studio or Groq console: extraction fallback, matching and resume tailoring. Without one, jobs are read from page data and post labels only and scored by the skills rule |
 
 ### `config.yaml`: what to watch and how to filter
@@ -181,7 +181,7 @@ Every command with examples, log reading, settings and fixes: [docs/COMMANDS.md]
 
 | Command | What it does |
 |---|---|
-| `jobradar init` | Copy example configs, Telegram login, Notion schema check |
+| `jobradar init` | Copy example configs, Telegram login, Notion schema check (each only if on) |
 | `jobradar run` | Start sources, workers, scheduler and the dashboard |
 | `jobradar web` | Only the dashboard |
 | `jobradar chats` | List Telegram chats you can read, with ids |
@@ -199,7 +199,7 @@ You can also add jobs by forwarding any email, message text or link to your JobR
 
 ## Privacy and safety
 
-- **Runs on your machine.** Your profile, keys, Telegram session, database and PDFs stay local. The dashboard listens only on 127.0.0.1.
+- **Runs on your machine.** Your profile, keys, Telegram session, database and PDFs stay local. The dashboard listens only on 127.0.0.1; your phone reaches it only through your own Tailscale network.
 - **Minimal data to providers.** Matching and resume tailoring send your LLM provider the job text and a compact profile (education, skills, experience, preferences), never your name, email or phone. Extraction sends only job text.
 - **Email stays narrow.** JobRadar uses an app password and emails only you. From your inbox it reads only its own button emails (signed, and only from your address) and new mail from companies you applied to.
 - **Read-only on Telegram.** JobRadar reads with your account, only the chats you list. It never sends messages, joins groups or messages recruiters.
@@ -222,7 +222,7 @@ Most details come from free rules, and dedupe runs before any model call. With G
 | **v0.2.5 Statuses and feeds** | Statuses from Notion and email buttons, company boards, still-open check, closing reminders | ✓ |
 | **v0.3 Resume** | profile.yaml, LaTeX templates, grounding checker, check as hiring software reads it, auto + Shortlisted triggers | ✓ |
 | **v0.4 Apply kit** | Form answers, cover letter, forward-to-add, follow-ups, replies from companies | ✓ |
-| **v0.5 Dashboard** | Local web dashboard; Notion and Telegram become optional | in progress |
+| **v0.5 Dashboard** | Local web dashboard, skills page, full-text search, phone via Tailscale; Notion and Telegram optional | ✓ |
 | **Matching with Jev** | [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) answers the match questions with calibrated confidence, beside the LLM first | planned |
 | **Text-only posts** | Posts without links, poster OCR | planned |
 | **v1.0 Public release** | Docker image, PyPI (`jobradar-agent`), setup guide; WhatsApp as experimental | planned: new user running in under 15 minutes |
@@ -230,6 +230,7 @@ Most details come from free rules, and dedupe runs before any model call. With G
 ## Documentation
 
 - [Commands](docs/COMMANDS.md): every command, logs, settings and fixes
+- [The dashboard on your phone](docs/PHONE.md): Tailscale in about ten minutes
 - [Product Requirements (PRD)](docs/PRD.md): goals, user stories, requirements, metrics, risks
 - [High-Level Design (HLD)](docs/HLD.md): architecture, flows, integrations, deployment, security
 - [Low-Level Design (LLD)](docs/LLD.md): schema, models, module specs, prompts, Notion mapping, plugins

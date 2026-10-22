@@ -118,3 +118,7 @@ web:                      # the dashboard at http://127.0.0.1:8080 (needs `uv sy
   enabled: true           # start it with `jobradar run`; `jobradar web` opens it on its own
   host: 127.0.0.1         # this computer only; never 0.0.0.0 (anyone on your Wi-Fi)
   port: 8080              # busy? the next free one up to 8089 is used (the log says which)
+  # url: https://laptop.tail1234.ts.net   # open it from your phone via Tailscale: docs/PHONE.md
+
+notion:                   # Notion as a second place to track jobs (the dashboard has it all)
+  enabled: true           # false: no Notion key needed and nothing is sent there

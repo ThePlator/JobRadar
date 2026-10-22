@@ -37,8 +37,9 @@ BATCH_KEY = "batch"
 Send = Callable[[EmailMessage], None]
 
 
-def notion_url(page_id: str | None) -> str | None:
-    return f"https://www.notion.so/{page_id.replace('-', '')}" if page_id else None
+def notion_url(page_id: str | None, on: bool = True) -> str | None:
+    """A Notion page's link; None without a page, or when Notion is off (`on` false)."""
+    return f"https://www.notion.so/{page_id.replace('-', '')}" if page_id and on else None
 
 
 def _title(job: Job) -> str:
@@ -100,12 +101,13 @@ def build_email(
     seen: dict[str, str] | None = None,
     actions: Actions | None = None,
     dashboard: str | None = None,
+    notion: bool = True,
 ) -> EmailMessage:
     """One alert email covering these jobs, as HTML and plain text. `seen` maps a job id to
     where and when it was posted; `actions` adds the "I applied" / "Not interested" buttons."""
     seen = seen or {}
     cards = [
-        job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id),
+        job_card(job, seen.get(job.id, ""), notion_url(job.notion_page_id, notion),
                  actions=actions.job_links(job) if actions else None, dashboard=dashboard)
         for job in jobs
     ]  # fmt: skip
@@ -200,6 +202,7 @@ class AlertSender:
             self._seen(jobs),
             Actions.load(self.settings, self.repo),
             dashboard_link(self.settings),
+            self.settings.config.notion.enabled,
         )
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"{self.clock():%Y%m%d-%H%M%S}.html")
