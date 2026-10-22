@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -455,6 +456,10 @@ class WebConfig(_Strict):
     host: str = "127.0.0.1"
     # If something else uses it, the next free port up to +9 is taken (the log says which).
     port: int = Field(default=8080, ge=1024, le=65535)
+    # Where you open it from another device, e.g. your phone through Tailscale
+    # (https://laptop.tail1234.ts.net; see docs/PHONE.md). Email links use it, and the
+    # dashboard accepts requests for that name. None: this computer only.
+    url: str | None = None
 
     @field_validator("host")
     @classmethod
@@ -465,6 +470,23 @@ class WebConfig(_Strict):
                 "use 127.0.0.1"
             )
         return v.strip()
+
+    @field_validator("url")
+    @classmethod
+    def _a_web_address(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        parts = urlsplit(v.strip())
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("give the whole address, like https://laptop.tail1234.ts.net")
+        return f"{parts.scheme}://{parts.netloc}"
+
+
+class NotionConfig(_Strict):
+    """Notion as a second place to track jobs. The dashboard has everything Notion shows, so
+    Notion can be switched off: then no Notion key is needed and nothing is sent there."""
+
+    enabled: bool = True
 
 
 class AppConfig(_Strict):
@@ -481,6 +503,7 @@ class AppConfig(_Strict):
     email: EmailConfig = Field(default_factory=EmailConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    notion: NotionConfig = Field(default_factory=NotionConfig)
 
     @model_validator(mode="after")
     def _telegram_has_chats(self) -> AppConfig:

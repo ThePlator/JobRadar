@@ -68,9 +68,13 @@ def asset(path: str) -> str:
     return f"/static/{path}?v={digest}"
 
 
-def allowed_hosts(host: str) -> list[str]:
-    """Host names a request may carry: this computer's own, and the configured one."""
-    return sorted({"127.0.0.1", "localhost", "[::1]", host})
+def allowed_hosts(host: str, url: str | None = None) -> list[str]:
+    """Host names a request may carry: this computer's own, the configured one, and the
+    name in `web.url` (your Tailscale address, for the phone)."""
+    names = {"127.0.0.1", "localhost", "[::1]", host}
+    if url and (name := urlsplit(url).hostname):
+        names.add(name)
+    return sorted(names)
 
 
 TOKEN_SETTING = "web_token"  # noqa: S105 (the setting's name, not a secret)
@@ -105,7 +109,7 @@ def create_app(
     queue = queue or TaskQueue(repo, clock)
     nudge = wake or (lambda: None)  # inside `jobradar run`: start queued work now
     token = page_token(repo)
-    hosts = allowed_hosts(config.web.host)
+    hosts = allowed_hosts(config.web.host, config.web.url)
     app = FastAPI(title="JobRadar", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
@@ -132,7 +136,7 @@ def create_app(
     good = config.scoring.alert_above
     templates.env.globals.update(
         good=good, fair=config.scoring.hide_below, asset=asset, token=token,
-        statuses=list(rules.YOURS.items()),
+        statuses=list(rules.YOURS.items()), notion=config.notion.enabled,
     )  # fmt: skip
     cache: dict[str, Any] = {"mtime": None, "profile": None}
 
@@ -228,7 +232,8 @@ def create_app(
         window = next((x for x in options if x.key == w), options[1])
         data = gather(repo, settings, window.since, window.until, bounded=not window.current)
         sender = settings.secrets.email_address or "jobradar@localhost"
-        msg = build_digest(data, sender, sender, settings.secrets.notion_database_id)
+        msg = build_digest(data, sender, sender, settings.secrets.notion_database_id,
+                           notion=config.notion.enabled)  # fmt: skip
         part = msg.get_body(("html",))
         html = str(part.get_content()) if part is not None else "<p>No HTML part.</p>"
         return HTMLResponse(html, headers={"Content-Security-Policy": EMAIL_CSP})

@@ -79,21 +79,20 @@ class Gap:
 def skill_gaps(
     repo: Repo, profile: dict[str, Any], since: datetime, min_score: int, top: int = 8
 ) -> tuple[list[Gap], int]:
-    """(the skills your good matches since `since` named most that you don't have, how many
-    good matches were looked at)."""
-    have = {_canon(k) for k in profile_skill_keys(profile)}
-    counts: Counter[str] = Counter()
-    jobs = [
-        j for j in repo.jobs_created_since(to_iso(since))
-        if (j.score or 0) >= min_score and j.status != JobStatus.DISCARDED.value
-    ]  # fmt: skip
-    for job in jobs:
-        page = repo.get_page(job.id)
-        keys = job_skill_keys(job, (page.text or "") if page else "", own_post(repo, job.id) or "")
-        counts.update(keys - have)
-    named = [Gap(NAMES.get(k, k), n) for k, n in counts.items() if n >= MIN_JOBS]
+    """(the skills your good matches since `since` need most that you don't have, how many
+    good matches were looked at). A job naming the skill as one option among skills you have
+    ("Python, Java or C++") doesn't count."""
+    from jobradar.pipeline.skill_detail import detail  # it builds on this module
+
+    d = demand(repo, profile, since, None, min_score)
+    named = [
+        Gap(NAMES.get(k, k), n)
+        for k, total in d.missing.items()
+        if total >= MIN_JOBS
+        and (n := detail(k, d.jobs[k], d.texts, d.have_keys).needed) >= MIN_JOBS
+    ]
     gaps = sorted(named, key=lambda g: (-g.jobs, g.name.casefold()))
-    return gaps[:top], len(jobs)
+    return gaps[:top], d.looked_at
 
 
 def gap_line(gaps: list[Gap]) -> str:

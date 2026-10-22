@@ -693,3 +693,80 @@ def views_profile(path: Path) -> dict[str, Any]:
     from jobradar.profile import load_profile
 
     return load_profile(path)
+
+
+# ---- Phone (Tailscale) and Notion off ----------------------------------------------------------
+
+
+def test_web_url_is_the_phone_address(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.config import AppConfig, NotionConfig
+    from jobradar.sinks.email_actions import dashboard_url
+
+    assert WebConfig(url="https://laptop.tail1234.ts.net/").url == "https://laptop.tail1234.ts.net"
+    assert WebConfig(url="").url is None
+    with pytest.raises(ValidationError, match="whole address"):
+        WebConfig(url="laptop.tail1234.ts.net")
+    base = settings()
+    web = WebConfig(url="https://laptop.tail1234.ts.net")
+    config = base.config.model_copy(update={"web": web, "notion": NotionConfig(enabled=False)})
+    s = base.model_copy(update={"config": config})
+    assert dashboard_url(s) == "https://laptop.tail1234.ts.net"  # email links work on the phone
+    client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
+    page = client.get("/", headers={"host": "laptop.tail1234.ts.net"})
+    assert page.status_code == 200 and "saved in JobRadar right away" in page.text
+    assert client.get("/", headers={"host": "evil.example"}).status_code == 400
+    add(repo, "a", company="Acme")
+    token = repo.get_setting("web_token") or ""
+    from_phone = client.post(
+        "/jobs/a/act", content=f"action=shortlist&token={token}",
+        headers={"content-type": "application/x-www-form-urlencoded",
+                 "origin": "https://laptop.tail1234.ts.net", "host": "laptop.tail1234.ts.net"},
+        follow_redirects=False,
+    )  # fmt: skip
+    assert from_phone.status_code == 303 and repo.get_job("a").status == "shortlisted"
+    assert AppConfig.model_validate({"sources": {"telegram": {"enabled": False}}}).notion.enabled
+
+
+async def test_pipeline_without_notion_drops_notion_tasks(repo: Repo, queue: TaskQueue) -> None:
+    from jobradar.app import Pipeline, connect_notion
+    from jobradar.config import NotionConfig
+    from jobradar.pipeline.task_types import NOTION_POLL, NOTION_STATUS, NOTION_UPSERT
+
+    base = settings()
+    config = base.config.model_copy(update={"notion": NotionConfig(enabled=False)})
+    s = base.model_copy(update={"config": config})
+    assert await connect_notion(s) is None  # no Notion key needed
+    pipeline = Pipeline(s, repo, queue, None)
+    try:
+        assert pipeline.status_sync is None
+        queue.enqueue(NOTION_UPSERT, "a")
+        queue.enqueue(NOTION_STATUS, "a", {"status": "Applied"})
+        for _ in range(2):
+            task = queue.claim([NOTION_UPSERT, NOTION_STATUS, NOTION_POLL])
+            assert task is not None
+            await pipeline.worker.handlers[task.type](task)
+            queue.complete(task)
+        assert queue.claim() is None
+    finally:
+        await pipeline.aclose()
+
+
+async def test_run_keeps_going_without_telegram_and_notion(
+    repo: Repo, queue: TaskQueue, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+
+    from jobradar import app as application
+    from jobradar.config import NotionConfig
+
+    base = settings()
+    config = base.config.model_copy(
+        update={"notion": NotionConfig(enabled=False), "web": WebConfig(enabled=False)}
+    )
+    monkeypatch.setattr(application, "open_store", lambda: (repo, queue))
+    task = asyncio.create_task(application.run(base.model_copy(update={"config": config})))
+    await asyncio.sleep(0.5)
+    assert not task.done()  # it used to stop as soon as the (switched off) Telegram source did
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

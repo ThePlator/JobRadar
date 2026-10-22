@@ -225,7 +225,8 @@ class FollowUpReminder:
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
         msg = build_followups(due, drafts, sender, secrets.notify_address or sender, self.after,
-                              Actions.load(self.settings, self.repo))  # fmt: skip
+                              Actions.load(self.settings, self.repo),
+                              self.settings.config.notion.enabled)  # fmt: skip
         if self.notify.dry_run:
             path = save_preview(msg, self.preview_dir / f"followup-{local:%Y%m%d-%H%M}.html")
             log.info("dry run: follow-up reminder saved",
@@ -267,6 +268,7 @@ def build_followups(
     to: str,
     after: timedelta,
     actions: Actions | None = None,
+    notion: bool = True,
 ) -> EmailMessage:
     if len(due) == 1:
         subject = f"[JobRadar] Follow up: {_title(due[0].job)}"
@@ -274,7 +276,9 @@ def build_followups(
     else:
         subject = f"[JobRadar] {len(due)} applications to follow up"
         title = f"{len(due)} applications have gone quiet"
-    done = "tap I followed up" if actions else "set Followed Up in Notion to today"
+    done = ("tap I followed up" if actions else
+            "set Followed Up in Notion to today" if notion else
+            "press Followed up on its dashboard page")  # fmt: skip
     subtitle = (
         "A short follow-up often gets a reply. Here's a draft for each: send it to the recruiter "
         f"by email or LinkedIn, then {done}."
@@ -285,7 +289,8 @@ def build_followups(
         buttons = [(send, mailto(dr.to or "", dr.subject, dr.body))]
         if actions:
             buttons.append(("I followed up", actions.link("followed up", d.job)))
-        card, text = job_card(d.job, notion=notion_url(d.job.notion_page_id), compact=True)
+        card, text = job_card(d.job, notion=notion_url(d.job.notion_page_id, notion),
+                              compact=True)  # fmt: skip
         after_draft = "".join(action_button(label, url) for label, url in buttons)
         which = "first follow-up" if d.nth == 1 else "last follow-up (the second)"
         note = f"Applied {_day(d.applied.date())}, {d.quiet_days} days quiet: {which}"
