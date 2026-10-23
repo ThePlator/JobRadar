@@ -190,7 +190,8 @@ def create_app(
         columns = views.board(repo, settings, clock())
         return render(request, "applications.html", "applications", columns=columns,
                       quiet_after=config.notify.followup_after_days,
-                      funnel=views.funnel(repo, good))  # fmt: skip
+                      funnel=views.funnel(repo, good),
+                      by_source=views.source_strip(repo, tz))  # fmt: skip
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(

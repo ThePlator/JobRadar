@@ -272,6 +272,7 @@ def test_sources_group_boards(repo: Repo, clock: FakeClock) -> None:
 def test_funnel_counts_jobs_that_moved_on(repo: Repo, clock: FakeClock) -> None:
     add(repo, "a", score=90, status=JobStatus.APPLIED, you=True)
     add(repo, "b", score=95, status=JobStatus.INTERVIEW, you=True)
+    clock.advance(3600)  # a change within 10 minutes would be taken as a misclick
     repo.set_user_status("b", JobStatus.REJECTED)  # rejected after the interview
     add(repo, "c", score=80)
     add(repo, "d", score=30, status=JobStatus.HIDDEN)

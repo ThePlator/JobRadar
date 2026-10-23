@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from markupsafe import Markup, escape
 
+from jobradar.by_source import UNDO_MINUTES, Application, SourceRow, by_source
 from jobradar.clock import to_iso
 from jobradar.config import Settings
 from jobradar.db.models import Artifact, Job, JobStatus
@@ -849,10 +850,10 @@ def funnel(repo: Repo, min_score: int) -> list[Step]:
     steps = [
         ("Found", found),
         (f"Scored {min_score}+", with_good),
-        ("Shortlisted", repo.jobs_ever_in(after_shortlist)),
-        ("Applied", repo.jobs_ever_in(after_shortlist[2:])),
-        ("Interview", repo.jobs_ever_in([JobStatus.INTERVIEW, JobStatus.OFFER])),
-        ("Offer", repo.jobs_ever_in([JobStatus.OFFER])),
+        ("Shortlisted", repo.jobs_ever_in(after_shortlist, UNDO_MINUTES)),
+        ("Applied", repo.jobs_ever_in(after_shortlist[2:], UNDO_MINUTES)),
+        ("Interview", repo.jobs_ever_in([JobStatus.INTERVIEW, JobStatus.OFFER], UNDO_MINUTES)),
+        ("Offer", repo.jobs_ever_in([JobStatus.OFFER], UNDO_MINUTES)),
     ]
     top = max(steps[0][1], 1)
     out: list[Step] = []
@@ -861,6 +862,32 @@ def funnel(repo: Repo, min_score: int) -> list[Step]:
         rate = f"{round(100 * n / before)}% of {steps[i - 1][0].lower()}" if i and before else ""
         out.append(Step(name, n, max(round(100 * n / top), 1 if n else 0), rate))
     return out
+
+
+@dataclass(frozen=True)
+class SourceStrip:
+    """Interviews by source, above the Applications board."""
+
+    summary: str
+    rows: list[tuple[SourceRow, list[tuple[Card, Application]]]]  # each row with its jobs
+
+
+def source_strip(repo: Repo, tz: ZoneInfo) -> SourceStrip | None:
+    """None until you've applied to something."""
+    report = by_source(repo)
+    if not report.rows:
+        return None
+    cards: dict[str, Card] = {}
+    rows = []
+    for row in report.rows:
+        jobs = []
+        for a in row.jobs:
+            if a.job_id not in cards and (job := repo.get_job(a.job_id)):
+                cards[a.job_id] = card(job, tz)
+            if a.job_id in cards:
+                jobs.append((cards[a.job_id], a))
+        rows.append((row, jobs))
+    return SourceStrip(report.summary, rows)
 
 
 # ---- the command palette (Ctrl+K) -------------------------------------------------------------

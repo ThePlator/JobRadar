@@ -281,6 +281,22 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: v
 .stage-2 .stage-n { color: var(--accent); } .stage-3 .stage-n { color: var(--fair); }
 .stage-4 .stage-n { color: var(--accent); } .stage-5 .stage-n { color: #8250df; } .stage-6 .stage-n { color: var(--good); }
 
+/* Interviews by source: one dot per application, the Skills page's rows. */
+.by-source { margin: 0 0 20px; }
+.skill-row.src-row summary { grid-template-columns: minmax(90px, 1.2fr) auto minmax(60px, 2fr) auto; }
+.src-kind { font: 700 11px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+.d.o-next { background: var(--good); }
+.d.o-waiting { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
+.d.o-rejected { background: var(--faint); opacity: .6; }
+.src-out { font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.src-out.o-next { color: var(--good); } .src-out.o-rejected { color: var(--faint); }
+.src-rest > summary { cursor: pointer; padding: 8px 10px; font-size: 13px; font-weight: 700; color: var(--accent); }
+@media (max-width: 560px) {
+  .skill-row.src-row summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .src-row .src-kind { display: none; }
+  .src-row .dots { grid-column: 1 / -1; grid-row: 2; }
+}
+
 .board { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 /* Columns size to what's in them: a busy column takes the room and lays its cards out in a
    grid; an empty one shrinks to a slim drop zone. */

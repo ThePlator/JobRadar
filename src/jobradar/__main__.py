@@ -927,6 +927,16 @@ def skills(days: Annotated[int, typer.Option(help="Look back this many days.")] 
 
 
 @app.command()
+def sources() -> None:
+    """Each chat, board or page you applied from, and how many reached the next round."""
+    from jobradar import app as application
+    from jobradar.by_source import by_source, render
+
+    repo, _ = application.open_store()
+    typer.echo(render(by_source(repo)))
+
+
+@app.command()
 def web() -> None:
     """Your jobs and applications on a page: http://127.0.0.1:8080 (Ctrl+C to stop)."""
     try:
