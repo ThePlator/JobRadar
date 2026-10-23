@@ -666,7 +666,11 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
     ]
     assert [r.name for r in page.have] == ["Python"] and len(page.missing[0].samples) == 3
     client = TestClient(create_app(s, repo, clock), base_url="http://127.0.0.1:8080")
-    assert "Skills you keep missing" in client.get("/skills").text
+    listing = client.get("/skills").text
+    assert "Skills you keep missing" in listing and '<span class="gh-name">AWS</span>' in listing
+    assert (
+        page.missing[0].dots == ["must"] * 3 and "3 of 3 jobs ask for AWS outright" in page.verdict
+    )
     aws = client.get("/skills/aws")
     assert aws.status_code == 200 and '<h1 class="sk-name">AWS</h1>' in aws.text
     assert aws.text.count('class="tile k-must"') == 3 and "<b>3</b> must have" in aws.text

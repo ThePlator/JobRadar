@@ -985,6 +985,7 @@ def digest(
 # ---- Skills ------------------------------------------------------------------------------------
 
 SKILL_WINDOWS = [(7, "7 days"), (30, "30 days"), (90, "90 days")]
+MAX_DOTS = 24  # per skill row; the rest show as "+n"
 
 
 @dataclass(frozen=True)
@@ -998,6 +999,8 @@ class SkillRow:
     samples: list[Card]  # the best few jobs that asked for it
     covered: int = 0  # jobs that named it but take a skill you have instead
     covered_by: str = ""  # those skills: "Java or Python"
+    dots: list[str] = field(default_factory=list)  # one per job, how it asks (strictest first)
+    more: int = 0  # jobs beyond the dots shown
 
 
 @dataclass
@@ -1008,6 +1011,8 @@ class SkillsPage:
     missing: list[SkillRow]
     have: list[SkillRow]
     warnings: list[str]
+    verdict: str = ""  # about the first missing skill: what its jobs really want
+    counts: Counter[str] = field(default_factory=Counter)  # the first missing skill's kinds
 
 
 def _skill_name(key: str, d: Demand, names: dict[str, str]) -> str:
@@ -1047,10 +1052,13 @@ def _rows(
         trend = None if earlier is None else n - earlier.get(key, 0)
         det = (details or {}).get(key)
         by = [_skill_name(k, d, names) for k in det.covered_by[:3]] if det else []
+        open_ = [x.kind for x in det.needs if x.kind != "covered"] if det else ["have"] * n
+        kinds: list[str] = sorted(open_, key=lambda k: ORDER_KINDS.index(k) if det else 0)
         rows.append(SkillRow(key, _skill_name(key, d, names), n,
                              round(100 * n / max(d.looked_at, 1)), round(100 * n / peak), trend,
                              samples, det.counts["covered"] if det else 0,
-                             _either(by) if by else ""))  # fmt: skip
+                             _either(by) if by else "", kinds[:MAX_DOTS],
+                             max(0, len(kinds) - MAX_DOTS)))  # fmt: skip
     return rows
 
 
@@ -1089,13 +1097,19 @@ def skills_page(
     yours = _yours(profile)
     details = _details(d)
     gone, had = (None, None) if not before.looked_at else (_needed(_details(before)), before.have)
+    missing = _rows(_needed(details), gone, d, repo, tz, now, 20, yours, details)
+    first = details[missing[0].key] if missing else None
     return SkillsPage(
         days=days,
         looked_at=d.looked_at,
         min_score=min_score,
-        missing=_rows(_needed(details), gone, d, repo, tz, now, 20, yours, details),
+        missing=missing,
         have=_rows(d.have, had, d, repo, tz, now, 12, yours),
         warnings=skill_warnings(profile),
+        verdict=_verdict(missing[0].name, first, lambda k: _skill_name(k, d, yours))
+        if first
+        else "",
+        counts=first.counts if first else Counter(),
     )
 
 
