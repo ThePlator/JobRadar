@@ -21,6 +21,41 @@
   {% endfor %}
 </ol>
 
+{% if by_source %}
+{% macro source_row(row, jobs) %}
+<li class="skill-row src-row">
+  <details>
+    <summary>
+      <span class="skill-name" title="{{ row.name }}">{{ row.name }}</span>
+      <span class="src-kind">{{ row.platform }}</span>
+      <span class="dots" aria-hidden="true">{% for _, a in jobs[:24] %}<i class="d o-{{ a.outcome }}"></i>{% endfor %}{% if jobs|length > 24 %}<em>+{{ jobs|length - 24 }}</em>{% endif %}</span>
+      <span class="skill-n">{{ row.next_round }} of {{ row.applied }}</span>
+    </summary>
+    <div class="skill-more">
+      <ul class="mini">{% for c, a in jobs %}<li>{{ avatar(c, 'sm') }}<a href="/jobs/{{ c.id }}"><b>{{ c.role }}</b><span>{{ c.company }}{% if a.first %} · found here first{% endif %}</span></a><span class="src-out o-{{ a.outcome }}">{{ {'next': 'Next round', 'waiting': 'No reply yet', 'rejected': 'Rejected'}[a.outcome] }}</span></li>{% endfor %}</ul>
+    </div>
+  </details>
+</li>
+{% endmacro %}
+<section class="panel by-source" aria-labelledby="by-source-h">
+  <div class="panel-head"><h2 id="by-source-h">Where your applications came from</h2><p class="faint">{{ by_source.summary }}</p></div>
+  <ul class="dot-key" aria-label="What the dots mean">
+    <li><i class="d o-next"></i>reached the next round</li><li><i class="d o-waiting"></i>applied, no reply yet</li><li><i class="d o-rejected"></i>rejected</li>
+  </ul>
+  <ol class="skill-list">
+    {% for row, jobs in by_source.rows[:5] %}{{ source_row(row, jobs) }}{% endfor %}
+  </ol>
+  {% if by_source.rows|length > 5 %}
+  <details class="src-rest">
+    <summary>{{ by_source.rows|length - 5 }} more source{{ '' if by_source.rows|length == 6 else 's' }}</summary>
+    <ol class="skill-list">
+      {% for row, jobs in by_source.rows[5:] %}{{ source_row(row, jobs) }}{% endfor %}
+    </ol>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+
 {% set icons = {'shortlisted': 'i-star', 'applied': 'i-send', 'interview': 'i-chat', 'offer': 'i-trophy', 'rejected': 'i-x'} %}
 {% set hints = {'shortlisted': 'Shortlist a job from Today', 'applied': 'Tap “I applied” on a job', 'interview': 'Interview invites land here', 'offer': 'Here’s hoping', 'rejected': 'None so far'} %}
 <div class="board-wrap" data-board>

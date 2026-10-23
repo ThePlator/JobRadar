@@ -6,6 +6,11 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### Added
 
+**Interviews by source**
+- The Applications page lists each Telegram chat, company board and page you applied from, with one dot per application (filled green: reached Interview or Offer; outlined: no reply yet; grey: rejected) and "1 of 4". Open a row to see those jobs, marked where that source found a job first. Only sources you applied from are listed; the top five show, the rest fold away. `jobradar sources` prints the same list.
+- A job carried by two sources counts once in each and once in the total; a repost doesn't count twice. Rejected after an interview still counts as reaching the next round.
+- A status you change again within 10 minutes is taken as a misclick: Interview put back to Applied 8 seconds later isn't an interview, and Applied put back to Shortlisted isn't an application. The funnel on the Applications page follows the same rule, so it no longer counted two misclicks as an interview and an offer.
+
 **Dashboard (read-only, first step)**
 - `jobradar web` opens your jobs on a page at http://127.0.0.1:8080, read from JobRadar's own database: **Today** (good matches from the last 3 days you haven't acted on, best first), **Applications** (a board: Shortlisted, Applied, Interview, Offer or rejected), **All jobs** (search by company or role, filter by status, 50 per page) and a page for each job (score reasons, details, where it was posted, your status history, resumes and letters built, the page text JobRadar read). Install once with `uv sync --extra web` (FastAPI and Uvicorn, an optional extra). Read-only for now; statuses still change from the email buttons or Notion.
 - Blip lives in the dashboard: the sidebar shows whether it's watching (it read something in the last 20 minutes, with a pulsing dot) or asleep ("wake it with `jobradar run`"), and Today opens with Blip greeting you by your profile's first name and naming the best match (poke it for tips; it hops and waves). Each job page has "Blip's take", the score reason as a sentence. Score rings, company initials, live counts in the sidebar (Today, Applications, All jobs), a numbers strip (good matches, applied, interviews, closing in 48 h), "N days quiet" on applications with no reply, a light / dark / system theme switch, and `/` to search.

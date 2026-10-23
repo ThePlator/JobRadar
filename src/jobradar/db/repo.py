@@ -1150,15 +1150,78 @@ class Repo:
             ).one()
         return int(row[0])
 
-    def jobs_ever_in(self, statuses: list[JobStatus]) -> int:
-        """Jobs that are, or once were, in one of these statuses (by your status history)."""
+    def jobs_ever_in(self, statuses: list[JobStatus], undo_minutes: int = 0) -> int:
+        """Jobs that are, or once were, in one of these statuses (by your status history).
+        A status you changed again within `undo_minutes` is taken as a misclick."""
         query = text(
-            "SELECT count(*) FROM (SELECT id FROM job WHERE status IN :sts "
-            "UNION SELECT job_id FROM status_change WHERE status IN :sts)"
+            """
+            WITH h AS (
+                SELECT job_id, status, changed_at,
+                       LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
+                           AS next_at
+                FROM status_change
+            )
+            SELECT count(*) FROM (
+                SELECT id FROM job WHERE status IN :sts
+                UNION SELECT job_id FROM h WHERE status IN :sts AND (
+                    next_at IS NULL
+                    OR (julianday(next_at) - julianday(changed_at)) * 1440 >= :undo)
+            )
+            """
         ).bindparams(bindparam("sts", expanding=True))
         with self._tx() as c:
-            row = c.execute(query, {"sts": [st.value for st in statuses]}).one()
+            row = c.execute(
+                query, {"sts": [st.value for st in statuses], "undo": undo_minutes}
+            ).one()
         return int(row[0])
+
+    def applications_by_source(
+        self, undo_minutes: int = 10
+    ) -> list[tuple[str, str, str, str, bool, bool]]:
+        """(platform, source name, job id, its status now, reached the next round, found there
+        first) for every job you applied to, once per source that carried it, newest find first.
+
+        Applied means Applied or any later status in your history; the next round means Interview
+        or Offer. A status changed again within `undo_minutes` is taken as a misclick and ignored,
+        so Interview undone 8 seconds later isn't an interview."""
+        query = text(
+            """
+            WITH h AS (
+                SELECT job_id, status, changed_at,
+                       LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
+                           AS next_at
+                FROM status_change
+            ),
+            kept AS (
+                SELECT job_id, status FROM h
+                WHERE next_at IS NULL
+                   OR (julianday(next_at) - julianday(changed_at)) * 1440 >= :undo
+            ),
+            outcome AS (
+                SELECT job_id, MAX(status IN ('interview', 'offer')) AS next_round
+                FROM kept WHERE status IN ('applied', 'interview', 'offer', 'rejected')
+                GROUP BY job_id
+            ),
+            per_source AS (  -- one row per job and source: a repost can't count twice
+                SELECT m.source_id, o.job_id, o.next_round, MIN(m.received_at) AS seen
+                FROM outcome o
+                JOIN job_source js ON js.job_id = o.job_id
+                JOIN raw_message m ON m.id = js.raw_message_id
+                GROUP BY m.source_id, o.job_id
+            ),
+            first AS (SELECT job_id, MIN(seen) AS seen FROM per_source GROUP BY job_id)
+            SELECT s.platform, coalesce(s.title, s.chat_id), p.job_id, j.status, p.next_round,
+                   p.seen = f.seen
+            FROM per_source p
+            JOIN source s ON s.id = p.source_id
+            JOIN job j ON j.id = p.job_id
+            JOIN first f ON f.job_id = p.job_id
+            ORDER BY p.seen DESC
+            """
+        )
+        with self._tx() as c:
+            rows = c.execute(query, {"undo": undo_minutes}).all()
+        return [(str(r[0]), str(r[1]), str(r[2]), str(r[3]), bool(r[4]), bool(r[5])) for r in rows]
 
     def get_artifact(self, artifact_id: int) -> Artifact | None:
         with Session(self.engine) as s:
