@@ -340,3 +340,33 @@ uv run pre-commit install
 Runs the checks (and secret scanning) on every commit.
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full workflow.
+
+## SaaS branch only: Postgres
+
+On `saas/main`, JobRadar can use Postgres instead of `data/jobradar.db`.
+
+1. Get a database: a free one at [neon.tech](https://neon.tech) (region Singapore, **Connect**,
+   copy the connection string), or a local one:
+   ```bash
+   docker compose --profile postgres up -d
+   ```
+2. Put it in `.env` (never commit it):
+   ```
+   DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+   ```
+   The local one is `postgresql://jobradar:jobradar@localhost:55432/jobradar`.
+3. Copy your existing data across. `data/jobradar.db` is only read, and running it again only
+   adds what's missing:
+   ```bash
+   uv sync --extra web --extra postgres
+   uv run jobradar saas-import
+   ```
+   Each table shows its row count in SQLite and in Postgres; they must match (✓).
+4. Start as usual (`uv run jobradar run` or `jobradar web`). Remove `DATABASE_URL` to go back to
+   SQLite.
+
+Tests run on SQLite by default. To run them on a throwaway Postgres (every table is emptied, so
+never point this at a real database):
+```bash
+JOBRADAR_TEST_DATABASE_URL=postgresql://jobradar:jobradar@localhost:55432/jobradar uv run pytest -q
+```

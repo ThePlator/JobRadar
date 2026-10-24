@@ -6,6 +6,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### SaaS (branch `saas/main` only)
 
+- **Postgres** (SaaS PR 3): with `DATABASE_URL` in `.env`, JobRadar runs on Postgres (for example a free Neon database) instead of `data/jobradar.db`. `jobradar saas-import` copies your existing data across (your SQLite file is only read), and every page, search, the funnel and the queue work the same. Tables are created and updated by migrations. A local Postgres is one `docker compose --profile postgres up -d` away.
 - **Changes go through services too** (SaaS PR 2): status buttons, "Change status", the email buttons, resume requests, "I know this", adding a link, retrying failed tasks, the test alert, the digest and follow-ups now each have one service function in `jobradar/services/`, shared by the dashboard, the email buttons and the CLI. Nothing looks or behaves differently.
 - **Service layer** (SaaS PR 1): what every page shows now comes from `jobradar/services/` (jobs, applications, home, digests, skills, stats), each page function taking a `Ctx` (who is asking, and when). The dashboard, the CLI's `skills`, `sources` and `stats`, and the coming API share one code path. Nothing looks or behaves differently.
 
