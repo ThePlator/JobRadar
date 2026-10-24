@@ -39,8 +39,14 @@ from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.task_types import BUILD_RESUME
 from jobradar.profile import add_skill, load_profile
 from jobradar.queue.tasks import TaskQueue
+from jobradar.services import applications as applications_svc
+from jobradar.services import cards as cards_svc
+from jobradar.services import digests as digests_svc
+from jobradar.services import home as home_svc
+from jobradar.services import jobs as jobs_svc
+from jobradar.services import skills as skills_svc
+from jobradar.services.context import Ctx
 from jobradar.sinks.digest import build_digest, gather
-from jobradar.web import views
 
 log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
@@ -159,7 +165,7 @@ def create_app(
         request: Request, page: str, nav: str, status_code: int = 200, **context: object
     ) -> HTMLResponse:
         now = clock()
-        ov = views.overview(repo, good, now, tz, name)
+        ov = home_svc.overview(Ctx(repo, settings, now), name)
         return templates.TemplateResponse(
             request, page, {"nav": nav, "ov": ov, "now": now, **context}, status_code
         )
@@ -175,23 +181,25 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def today(request: Request) -> HTMLResponse:
         now = clock()
-        cards = views.today(repo, good, now, tz)
+        ctx = Ctx(repo, settings, now)
+        cards = jobs_svc.today(ctx)
         return render(
-            request, "today.html", "today", cards=cards, days=views.TODAY_DAYS,
-            greeting=views.greeting(now, tz, name),
-            says=views.blip_says(cards, good),
-            pulse=views.pulse(repo, good, now, tz),
-            sources=views.sources(repo, good, now),
-            filters=views.QUICK_FILTERS,
+            request, "today.html", "today", cards=cards, days=cards_svc.TODAY_DAYS,
+            greeting=home_svc.greeting(now, tz, name),
+            says=home_svc.blip_says(cards, good),
+            pulse=home_svc.pulse(ctx),
+            sources=home_svc.sources(ctx),
+            filters=cards_svc.QUICK_FILTERS,
         )  # fmt: skip
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
-        columns = views.board(repo, settings, clock())
+        ctx = Ctx(repo, settings, clock())
+        columns = applications_svc.board(ctx)
         return render(request, "applications.html", "applications", columns=columns,
                       quiet_after=config.notify.followup_after_days,
-                      funnel=views.funnel(repo, good),
-                      by_source=views.source_strip(repo, tz))  # fmt: skip
+                      funnel=applications_svc.funnel(ctx),
+                      by_source=applications_svc.source_strip(ctx))  # fmt: skip
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs(
@@ -206,21 +214,21 @@ def create_app(
         remote: str = "",
         source: int = 0,
     ) -> HTMLResponse:
-        filters = views.Filters(
-            min_score=min if min in dict(views.MIN_SCORES) and min else None,
-            within=within if within in dict(views.WITHIN) and within else None,
+        filters = jobs_svc.Filters(
+            min_score=min if min in dict(jobs_svc.MIN_SCORES) and min else None,
+            within=within if within in dict(jobs_svc.WITHIN) and within else None,
             place=place.strip()[:60],
             remote=bool(remote),
             source=source or None,
         )
-        found = views.all_jobs(repo, tz, show, q, page, clock(), sort or "", filters)
-        return render(request, "jobs.html", "jobs", found=found, choices=views.SHOW_CHOICES,
-                      sorts=views.SORTS, min_scores=views.MIN_SCORES, withins=views.WITHIN,
+        found = jobs_svc.all_jobs(Ctx(repo, settings, clock()), show, q, page, sort or "", filters)
+        return render(request, "jobs.html", "jobs", found=found, choices=cards_svc.SHOW_CHOICES,
+                      sorts=jobs_svc.SORTS, min_scores=jobs_svc.MIN_SCORES, withins=jobs_svc.WITHIN,
                       sources=repo.sources())  # fmt: skip
 
     @app.get("/digest", response_class=HTMLResponse)
     def digest(request: Request, w: str = "") -> HTMLResponse:
-        page = views.digest(repo, settings, clock(), w, current_profile())
+        page = digests_svc.digest(Ctx(repo, settings, clock()), w, current_profile())
         return render(request, "digest.html", "digest", d=page)
 
     @app.get("/digest/email", response_class=HTMLResponse)
@@ -229,7 +237,7 @@ def create_app(
         page may use inline styles; it still runs no script and loads nothing."""
         notify = config.notify
         local = clock().astimezone(tz)
-        options = views.windows(local, notify.digest_times)
+        options = digests_svc.windows(local, notify.digest_times)
         window = next((x for x in options if x.key == w), options[1])
         data = gather(repo, settings, window.since, window.until, bounded=not window.current)
         sender = settings.secrets.email_address or "jobradar@localhost"
@@ -241,9 +249,7 @@ def create_app(
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = views.job_detail(
-            repo, job_id, tz, clock(), config.matching.weights, current_profile(), settings
-        )
+        detail = jobs_svc.job_detail(Ctx(repo, settings, clock()), job_id, current_profile())
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
@@ -270,11 +276,11 @@ def create_app(
             row = ""
             if job is not None and outcome.ok:
                 row = templates.get_template("_row.html").render(
-                    c=views.card(job, tz, clock()), with_status=True
+                    c=cards_svc.card(job, tz, clock()), with_status=True
                 )
             return JSONResponse(
                 {"ok": outcome.ok, "message": outcome.message, "status": outcome.after,
-                 "label": views.label(outcome.after),
+                 "label": cards_svc.label(outcome.after),
                  "undo": undo if outcome.ok and outcome.before != outcome.after else None,
                  "row": row},
                 status_code=200 if outcome.ok else 409,
@@ -312,7 +318,7 @@ def create_app(
         """A resume (or the cover letter beside it) by its id in the database. The path comes
         from the database, never the address, and must be a PDF inside storage.local_dir."""
         artifact = repo.get_artifact(artifact_id)
-        path = views.artifact_file(settings, artifact, bool(cover)) if artifact else None
+        path = jobs_svc.artifact_file(settings, artifact, bool(cover)) if artifact else None
         if path is None:
             raise HTTPException(status_code=404)
         return FileResponse(path, media_type="application/pdf",
@@ -329,7 +335,7 @@ def create_app(
         else:
             queue.enqueue(BUILD_RESUME, job.id, {"why": "manual"})
             nudge()
-            message, ok = f"Building a resume for {views.card(job, tz).role}…", True
+            message, ok = f"Building a resume for {cards_svc.card(job, tz).role}…", True
         log.info("your dashboard resume", extra={"job_id": job_id[:10], "ok": ok})
         if request.headers.get("x-jobradar-token"):
             return JSONResponse({"ok": ok, "message": message,
@@ -349,12 +355,14 @@ def create_app(
 
     @app.get("/skills", response_class=HTMLResponse)
     def skills(request: Request, days: int = 30) -> HTMLResponse:
-        page = views.skills_page(repo, settings, current_profile(), clock(), days)
+        page = skills_svc.skills_page(Ctx(repo, settings, clock()), current_profile(), days)
         return render(request, "skills.html", "skills", s=page)
 
     @app.get("/skills/{key}", response_class=HTMLResponse)
     def skill(request: Request, key: str, days: int = 30) -> HTMLResponse:
-        page = views.skill_detail_page(repo, settings, current_profile(), clock(), days, key)
+        page = skills_svc.skill_detail_page(
+            Ctx(repo, settings, clock()), current_profile(), days, key
+        )
         if page is None:
             raise HTTPException(status_code=404)
         return render(request, "skill.html", "skills", s=page)
@@ -380,7 +388,7 @@ def create_app(
 
     @app.get("/api/search")
     def api_search(q: str = "") -> JSONResponse:
-        return JSONResponse({"jobs": views.search(repo, q)})
+        return JSONResponse({"jobs": jobs_svc.search(Ctx(repo, settings, clock()), q)})
 
     return app
 

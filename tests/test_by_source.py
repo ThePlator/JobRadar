@@ -155,11 +155,13 @@ def test_the_applications_page_shows_the_strip_once_you_apply(repo: Repo, clock:
 
 
 def test_the_funnel_ignores_the_same_misclicks(repo: Repo, clock: FakeClock) -> None:
-    from jobradar.web import views
+    from jobradar.services.applications import funnel
+    from jobradar.services.context import Ctx
+    from tests.test_digest import settings
 
     add(repo, "j")
     applied(repo, clock, "j", JobStatus.OFFER)
     clock.advance(4)
     repo.set_user_status("j", JobStatus.APPLIED)  # Offer put back 4 seconds later
-    steps = {s.name: s.jobs for s in views.funnel(repo, 75)}
+    steps = {s.name: s.jobs for s in funnel(Ctx(repo, settings(), clock()))}
     assert (steps["Applied"], steps["Interview"], steps["Offer"]) == (1, 0, 0)
