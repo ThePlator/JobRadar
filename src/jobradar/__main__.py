@@ -7,14 +7,17 @@ import os
 import shutil
 import time
 from collections.abc import Coroutine
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
 from jobradar import __version__, logs
 from jobradar.config import ConfigError, Settings, load_settings
+
+if TYPE_CHECKING:
+    from jobradar.services.context import Ctx
 
 app = typer.Typer(
     name="jobradar",
@@ -47,6 +50,15 @@ def _settings() -> Settings:
     except ConfigError as e:
         _fail(str(e))
         raise  # unreachable; keeps type checkers happy
+
+
+def _ctx(settings: Settings) -> Ctx:
+    """The owner, now, on the local database: what the read commands pass to the services."""
+    from jobradar import app as application
+    from jobradar.services.context import Ctx
+
+    repo, _ = application.open_store()
+    return Ctx(repo, settings, datetime.now(UTC))
 
 
 def _run(coro: Coroutine[Any, Any, None]) -> None:
@@ -903,18 +915,16 @@ def replies(
 @app.command()
 def skills(days: Annotated[int, typer.Option(help="Look back this many days.")] = 7) -> None:
     """Skills your good matches asked for that your profile doesn't list."""
-    from jobradar import app as application
-    from jobradar.pipeline.skill_gaps import skill_gaps
     from jobradar.profile import load_profile, skill_warnings
+    from jobradar.services import skills as skills_svc
 
     settings = _settings()
     profile = load_profile(settings.config.matching.profile_path)
     for warning in skill_warnings(profile):
         typer.secho(f"profile.yaml: {warning}", fg="yellow")
-    repo, _ = application.open_store()
-    alert_above = settings.config.scoring.alert_above
-    since = datetime.now(UTC) - timedelta(days=days)
-    gaps, looked_at = skill_gaps(repo, profile, since, alert_above, top=15)
+    ctx = _ctx(settings)
+    alert_above = ctx.good
+    gaps, looked_at = skills_svc.gaps(ctx, profile, days)
     typer.echo(f"{looked_at} good matches (score {alert_above}+) in the last {days} days. "
                "Skills they name that your profile doesn't list:")  # fmt: skip
     if not gaps:
@@ -929,11 +939,10 @@ def skills(days: Annotated[int, typer.Option(help="Look back this many days.")] 
 @app.command()
 def sources() -> None:
     """Each chat, board or page you applied from, and how many reached the next round."""
-    from jobradar import app as application
-    from jobradar.by_source import by_source, render
+    from jobradar.by_source import render
+    from jobradar.services.applications import sources_report
 
-    repo, _ = application.open_store()
-    typer.echo(render(by_source(repo)))
+    typer.echo(render(sources_report(_ctx(_settings()))))
 
 
 @app.command()
@@ -962,12 +971,10 @@ def web() -> None:
 @app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""
-    from jobradar import app as application
-    from jobradar.stats import build_report, render
+    from jobradar.services.stats import report
+    from jobradar.stats import render
 
-    settings = _settings()
-    repo, _ = application.open_store()
-    typer.echo(render(build_report(repo, days, alert_above=settings.config.scoring.alert_above)))
+    typer.echo(render(report(_ctx(_settings()), days)))
 
 
 if __name__ == "__main__":

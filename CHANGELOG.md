@@ -4,6 +4,10 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+### SaaS (branch `saas/main` only)
+
+- **Service layer** (SaaS PR 1): what every page shows now comes from `jobradar/services/` (jobs, applications, home, digests, skills, stats), each page function taking a `Ctx` (who is asking, and when). The dashboard, the CLI's `skills`, `sources` and `stats`, and the coming API share one code path. Nothing looks or behaves differently.
+
 ### Added
 
 **Interviews by source**

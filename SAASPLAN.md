@@ -1319,8 +1319,11 @@ flowchart LR
   function must know which user it serves.
 - **What:** create `jobradar/services/` with read services: `jobs` (list, detail, search),
   `applications` (board, by source), `skills`, `digest`, `stats`, `sources`. Each takes a `Ctx`
-  (for now always the single owner). Return pydantic models. `views.py` and CLI read commands
-  become thin callers.
+  (for now always the single owner). They return the existing typed dataclasses (`Card`,
+  `Detail`, `SkillRow`, ...), which pydantic serializes as they are in PR 6, so no model is
+  written twice. `web/views.py` is removed: the pages and the CLI read commands (`skills`,
+  `sources`, `stats`) call the services. The full-text search module moves to
+  `services/search.py`.
 - **Tests:** the existing suite passes unchanged (pages render identically); new unit tests per
   service.
 - **Done when:** no page or command reads the repository directly for these areas.

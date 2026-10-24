@@ -13,13 +13,26 @@ from jobradar.db.models import JobStatus, Platform
 from jobradar.db.repo import Repo
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.queue.tasks import TaskQueue
-from jobradar.web import server, views
+from jobradar.services import applications as applications_svc
+from jobradar.services import cards as cards_svc
+from jobradar.services import digests as digests_svc
+from jobradar.services import home as home_svc
+from jobradar.services import jobs as jobs_svc
+from jobradar.services import skills as skills_svc
+from jobradar.services.context import Ctx
+from jobradar.sinks.email_template import split_reason
+from jobradar.web import server
 from jobradar.web.app import create_app
 from jobradar.web.server import NoFreePort, free_port
 from tests.conftest import FakeClock
 from tests.test_digest import settings
 
 TZ = settings().config.notify.tz
+
+
+def ctx(repo: Repo, clock: FakeClock, s: Any = None) -> Ctx:
+    """What a page sees: the owner, the test's settings, the fake clock's now."""
+    return Ctx(repo, s or settings(), clock())
 
 
 def add(repo: Repo, job_id: str, company: str = "Acme", role: str = "Software Engineer",
@@ -47,7 +60,7 @@ def test_today_lists_recent_good_matches_you_havent_touched(repo: Repo, clock: F
     add(repo, "weak", score=60)
     add(repo, "applied", score=99, status=JobStatus.APPLIED, you=True)
     add(repo, "hidden", score=None, status=JobStatus.HIDDEN)
-    assert [c.id for c in views.today(repo, 75, clock(), TZ)] == ["best", "good"]
+    assert [c.id for c in jobs_svc.today(ctx(repo, clock))] == ["best", "good"]
 
 
 def test_board_puts_each_status_in_its_column(repo: Repo, clock: FakeClock) -> None:
@@ -59,7 +72,7 @@ def test_board_puts_each_status_in_its_column(repo: Repo, clock: FakeClock) -> N
     add(repo, "a2", status=JobStatus.APPLIED, you=True)
     add(repo, "x", status=JobStatus.REJECTED, you=True)
     add(repo, "skip", status=JobStatus.SKIPPED, you=True)
-    board = views.board(repo, settings(), clock())
+    board = applications_svc.board(ctx(repo, clock))
     columns = {c.key: [b.card.id for b in c.cards] for c in board}
     assert columns == {
         "shortlisted": ["r", "s"],
@@ -76,14 +89,14 @@ def test_board_cards_track_follow_ups_and_replies(repo: Repo, clock: FakeClock) 
     repo.set_setting("company_replied:heard", json.dumps({"kind": "interview"}))
     repo.save_artifact("quiet", "resume", 1, "out.pdf", "{}")
     clock.advance(4 * 86400)
-    applied = {b.card.id: b for b in views.board(repo, settings(), clock())[1].cards}
+    applied = {b.card.id: b for b in applications_svc.board(ctx(repo, clock))[1].cards}
     quiet, heard = applied["quiet"].track, applied["heard"].track
     assert (quiet.resume, quiet.nudge_in, quiet.next_nudge, quiet.waited) == (True, 6, "18 Oct", 40)
     assert heard.replied == "interview" and heard.next_nudge == ""  # no nudging after a reply
     repo.set_setting("followed_up:quiet", "2026-10-11")  # you followed up: the wait restarts
-    again = {b.card.id: b for b in views.board(repo, settings(), clock())[1].cards}["quiet"].track
+    again = {b.card.id: b for b in applications_svc.board(ctx(repo, clock))[1].cards}["quiet"].track
     assert again.followed_up == "11 Oct" and again.next_nudge == "21 Oct"
-    assert views.board(repo, settings(), clock())[1].note.startswith("1 replied")
+    assert applications_svc.board(ctx(repo, clock))[1].note.startswith("1 replied")
 
 
 def test_search_and_show(repo: Repo, clock: FakeClock) -> None:
@@ -92,7 +105,10 @@ def test_search_and_show(repo: Repo, clock: FakeClock) -> None:
     add(repo, "p", company="100% Remote Co")
     add(repo, "h", company="Rubrik", status=JobStatus.HIDDEN)
     add(repo, "n", company="Junk", status=JobStatus.DISCARDED)
-    ids = lambda show="jobs", q="": {c.id for c in views.all_jobs(repo, TZ, show, q, 1).cards}  # noqa: E731
+
+    def ids(show: str = "jobs", q: str = "") -> set[str]:
+        return {c.id for c in jobs_svc.all_jobs(ctx(repo, clock), show, q, 1).cards}
+
     assert ids() == {"r", "d", "p"}  # hidden and not-a-job left out
     assert ids(q="rubrik") == {"r"} and ids(q="data eng") == {"d"}
     assert ids(q="%") == ids()  # no words in it: no search
@@ -105,9 +121,9 @@ def test_pages_of_fifty(repo: Repo, clock: FakeClock) -> None:
     for n in range(55):
         add(repo, f"j{n:02}")
         clock.advance(1)
-    first = views.all_jobs(repo, TZ, "jobs", "", 1)
+    first = jobs_svc.all_jobs(ctx(repo, clock), "jobs", "", 1)
     assert (first.total, first.pages, len(first.cards), first.cards[0].id) == (55, 2, 50, "j54")
-    last = views.all_jobs(repo, TZ, "jobs", "", 99)  # past the end: the last page
+    last = jobs_svc.all_jobs(ctx(repo, clock), "jobs", "", 99)  # past the end: the last page
     assert (last.page, [c.id for c in last.cards][-1]) == (2, "j00")
 
 
@@ -121,7 +137,7 @@ def test_job_detail(repo: Repo, clock: FakeClock) -> None:
     repo.add_job_source("j", raw)
     repo.set_user_status("j", JobStatus.APPLIED)
     repo.save_artifact("j", "resume", 1, "output/Rubrik_SWE_20261008_v1.pdf", "{}")
-    d = views.job_detail(repo, "j", TZ, clock())
+    d = jobs_svc.job_detail(ctx(repo, clock), "j")
     assert d is not None
     assert ("Experience", "0-1 years") in d.facts and ("Closes", "24 Oct") in d.facts
     assert d.card.place == "Pune · Hybrid" and d.apply_url == "https://apply.acme.com/1"
@@ -130,48 +146,49 @@ def test_job_detail(repo: Repo, clock: FakeClock) -> None:
     ]
     assert d.history == [("Applied", "8 Oct, 14:30")]  # 09:00 UTC in Asia/Kolkata
     assert [(f.name, f.kind) for f in d.files] == [("Rubrik_SWE_20261008_v1.pdf", "resume")]
-    assert views.job_detail(repo, "nope", TZ, clock()) is None
+    assert jobs_svc.job_detail(ctx(repo, clock), "nope") is None
 
 
 def test_blip(repo: Repo, clock: FakeClock) -> None:
     add(repo, "a", company="Rubrik", role="Backend Engineer", score=92)
     add(repo, "b", status=JobStatus.APPLIED, you=True)
-    cards = views.today(repo, 75, clock(), TZ)
+    cards = jobs_svc.today(ctx(repo, clock))
     assert (
-        views.blip_says(cards, 75)
+        home_svc.blip_says(cards, 75)
         == "One good match waiting. The best is Backend Engineer at Rubrik, a 92."
     )
-    assert views.blip_says([], 75).startswith("Nothing new scored 75+")
-    assert views.greeting(clock(), TZ, "Sameer") == "Good afternoon, Sameer."  # 14:30 IST
+    assert home_svc.blip_says([], 75).startswith("Nothing new scored 75+")
+    assert home_svc.greeting(clock(), TZ, "Sameer") == "Good afternoon, Sameer."  # 14:30 IST
 
-    ov = views.overview(repo, 75, clock(), TZ, "Sameer Kumar")
+    ov = home_svc.overview(ctx(repo, clock), "Sameer Kumar")
     assert (ov.today, ov.active, ov.applied, ov.name, ov.awake) == (1, 1, 1, "Sameer", False)
     source = repo.upsert_source(Platform.TELEGRAM, "-1001", "Chat")
     assert source.id is not None
     repo.save_raw_message(source.id, "1", "2026-10-08T08:59:00.000000Z", "hi")
-    ov = views.overview(repo, 75, clock(), TZ, "Your Name")  # the example profile's name
+    ov = home_svc.overview(ctx(repo, clock), "Your Name")  # the example profile's name
     assert ov.awake and ov.last_read == "just now" and ov.name == ""
     clock.advance(3600)
-    assert not views.overview(repo, 75, clock(), TZ, "").awake  # an hour with nothing read
+    assert not home_svc.overview(ctx(repo, clock), "").awake  # an hour with nothing read
 
 
 def test_blips_take() -> None:
-    r = views.split_reason("Strong fit · 96 · eligible ✓ · Python, SQL ✓ · missing Kafka · Pune ✓",
+    r = split_reason("Strong fit · 96 · eligible ✓ · Python, SQL ✓ · missing Kafka · Pune ✓",
                            JobPosting(locations=["Pune"]))  # fmt: skip
-    assert views.take(r) == (
+    assert home_svc.take(r) == (
         "Strong fit. You're eligible, Pune works and you have Python, SQL. Missing: Kafka."
     )
+    assert home_svc.take(split_reason(None, None)) == "I couldn't read enough of this job to say."
     assert (
-        views.take(views.split_reason(None, None)) == "I couldn't read enough of this job to say."
+        cards_svc.initials("Thermo Fisher Scientific") == "TF"
+        and cards_svc.initials("rubrik") == "RU"
     )
-    assert views.initials("Thermo Fisher Scientific") == "TF" and views.initials("rubrik") == "RU"
-    assert views.hue("Rubrik") == views.hue("rubrik")
+    assert cards_svc.hue("Rubrik") == cards_svc.hue("rubrik")
 
 
 def test_when() -> None:
-    assert views.when("2026-10-19T17:41:43.000000Z", TZ) == "19 Oct, 23:11"
-    assert views.when("2026-10-19T00:00:00.000000Z", TZ) == "19 Oct"  # a board's bare date
-    assert views.when("not a time", TZ) == "" and views.when(None, TZ) == ""
+    assert cards_svc.when("2026-10-19T17:41:43.000000Z", TZ) == "19 Oct, 23:11"
+    assert cards_svc.when("2026-10-19T00:00:00.000000Z", TZ) == "19 Oct"  # a board's bare date
+    assert cards_svc.when("not a time", TZ) == "" and cards_svc.when(None, TZ) == ""
 
 
 # ---- the web app ------------------------------------------------------------------------------
@@ -243,8 +260,8 @@ def test_pulse_counts_each_day(repo: Repo, clock: FakeClock) -> None:
     add(repo, "x", score=None, status=JobStatus.DISCARDED)  # not a job: not counted
     clock.advance(86400)
     add(repo, "c", score=80)
-    p = views.pulse(repo, 75, clock(), TZ)
-    assert len(p.days) == views.PULSE_DAYS and p.days[-1].today
+    p = home_svc.pulse(ctx(repo, clock))
+    assert len(p.days) == home_svc.PULSE_DAYS and p.days[-1].today
     assert [(d.found, d.good) for d in p.days[-2:]] == [(2, 1), (1, 1)]
     assert (p.found, p.good, p.peak) == (3, 2, 2)
 
@@ -265,7 +282,7 @@ def test_sources_group_boards(repo: Repo, clock: FakeClock) -> None:
     seen("l", Platform.BOARD, "lever:meesho", "Lever · Meesho")
     add(repo, "weak", score=40)
     seen("weak", Platform.TELEGRAM, "-1002", "Spam jobs")
-    got = [(s.name, s.jobs, s.share) for s in views.sources(repo, 75, clock())]
+    got = [(s.name, s.jobs, s.share) for s in home_svc.sources(ctx(repo, clock))]
     assert got == [("Freshershunt", 3, 100), ("Company boards", 2, 67)]
 
 
@@ -277,7 +294,7 @@ def test_funnel_counts_jobs_that_moved_on(repo: Repo, clock: FakeClock) -> None:
     add(repo, "c", score=80)
     add(repo, "d", score=30, status=JobStatus.HIDDEN)
     add(repo, "x", score=None, status=JobStatus.DISCARDED)
-    steps = {s.name: (s.jobs, s.rate) for s in views.funnel(repo, 75)}
+    steps = {s.name: (s.jobs, s.rate) for s in applications_svc.funnel(ctx(repo, clock))}
     assert steps["Found"] == (4, "")
     assert steps["Scored 75+"] == (3, "75% of found")
     # b is Rejected now, but it reached Interview, so it counts as applied and interviewed
@@ -290,21 +307,21 @@ def test_breakdown_and_skills(repo: Repo) -> None:
                "location_ok": 0.15}  # fmt: skip
     answers = json.dumps({"provider": "llm", "eligible": 0.95, "skills_coverage": 0.5,
                           "role_alignment": 1.0, "confidence": 0.8})  # fmt: skip
-    b = views.breakdown(answers, weights)
+    b = jobs_svc.breakdown(answers, weights)
     assert b is not None and (b.eligible, b.confidence, b.by) == (95, 80, "AI read the whole job")
     assert [(p.name, p.value, p.weight) for p in b.parts] == [
         ("Skills you have", 50, 40), ("Role fits what you want", 100, 30)
     ]  # fmt: skip
-    assert views.breakdown(None, weights) is None and views.breakdown("{bad", weights) is None
+    assert jobs_svc.breakdown(None, weights) is None and jobs_svc.breakdown("{bad", weights) is None
     profile = {"skills": {"languages": ["Python", "SQL"]}}
-    got = [(s.name, s.have) for s in views.skills(["Python", "Kafka"], profile)]
+    got = [(s.name, s.have) for s in jobs_svc.skills(["Python", "Kafka"], profile)]
     assert got == [("Python", True), ("Kafka", False)]
-    assert views.skills(["Go"], None)[0].have is None
+    assert jobs_svc.skills(["Go"], None)[0].have is None
 
 
 def test_quick_filter_tags(repo: Repo, clock: FakeClock) -> None:
     add(repo, "i", role="SDE Intern", work_mode="remote", deadline="2026-10-10")
-    c = views.today(repo, 75, clock(), TZ)[0]
+    c = jobs_svc.today(ctx(repo, clock))[0]
     assert set(c.tags.split()) == {"eligible", "remote", "internship", "closing"}
     assert c.closes_in == 2
 
@@ -330,7 +347,7 @@ def test_today_cards_carry_what_the_toolbar_sorts_by(
     add(repo, "a", company="Rubrik", role="SDE Intern", deadline="2026-10-09")
     clock.advance(7 * 3600)
     add(repo, "b", company="Acme", score=80)
-    c = {x.id: x for x in views.today(repo, 75, clock(), TZ)}
+    c = {x.id: x for x in jobs_svc.today(ctx(repo, clock))}
     assert (c["a"].fresh, c["a"].age, c["b"].fresh, c["b"].age) == (
         False,
         "7 h ago",
@@ -348,12 +365,12 @@ def test_today_cards_carry_what_the_toolbar_sorts_by(
 
 def test_digest_windows_follow_the_digest_times(clock: FakeClock) -> None:
     now = clock().astimezone(TZ)  # Thu 8 Oct, 14:30 IST; digests at 09:00 and 19:00
-    w = views.windows(now, ["09:00", "19:00"])
+    w = digests_svc.windows(now, ["09:00", "19:00"])
     assert (w[0].key, w[0].label, w[0].current) == ("now", "So far", True)
     assert w[0].since.hour == 9 and w[0].until == now
     assert (w[1].key, w[1].label) == ("2026-10-08-0900", "Morning · 8 Oct")
     assert (w[1].since.day, w[1].since.hour, w[2].label) == (7, 19, "Evening · 7 Oct")
-    assert len(w) == views.DIGEST_WINDOWS
+    assert len(w) == digests_svc.DIGEST_WINDOWS
 
 
 def test_an_earlier_digest_leaves_out_what_came_after(
@@ -363,9 +380,9 @@ def test_an_earlier_digest_leaves_out_what_came_after(
     add(repo, "early", company="Rubrik", score=90)
     clock.now = clock.now.replace(hour=5)  # 10:30 IST: after it
     add(repo, "late", company="Acme", score=95)
-    morning = views.digest(repo, settings(), clock(), "", None)  # default: the latest sent
+    morning = digests_svc.digest(ctx(repo, clock), "", None)  # default: the latest sent
     assert morning.title == "Morning digest" and [c.id for c in morning.inbox] == ["early"]
-    so_far = views.digest(repo, settings(), clock(), "now", None)
+    so_far = digests_svc.digest(ctx(repo, clock), "now", None)
     assert so_far.title == "Next digest, so far" and [c.id for c in so_far.inbox] == ["late"]
     page = client.get("/digest")
     assert page.status_code == 200 and "Rubrik" in page.text and "Acme" not in page.text
@@ -379,7 +396,10 @@ def test_all_jobs_sort_by_time(repo: Repo, clock: FakeClock) -> None:
     add(repo, "first", score=50)
     clock.advance(60)
     add(repo, "second", score=99)
-    order = lambda sort: [c.id for c in views.all_jobs(repo, TZ, "jobs", "", 1, sort=sort).cards]  # noqa: E731
+
+    def order(sort: str) -> list[str]:
+        return [c.id for c in jobs_svc.all_jobs(ctx(repo, clock), "jobs", "", 1, sort=sort).cards]
+
     assert order("new") == ["second", "first"] and order("old") == ["first", "second"]
     assert order("score") == ["second", "first"] and order("nonsense") == order("new")
 
@@ -437,7 +457,7 @@ def test_cards_show_the_next_steps(repo: Repo, clock: FakeClock) -> None:
     add(repo, "a", status=JobStatus.APPLIED, you=True)
     add(repo, "i", status=JobStatus.INTERVIEW, you=True)
     add(repo, "o", status=JobStatus.OFFER, you=True)
-    acts = lambda job_id: [a for a, _ in views.card(repo.get_job(job_id), TZ).actions]  # type: ignore[arg-type]  # noqa: E731
+    acts = lambda job_id: [a for a, _ in cards_svc.card(repo.get_job(job_id), TZ).actions]  # type: ignore[arg-type]  # noqa: E731
     assert acts("n") == ["applied", "shortlist", "skip"]
     assert acts("a") == ["interview", "followed up", "rejected"]
     assert acts("i") == ["offer", "rejected"] and acts("o") == []
@@ -571,8 +591,8 @@ def test_search_reads_the_whole_job(repo: Repo, clock: FakeClock) -> None:
     repo.save_page("k", "https://acme.com/k", "Backend", "You will build event pipelines on Kafka.")
     add(repo, "g", company="Globex", role="Frontend Developer", locations=["Bangalore"])
     repo.save_page("g", "https://acme.com/g", "Frontend", "React and TypeScript, onsite.")
-    found = lambda q="", **f: views.all_jobs(repo, TZ, "jobs", q, 1, clock(),  # noqa: E731
-                                             filters=views.Filters(**f))  # fmt: skip
+    found = lambda q="", **f: jobs_svc.all_jobs(ctx(repo, clock), "jobs", q, 1,  # noqa: E731
+                                                filters=jobs_svc.Filters(**f))  # fmt: skip
     hit = found("kafka pipelines")
     assert [c.id for c in hit.cards] == ["k"]
     assert "<mark>pipelines</mark>" in str(hit.snippets["k"])
@@ -595,8 +615,8 @@ def test_filters_by_score_age_and_source(repo: Repo, clock: FakeClock) -> None:
     add(repo, "tg", score=92)
     raw, _ = repo.save_raw_message(source.id, "5", "2026-10-13T08:00:00.000000Z", "post")
     repo.add_job_source("tg", raw)
-    ids = lambda **f: {c.id for c in views.all_jobs(repo, TZ, "jobs", "", 1, clock(),  # noqa: E731
-                                                    filters=views.Filters(**f)).cards}  # fmt: skip
+    ids = lambda **f: {c.id for c in jobs_svc.all_jobs(ctx(repo, clock), "jobs", "", 1,  # noqa: E731
+                                                       filters=jobs_svc.Filters(**f)).cards}  # fmt: skip
     assert ids(min_score=90) == {"old", "tg"} and ids(within=3) == {"weak", "tg"}
     assert ids(source=source.id) == {"tg"} and ids(min_score=90, within=3) == {"tg"}
     assert repo.sources() == [(source.id, "telegram", "Freshershunt")]
@@ -659,7 +679,7 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
         repo.save_page(f"j{n}", f"https://acme.com/j{n}", "Role", "Python, AWS and Kubernetes.")
     add(repo, "j3", company="Co3", score=80)
     repo.save_page("j3", "https://acme.com/j3", "Role", "Good knowledge of Python or C++.")
-    page = views.skills_page(repo, s, views_profile(path), clock(), 30)
+    page = skills_svc.skills_page(ctx(repo, clock, s), views_profile(path), 30)
     assert page.looked_at == 4  # C++ isn't missing: that job takes Python instead
     assert [(r.name, r.jobs, r.trend) for r in page.missing] == [
         ("AWS", 3, None),
@@ -687,7 +707,7 @@ def test_skills_page_and_i_know_this(repo: Repo, tmp_path: Path, clock: FakeCloc
     )
     assert out.json()["ok"] and "AWS" in path.read_text()
     assert "AWS" not in [
-        r.name for r in views.skills_page(repo, s, views_profile(path), clock(), 30).missing
+        r.name for r in skills_svc.skills_page(ctx(repo, clock, s), views_profile(path), 30).missing
     ]
     again = client.post(
         "/skills/know", content="skill=AWS", headers=form | {"x-jobradar-token": token}
