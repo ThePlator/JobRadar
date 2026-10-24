@@ -1,5 +1,9 @@
 # AGENTS.md: the rule book for any AI working on JobRadar
 
+> **On the `saas/main` branch:** this branch turns JobRadar into a multi-user SaaS. Read
+> [`SAASPLAN.md`](SAASPLAN.md) first: it is the plan, the decisions and the PR order for this
+> branch. SaaS pull requests go into `saas/main`, never into `main`.
+
 Read this first. It says what JobRadar is, where the work stands, the conventions to follow, the
 decisions already made (don't reopen them without the owner), and what comes next.
 Last updated: 2026-10-24.
