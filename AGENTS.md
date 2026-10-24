@@ -77,8 +77,9 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
   shared by email buttons and the dashboard); `skill_gaps.py` + `skill_detail.py` (Skills page)
 - `sinks/`: email alerts, digest, reminders, follow-ups, company replies, email buttons, Notion
 - `resume/`: tailor, LaTeX render, grounding check, page fitting, ATS check
-- `services/`: what every page and read command shows (jobs, applications, home, digests,
-  skills, stats, search); page functions take a `Ctx` (who is asking, and when)
+- `services/`: the one way in for reads (jobs, applications, home, digests, skills, stats,
+  search) and changes (statuses, resumes, profile, intake, tasks, notify); each takes a `Ctx`
+  (who is asking, and when) and raises `NotFound` / `Refused`
 - `web/`: `app.py` (routes, security), `templates/` (Jinja), `static/app.css` + `app.js`
 - `by_source.py`: applications and next rounds per source
 - `tests/`: pytest, about 680 tests, fakes in `tests/fakes.py`

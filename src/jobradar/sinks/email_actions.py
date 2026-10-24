@@ -50,6 +50,8 @@ from jobradar.pipeline import status_rules as rules
 from jobradar.pipeline.dedupe import sha1
 from jobradar.pipeline.task_types import REPLY_CHECK
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
+from jobradar.services import statuses
+from jobradar.services.context import Ctx
 
 log = logging.getLogger(__name__)
 
@@ -410,7 +412,8 @@ class ReplyReader:
             return f"{action}: job {prefix} not found"
         title = _title(job)
         day = (mail.sent or self.clock()).astimezone(self.tz).date()
-        outcome = rules.act(self.repo, self.queue, job, action, day, build_resumes=False)
+        here = Ctx(self.repo, self.settings, self.clock(), queue=self.queue)
+        outcome = statuses.act(here, job.id, action, build_resumes=False, day=day)
         if not outcome.ok:
             about = {"job_id": job.id[:10], "action": action, "status": job.status}
             log.info("button email ignored: status has moved on", extra=about)

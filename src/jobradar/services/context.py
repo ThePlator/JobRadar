@@ -8,11 +8,12 @@ signatures.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from jobradar.config import Settings
 from jobradar.db.repo import Repo
+from jobradar.queue.tasks import TaskQueue
 
 OWNER = "owner"
 
@@ -23,6 +24,7 @@ class Ctx:
     settings: Settings
     now: datetime  # the request's moment, so one page shows one consistent time
     user_id: str = OWNER
+    queue: TaskQueue | None = None  # the running app's queue; None: one on the same database
 
     @property
     def tz(self) -> ZoneInfo:
@@ -33,3 +35,13 @@ class Ctx:
     def good(self) -> int:
         """A good match scores at least this (`scoring.alert_above`)."""
         return self.settings.config.scoring.alert_above
+
+    @property
+    def tasks(self) -> TaskQueue:
+        """Where changes queue their follow-up work (Notion, resume builds)."""
+        return self.queue or TaskQueue(self.repo)
+
+    @property
+    def today(self) -> date:
+        """The user's calendar day right now."""
+        return self.now.astimezone(self.tz).date()
