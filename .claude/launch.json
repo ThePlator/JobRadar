@@ -1,0 +1,36 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8137",
+        "--directory",
+        "site",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 8137
+    },
+    {
+      "name": "dashboard",
+      "runtimeExecutable": ".venv/bin/jobradar",
+      "runtimeArgs": [
+        "web"
+      ],
+      "port": 8081
+    },
+    {
+      "name": "dashboard-sandbox",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd data/sandbox && exec ../../.venv/bin/jobradar web"
+      ],
+      "port": 8095
+    }
+  ]
+}
