@@ -36,16 +36,19 @@ from jobradar.clock import Clock, utcnow
 from jobradar.config import ConfigError, Settings
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
-from jobradar.pipeline.task_types import BUILD_RESUME
-from jobradar.profile import add_skill, load_profile
+from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.services import applications as applications_svc
 from jobradar.services import cards as cards_svc
 from jobradar.services import digests as digests_svc
 from jobradar.services import home as home_svc
 from jobradar.services import jobs as jobs_svc
+from jobradar.services import profile as profile_svc
+from jobradar.services import resumes as resumes_svc
 from jobradar.services import skills as skills_svc
+from jobradar.services import statuses as statuses_svc
 from jobradar.services.context import Ctx
+from jobradar.services.errors import NotFound, Refused
 from jobradar.sinks.digest import build_digest, gather
 
 log = logging.getLogger(__name__)
@@ -144,6 +147,11 @@ def create_app(
         good=good, fair=config.scoring.hide_below, asset=asset, token=token,
         statuses=list(rules.YOURS.items()), notion=config.notion.enabled,
     )  # fmt: skip
+
+    def ctx_now() -> Ctx:
+        """The owner, now, with the app's queue: what each request hands the services."""
+        return Ctx(repo, settings, clock(), queue=queue)
+
     cache: dict[str, Any] = {"mtime": None, "profile": None}
 
     def current_profile() -> dict[str, Any] | None:
@@ -194,7 +202,7 @@ def create_app(
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
-        ctx = Ctx(repo, settings, clock())
+        ctx = ctx_now()
         columns = applications_svc.board(ctx)
         return render(request, "applications.html", "applications", columns=columns,
                       quiet_after=config.notify.followup_after_days,
@@ -221,14 +229,14 @@ def create_app(
             remote=bool(remote),
             source=source or None,
         )
-        found = jobs_svc.all_jobs(Ctx(repo, settings, clock()), show, q, page, sort or "", filters)
+        found = jobs_svc.all_jobs(ctx_now(), show, q, page, sort or "", filters)
         return render(request, "jobs.html", "jobs", found=found, choices=cards_svc.SHOW_CHOICES,
                       sorts=jobs_svc.SORTS, min_scores=jobs_svc.MIN_SCORES, withins=jobs_svc.WITHIN,
                       sources=repo.sources())  # fmt: skip
 
     @app.get("/digest", response_class=HTMLResponse)
     def digest(request: Request, w: str = "") -> HTMLResponse:
-        page = digests_svc.digest(Ctx(repo, settings, clock()), w, current_profile())
+        page = digests_svc.digest(ctx_now(), w, current_profile())
         return render(request, "digest.html", "digest", d=page)
 
     @app.get("/digest/email", response_class=HTMLResponse)
@@ -249,7 +257,7 @@ def create_app(
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = jobs_svc.job_detail(Ctx(repo, settings, clock()), job_id, current_profile())
+        detail = jobs_svc.job_detail(ctx_now(), job_id, current_profile())
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
@@ -290,11 +298,10 @@ def create_app(
     @app.post("/jobs/{job_id}/act")
     async def act(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
-        job = repo.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404)
-        today = clock().astimezone(tz).date()
-        outcome = rules.act(repo, queue, job, fields.get("action", ""), today)
+        try:
+            outcome = statuses_svc.act(ctx_now(), job_id, fields.get("action", ""))
+        except NotFound:
+            raise HTTPException(status_code=404) from None
         nudge()
         log.info("your dashboard action", extra={"job_id": job_id[:10], "ok": outcome.ok,
                                                  "action": outcome.action})  # fmt: skip
@@ -303,10 +310,10 @@ def create_app(
     @app.post("/jobs/{job_id}/status")
     async def set_status(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
-        job = repo.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404)
-        outcome = rules.set_status(repo, queue, job, fields.get("status", ""))
+        try:
+            outcome = statuses_svc.set_status(ctx_now(), job_id, fields.get("status", ""))
+        except NotFound:
+            raise HTTPException(status_code=404) from None
         nudge()
         log.info("your dashboard status", extra={"job_id": job_id[:10], "status": outcome.after})
         return answer(request, outcome, job_id, fields.get("next", ""))
@@ -327,42 +334,37 @@ def create_app(
     @app.post("/jobs/{job_id}/resume")
     async def build_resume(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
-        job = repo.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404)
-        if not config.resume.enabled:
-            message, ok = "Resumes are off (resume.enabled in config.yaml).", False
-        else:
-            queue.enqueue(BUILD_RESUME, job.id, {"why": "manual"})
+        here = ctx_now()
+        try:
+            message, ok = resumes_svc.request(here, job_id), True
             nudge()
-            message, ok = f"Building a resume for {cards_svc.card(job, tz).role}…", True
+        except NotFound:
+            raise HTTPException(status_code=404) from None
+        except Refused as e:
+            message, ok = str(e), False
         log.info("your dashboard resume", extra={"job_id": job_id[:10], "ok": ok})
         if request.headers.get("x-jobradar-token"):
             return JSONResponse({"ok": ok, "message": message,
-                                 "count": len(repo.artifacts_of(job.id))},
+                                 "count": resumes_svc.progress(here, job_id).count},
                                 status_code=200 if ok else 409)  # fmt: skip
         return RedirectResponse(safe_next(fields.get("next")), status_code=303)
 
     @app.get("/api/jobs/{job_id}/resumes")
     def resumes(job_id: str) -> JSONResponse:
         """How many resumes a job has and whether one is being built: the page polls this."""
-        return JSONResponse({
-            "count": len(repo.artifacts_of(job_id)),
-            "building": repo.task_waiting(BUILD_RESUME, job_id),
-        })  # fmt: skip
+        p = resumes_svc.progress(ctx_now(), job_id)
+        return JSONResponse({"count": p.count, "building": p.building})
 
     # ---- skills ------------------------------------------------------------------------------
 
     @app.get("/skills", response_class=HTMLResponse)
     def skills(request: Request, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skills_page(Ctx(repo, settings, clock()), current_profile(), days)
+        page = skills_svc.skills_page(ctx_now(), current_profile(), days)
         return render(request, "skills.html", "skills", s=page)
 
     @app.get("/skills/{key}", response_class=HTMLResponse)
     def skill(request: Request, key: str, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skill_detail_page(
-            Ctx(repo, settings, clock()), current_profile(), days, key
-        )
+        page = skills_svc.skill_detail_page(ctx_now(), current_profile(), days, key)
         if page is None:
             raise HTTPException(status_code=404)
         return render(request, "skill.html", "skills", s=page)
@@ -372,10 +374,9 @@ def create_app(
         """ "I know this": add a skill to profile.yaml, so matching counts it."""
         fields = await checked_form(request)
         name = fields.get("skill", "")
-        stamp = clock().astimezone(tz).strftime("%Y%m%d-%H%M%S")
         try:
-            backup = add_skill(config.matching.profile_path, name, stamp)
-        except ConfigError as e:
+            backup = profile_svc.know_skill(ctx_now(), name)
+        except Refused as e:
             ok, message = False, str(e)
         else:
             ok = True
@@ -388,7 +389,7 @@ def create_app(
 
     @app.get("/api/search")
     def api_search(q: str = "") -> JSONResponse:
-        return JSONResponse({"jobs": jobs_svc.search(Ctx(repo, settings, clock()), q)})
+        return JSONResponse({"jobs": jobs_svc.search(ctx_now(), q)})
 
     return app
 

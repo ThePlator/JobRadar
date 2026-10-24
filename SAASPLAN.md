@@ -1330,9 +1330,14 @@ flowchart LR
 
 ### PR 2: `saas/services-write`
 
-- **What:** status actions and changes, resume build requests, add a link, "I know this", sources
-  (boards, pages), follow-ups, alerts test, digest send move into services. Email buttons call the
-  same services.
+- **What:** status actions and changes (`services/statuses.py`, used by the dashboard **and**
+  the email buttons), resume requests, progress and builds (`resumes.py`), add a link
+  (`intake.py`), "I know this" (`profile.py`), retry failed tasks (`tasks.py`), test alert,
+  digest now and follow-ups (`notify.py`). Services raise `NotFound` / `Refused`
+  (`errors.py`); the web turns them into 404 / 409, the CLI into an error line. `Ctx` gains the
+  app's queue and `today`.
+- **Moved to PR 7:** adding and removing boards and pages. Today they edit `config.yaml`; in the
+  SaaS they become catalog rows, so they are rewritten there instead of moved twice.
 - **Tests:** existing tests; new service tests for every status rule.
 - **Done when:** the web app and CLI contain no business rules, only input/output.
 

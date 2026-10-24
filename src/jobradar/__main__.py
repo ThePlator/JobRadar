@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-import time
 from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
@@ -162,9 +161,7 @@ def chats() -> None:
 def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> None:
     """Process one link by hand (it shows on the dashboard, and in Notion when that's on)."""
     from jobradar import app as application
-    from jobradar.db.models import Platform
-    from jobradar.pipeline.ingest import make_emit
-    from jobradar.sources.base import IncomingMessage
+    from jobradar.services.intake import add_link
 
     settings = _settings()
     logs.setup()
@@ -172,17 +169,7 @@ def add(url: Annotated[str, typer.Argument(help="Job link to process.")]) -> Non
     async def go() -> None:
         if settings.config.notion.enabled:
             settings.require("notion")
-        repo, queue = application.open_store()
-        msg = IncomingMessage(
-            platform=Platform.MANUAL,
-            chat_id="cli",
-            chat_title="Added by hand",
-            message_id=str(time.time_ns()),
-            text=url,
-            urls=[url],
-            posted_at=datetime.now(UTC),
-        )
-        await make_emit(repo, queue)(msg)
+        await add_link(_ctx(settings), url)
         await application.drain(settings)
 
     _run(go())
@@ -268,15 +255,15 @@ def resume(
     """Build a resume for a job now (a new version), or with no job, preview your profile."""
     import json
 
-    from jobradar import app as application
-    from jobradar.llm import LLM
     from jobradar.profile import load_profile, resume_problems
     from jobradar.queue.tasks import PermanentError, RetryableError
     from jobradar.resume import ats
-    from jobradar.resume.build import ResumeBuilder, fit_to_pages
+    from jobradar.resume.build import fit_to_pages
     from jobradar.resume.compile import CompileError
     from jobradar.resume.render import content_from_profile, render
     from jobradar.resume.validate import primary_ids
+    from jobradar.services import resumes as resumes_svc
+    from jobradar.services.errors import NotFound, Refused
 
     settings = _settings()
     out = settings.config.storage.local_dir
@@ -313,17 +300,16 @@ def resume(
         _run(preview())
         return
 
-    repo, queue = application.open_store()
-    matches = repo.jobs_with_prefix(job_id.strip().lower())
-    if len(matches) != 1:
-        _fail(f"No job with ID {job_id!r}." if not matches
-              else f"{len(matches)} jobs start with {job_id!r}; give more characters.")  # fmt: skip
-    llm = LLM(settings, repo) if not plain and application.llm_enabled(settings) else None
-    builder = ResumeBuilder(settings, repo, queue, llm)
+    ctx = _ctx(settings)
+    try:
+        job = resumes_svc.find_job(ctx, job_id)
+    except (NotFound, Refused) as e:
+        _fail(str(e))
+        raise
 
     async def build() -> None:
         try:
-            artifact = await builder.build_job(matches[0], tailored=not plain, template=template)
+            artifact = await resumes_svc.build_now(ctx, job, tailored=not plain, template=template)
         except PermanentError as e:
             _fail(str(e))
             raise
@@ -362,12 +348,11 @@ def retry(
     failed: Annotated[bool, typer.Option("--failed", help="Re-queue failed tasks.")] = False,
 ) -> None:
     """Re-queue failed tasks; they run on the next `jobradar run`."""
-    from jobradar import app as application
+    from jobradar.services.tasks import retry_failed
 
     if not failed:
         _fail("Nothing to do: pass --failed to re-queue failed tasks.")
-    _, queue = application.open_store()
-    count = queue.requeue_failed()
+    count = retry_failed(_ctx(_settings()))
     typer.echo(f"Re-queued {count} failed task(s).")
 
 
@@ -777,25 +762,17 @@ def alerts(
     ] = False,
 ) -> None:
     """Email alert tools."""
-    from jobradar.queue.tasks import PermanentError, RetryableError
-    from jobradar.sinks.email_notify import smtp_send, test_email
+    from jobradar.services.errors import Refused
+    from jobradar.services.notify import send_test_alert
 
     if not test:
         _fail("Nothing to do: pass --test to send yourself a test email.")
-    settings = _settings()
-    if missing := settings.missing("email"):
-        _fail("Add to .env first: " + ", ".join(missing))
-    msg = test_email(settings)
     try:
-        smtp_send(settings, msg)
-    except (PermanentError, RetryableError) as e:
-        _fail(f"Not sent: {e}")
-    mode = (
-        "dry run is on: real alerts are saved to data/alerts/ instead"
-        if (settings.config.notify.dry_run)
-        else "alerts are on"
-    )
-    typer.secho(f"✓ test email sent to {msg['To']} ({mode})", fg="green")
+        outcome = send_test_alert(_ctx(_settings()))
+    except Refused as e:
+        _fail(str(e))
+        raise
+    typer.secho(f"✓ {outcome}", fg="green")
 
 
 @app.command()
@@ -805,20 +782,16 @@ def digest(
     ] = False,
 ) -> None:
     """Morning and evening summary email (sent automatically by `jobradar run`)."""
-    from jobradar import app as application
-    from jobradar.queue.tasks import PermanentError, RetryableError
-    from jobradar.sinks.digest import Digest
+    from jobradar.services.errors import Refused
+    from jobradar.services.notify import send_digest_now
 
     if not now:
         _fail("Nothing to do: pass --now to send the digest for the current window.")
-    settings = _settings()
-    if not settings.config.notify.dry_run and (missing := settings.missing("email")):
-        _fail("Add to .env first: " + ", ".join(missing))
-    repo, queue = application.open_store()
     try:
-        outcome = asyncio.run(Digest(settings, repo, queue).send_now())
-    except (PermanentError, RetryableError) as e:
-        _fail(f"Not sent: {e}")
+        outcome = asyncio.run(send_digest_now(_ctx(_settings())))
+    except Refused as e:
+        _fail(str(e))
+        raise
     typer.secho(f"✓ {outcome}", fg="green")
 
 
@@ -829,47 +802,38 @@ def followups(
     ] = False,
 ) -> None:
     """Jobs you set to Applied: days without a reply and when a follow-up draft is due."""
-    from jobradar import app as application
-    from jobradar.queue.tasks import PermanentError, RetryableError
-    from jobradar.sinks.followups import MAX_REMINDERS, QUIET_AFTER, FollowUpReminder
+    from jobradar.services.errors import Refused
+    from jobradar.services.notify import followups as due
+    from jobradar.services.notify import send_followups_now
+    from jobradar.sinks.followups import MAX_REMINDERS
 
     settings = _settings()
     notify = settings.config.notify
-    repo, queue = application.open_store()
-    reminder = FollowUpReminder(settings, repo, queue)
-    jobs = repo.jobs_applied()
-    if not jobs:
+    ctx = _ctx(settings)
+    rows = due(ctx)
+    if not rows:
         typer.echo("No job has Status Applied in Notion yet (JobRadar reads it every 2 minutes "
                    "while `jobradar run` is running).")  # fmt: skip
         return
-    clock = datetime.now(UTC)
     typer.echo(f"Follow-up drafts come {notify.followup_after_days} days after Applied (or your "
                f"Followed Up date) with no reply, at most {MAX_REMINDERS} per job.")  # fmt: skip
-    for job in jobs:
-        applied, since, sent = reminder.status(job)
-        quiet = (clock - since).days
-        next_at = since + reminder.after
-        if sent >= MAX_REMINDERS:
-            when = f"done: {sent} follow-ups sent"
-        elif clock - since > QUIET_AFTER:
-            when = f"quiet for {quiet} days: no more reminders"
-        elif next_at <= clock:
-            when = "due now"
-        else:
-            when = f"next draft {next_at.astimezone(notify.tz):%d %b}"
-        role = f"{job.role or 'Role not stated'} @ {job.company or '?'}"
-        typer.echo(f"  {job.id[:8]}  {role[:48]:<48}  applied "
-                   f"{applied.astimezone(notify.tz):%d %b}  {when}")  # fmt: skip
+    for r in rows:
+        quiet = (ctx.now - r.since).days
+        when = {
+            "done": f"done: {r.sent} follow-ups sent",
+            "quiet": f"quiet for {quiet} days: no more reminders",
+            "due": "due now",
+        }.get(r.state, f"next draft {r.next_at.astimezone(notify.tz):%d %b}")
+        role = f"{r.job.role or 'Role not stated'} @ {r.job.company or '?'}"
+        typer.echo(f"  {r.job.id[:8]}  {role[:48]:<48}  applied "
+                   f"{r.applied.astimezone(notify.tz):%d %b}  {when}")  # fmt: skip
     if not now:
         return
-    if not notify.followups:
-        _fail("notify.followups is false in config.yaml.")
-    if not notify.dry_run and (missing := settings.missing("email")):
-        _fail("Add to .env first: " + ", ".join(missing))
     try:
-        outcome = asyncio.run(reminder.check_now())
-    except (PermanentError, RetryableError) as e:
-        _fail(f"Not sent: {e}")
+        outcome = asyncio.run(send_followups_now(ctx))
+    except Refused as e:
+        _fail(str(e))
+        raise
     typer.secho(f"✓ {outcome}", fg="green")
 
 
