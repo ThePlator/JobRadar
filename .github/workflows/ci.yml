@@ -19,10 +19,35 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --locked --extra web
+      - run: uv sync --locked --extra web --extra postgres
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
+      - run: uv run pytest
+
+  # The SaaS runs on Postgres: the whole suite again against a real one, plus the checks that
+  # the migrations match the models and that workers never claim the same task.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: jobradar
+          POSTGRES_PASSWORD: jobradar
+          POSTGRES_DB: jobradar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobradar" --health-interval 5s --health-timeout 5s
+          --health-retries 10
+    env:
+      JOBRADAR_TEST_DATABASE_URL: postgresql://jobradar:jobradar@localhost:5432/jobradar
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --extra web --extra postgres
       - run: uv run pytest
 
   secrets:

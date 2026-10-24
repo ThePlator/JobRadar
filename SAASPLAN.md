@@ -1354,6 +1354,26 @@ flowchart LR
   - CI runs the tests against a real Postgres service.
   - `jobradar saas-import`: the owner's SQLite data into Postgres (section 20).
 - **Done when:** the whole app runs on Postgres with the owner's data, single user still.
+- **As built (2026-10-24):**
+  - `DATABASE_URL` in `.env` switches to Postgres (`db/repo.connect`); unset, it's SQLite as before.
+  - `pyproject` extra `postgres` (psycopg 3, Alembic); migrations in `src/jobradar/db/migrations/`
+    (`0001`: today's 14 tables plus `job_search`), run by `init_db` on start.
+  - The SQL in `repo.py` is portable where it can be (`IS DISTINCT FROM`, `TRUE/FALSE`, `CASE`
+    instead of `max(a, b)`, `NULLS LAST`, qualified upsert columns, typed `NULL` parameters) and
+    branches only where it must (`group_concat`/`string_agg`, minutes between times, the task claim
+    with `FOR UPDATE SKIP LOCKED`, and search).
+  - Search: `db/textsearch.TextQuery` compiles to FTS5 on SQLite and to `tsquery` on Postgres
+    (`job_search` with weighted generated `tsvector` columns, GIN indexes, `ts_rank`,
+    `ts_headline`).
+  - **Deliberately kept for PR 5:** times stay ISO text and JSON stays text, so values and
+    comparisons are identical on both databases while the code is shared; PR 5 converts them to
+    `timestamptz`/`jsonb` together with the `job` → `jobs` + `user_jobs` split.
+  - **Both databases are tested:** the suite runs on SQLite by default and, with
+    `JOBRADAR_TEST_DATABASE_URL`, on Postgres (CI job `postgres`), including a check that the
+    migrations match the models and that two workers never claim the same task.
+  - `jobradar saas-import`: copies `data/jobradar.db` (opened read-only) into `DATABASE_URL`,
+    resets id counters, builds the search index and checks row counts; safe to run again.
+  - `docker compose --profile postgres up -d` starts a local Postgres on 127.0.0.1:55432.
 
 ### PR 4: `saas/auth`
 

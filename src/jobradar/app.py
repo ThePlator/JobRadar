@@ -10,8 +10,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from jobradar.config import ConfigError, Settings
-from jobradar.db.repo import DEFAULT_DB_PATH, Repo, TaskRecord, init_db, make_engine
+from jobradar.config import ConfigError, Secrets, Settings
+from jobradar.db.repo import DEFAULT_DB_PATH, Repo, TaskRecord, connect, init_db
 from jobradar.llm import LLM, load_prompt
 from jobradar.pipeline.extract import Extractor, backfill_published, backfill_role_keys
 from jobradar.pipeline.fetch import Fetcher
@@ -64,7 +64,9 @@ log = logging.getLogger(__name__)
 
 
 def open_store() -> tuple[Repo, TaskQueue]:
-    engine = make_engine(DEFAULT_DB_PATH)
+    """The database: Postgres when DATABASE_URL is set in .env, else data/jobradar.db."""
+    url = Secrets().database_url
+    engine = connect(url.get_secret_value() if url else None, DEFAULT_DB_PATH)
     init_db(engine)
     repo = Repo(engine)
     return repo, TaskQueue(repo)
