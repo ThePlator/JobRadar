@@ -169,6 +169,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 - The default extraction model is `gemini/gemini-flash-lite-latest`.
 
 ### Fixed
+- Security: pypdf 6.21.2 (three ways a malformed PDF could make reading it take very long) and virtualenv 21.14.13 (twelve issues in the developer tools behind `pre-commit`; the app itself doesn't use it). filelock stays at 3.32.7: the fixed 4.x needs a newer litellm, and JobRadar doesn't use the affected `ReadWriteLock` or Windows soft locks.
 - Security: certifi (the list of certificate authorities JobRadar trusts for HTTPS) is updated to 2026.10.23. Older versions trusted emSign roots whose intermediate keys were stolen, so someone on your network could have faked a site JobRadar talks to, such as Gemini or Notion ([GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)).
 - `jobradar run` stopped right after starting when `sources.telegram.enabled` was false: the switched-off source finished at once and ended the run.
 - Handled button emails (I applied, Not interested…) stayed in the Gmail inbox, only marked read: Gmail accepts taking the Inbox label off while the inbox is open but ignores it. They're now moved to All Mail, which is what Gmail's Archive does, and a failure is logged instead of passing silently.
