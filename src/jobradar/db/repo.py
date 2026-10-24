@@ -48,7 +48,15 @@ def connect(database_url: str | None, path: Path = DEFAULT_DB_PATH) -> Engine:
     if database_url.startswith("postgresql://"):
         database_url = "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
     # pre_ping: Neon and other serverless hosts close idle connections; reconnect quietly.
-    return create_engine(database_url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    # prepare_threshold None: no server-side prepared statements, which a connection pooler
+    # (Neon's "-pooler" address, PgBouncer) can't keep across transactions.
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=5,
+        connect_args={"prepare_threshold": None},
+    )
 
 
 def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
