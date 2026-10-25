@@ -16,6 +16,7 @@ import hmac
 import logging
 import secrets
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -36,6 +37,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from jobradar.clock import Clock, utcnow
 from jobradar.config import ConfigError, Settings
+from jobradar.db.models import OWNER
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.profile import load_profile
@@ -159,9 +161,12 @@ def create_app(
         statuses=list(rules.YOURS.items()), notion=config.notion.enabled,
     )  # fmt: skip
 
-    def ctx_now() -> Ctx:
-        """The owner, now, with the app's queue: what each request hands the services."""
-        return Ctx(repo, settings, clock(), queue=queue)
+    def ctx_for(request: Request, now: datetime | None = None) -> Ctx:
+        """Who is asking (the signed-in user; on this computer, the owner), now, with the app's
+        queue: what each request hands the services."""
+        user = getattr(request.state, "user", None)
+        uid = user.id if user is not None else OWNER
+        return Ctx(repo, settings, now or clock(), user_id=uid, queue=queue)
 
     cache: dict[str, Any] = {"mtime": None, "profile": None}
 
@@ -184,7 +189,7 @@ def create_app(
         request: Request, page: str, nav: str, status_code: int = 200, **context: object
     ) -> HTMLResponse:
         now = clock()
-        ov = home_svc.overview(Ctx(repo, settings, now), name)
+        ov = home_svc.overview(ctx_for(request, now), name)
         account = getattr(request.state, "user", None)  # signed in (the SaaS)
         return templates.TemplateResponse(
             request, page,
@@ -204,7 +209,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def today(request: Request) -> HTMLResponse:
         now = clock()
-        ctx = Ctx(repo, settings, now)
+        ctx = ctx_for(request, now)
         cards = jobs_svc.today(ctx)
         return render(
             request, "today.html", "today", cards=cards, days=cards_svc.TODAY_DAYS,
@@ -217,7 +222,7 @@ def create_app(
 
     @app.get("/applications", response_class=HTMLResponse)
     def applications(request: Request) -> HTMLResponse:
-        ctx = ctx_now()
+        ctx = ctx_for(request)
         columns = applications_svc.board(ctx)
         return render(request, "applications.html", "applications", columns=columns,
                       quiet_after=config.notify.followup_after_days,
@@ -244,14 +249,14 @@ def create_app(
             remote=bool(remote),
             source=source or None,
         )
-        found = jobs_svc.all_jobs(ctx_now(), show, q, page, sort or "", filters)
+        found = jobs_svc.all_jobs(ctx_for(request), show, q, page, sort or "", filters)
         return render(request, "jobs.html", "jobs", found=found, choices=cards_svc.SHOW_CHOICES,
                       sorts=jobs_svc.SORTS, min_scores=jobs_svc.MIN_SCORES, withins=jobs_svc.WITHIN,
                       sources=repo.sources())  # fmt: skip
 
     @app.get("/digest", response_class=HTMLResponse)
     def digest(request: Request, w: str = "") -> HTMLResponse:
-        page = digests_svc.digest(ctx_now(), w, current_profile())
+        page = digests_svc.digest(ctx_for(request), w, current_profile())
         return render(request, "digest.html", "digest", d=page)
 
     @app.get("/digest/email", response_class=HTMLResponse)
@@ -272,7 +277,7 @@ def create_app(
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = jobs_svc.job_detail(ctx_now(), job_id, current_profile())
+        detail = jobs_svc.job_detail(ctx_for(request), job_id, current_profile())
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
@@ -294,7 +299,7 @@ def create_app(
         if request.headers.get("x-jobradar-token"):  # the page's own script: it updates itself
             undo = outcome.before if outcome.before in {s.value for s in rules.YOURS} else (
                 "shortlisted" if outcome.before == "resume_ready" else "new")  # fmt: skip
-            job = repo.get_job(job_id)
+            job = ctx_for(request).repo.get_job(job_id)
             row = ""
             if job is not None and outcome.ok:
                 row = templates.get_template("_row.html").render(
@@ -313,7 +318,7 @@ def create_app(
     async def act(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
         try:
-            outcome = statuses_svc.act(ctx_now(), job_id, fields.get("action", ""))
+            outcome = statuses_svc.act(ctx_for(request), job_id, fields.get("action", ""))
         except NotFound:
             raise HTTPException(status_code=404) from None
         nudge()
@@ -325,7 +330,7 @@ def create_app(
     async def set_status(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
         try:
-            outcome = statuses_svc.set_status(ctx_now(), job_id, fields.get("status", ""))
+            outcome = statuses_svc.set_status(ctx_for(request), job_id, fields.get("status", ""))
         except NotFound:
             raise HTTPException(status_code=404) from None
         nudge()
@@ -348,7 +353,7 @@ def create_app(
     @app.post("/jobs/{job_id}/resume")
     async def build_resume(request: Request, job_id: str) -> Response:
         fields = await checked_form(request)
-        here = ctx_now()
+        here = ctx_for(request)
         try:
             message, ok = resumes_svc.request(here, job_id), True
             nudge()
@@ -364,21 +369,21 @@ def create_app(
         return RedirectResponse(safe_next(fields.get("next")), status_code=303)
 
     @app.get("/api/jobs/{job_id}/resumes")
-    def resumes(job_id: str) -> JSONResponse:
+    def resumes(request: Request, job_id: str) -> JSONResponse:
         """How many resumes a job has and whether one is being built: the page polls this."""
-        p = resumes_svc.progress(ctx_now(), job_id)
+        p = resumes_svc.progress(ctx_for(request), job_id)
         return JSONResponse({"count": p.count, "building": p.building})
 
     # ---- skills ------------------------------------------------------------------------------
 
     @app.get("/skills", response_class=HTMLResponse)
     def skills(request: Request, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skills_page(ctx_now(), current_profile(), days)
+        page = skills_svc.skills_page(ctx_for(request), current_profile(), days)
         return render(request, "skills.html", "skills", s=page)
 
     @app.get("/skills/{key}", response_class=HTMLResponse)
     def skill(request: Request, key: str, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skill_detail_page(ctx_now(), current_profile(), days, key)
+        page = skills_svc.skill_detail_page(ctx_for(request), current_profile(), days, key)
         if page is None:
             raise HTTPException(status_code=404)
         return render(request, "skill.html", "skills", s=page)
@@ -389,7 +394,7 @@ def create_app(
         fields = await checked_form(request)
         name = fields.get("skill", "")
         try:
-            backup = profile_svc.know_skill(ctx_now(), name)
+            backup = profile_svc.know_skill(ctx_for(request), name)
         except Refused as e:
             ok, message = False, str(e)
         else:
@@ -402,8 +407,8 @@ def create_app(
         return RedirectResponse(safe_next(fields.get("next")), status_code=303)
 
     @app.get("/api/search")
-    def api_search(q: str = "") -> JSONResponse:
-        return JSONResponse({"jobs": jobs_svc.search(ctx_now(), q)})
+    def api_search(request: Request, q: str = "") -> JSONResponse:
+        return JSONResponse({"jobs": jobs_svc.search(ctx_for(request), q)})
 
     return app
 

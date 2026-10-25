@@ -18,11 +18,14 @@ from typing import Any
 from sqlalchemy import Engine, bindparam, event, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import CreateTable
-from sqlmodel import Session, SQLModel, col, create_engine, func, select
+from sqlmodel import Session, SQLModel, col, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
 from jobradar.db import models  # also registers every table on SQLModel.metadata
 from jobradar.db.models import (
+    CATALOG_STATUSES,
+    OWNER,
+    USER_STATUSES,
     Artifact,
     FeedBoard,
     FetchedPage,
@@ -38,6 +41,7 @@ from jobradar.db.models import (
 from jobradar.db.textsearch import TextQuery
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
+OWNER_AUTH_UID = "local:owner"  # until the admin signs in to the SaaS for the first time
 
 
 def connect(database_url: str | None, path: Path = DEFAULT_DB_PATH) -> Engine:
@@ -88,6 +92,58 @@ def init_db(engine: Engine) -> None:
         _add_new_columns(engine)
         _refresh_source_platforms(engine)
     _add_plans(engine)
+    add_owner(engine)
+    if engine.dialect.name == "sqlite":
+        _split_user_jobs(engine)
+
+
+def add_owner(engine: Engine) -> None:
+    """The self-hosted app's one user, who owns every job's score and status until others
+    sign in. In the SaaS the admin's first sign-in takes this account over."""
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO users (id, auth_uid, role, plan_id, created_at) "
+                "VALUES (:id, :uid, 'admin', 'free', :now) ON CONFLICT DO NOTHING"
+            ),
+            {"id": OWNER, "uid": OWNER_AUTH_UID, "now": to_iso(utcnow())},
+        )
+
+
+def _split_user_jobs(engine: Engine) -> None:
+    """A database from before user_jobs (the self-hosted app's) keeps score and status on
+    `job`: move them to the owner's user_jobs rows, once. Postgres does the same in
+    migration 0003."""
+    with engine.begin() as c:
+        have = {row[1] for row in c.execute(text("PRAGMA table_info('job')"))}
+        if "score" not in have or c.execute(text("SELECT 1 FROM user_jobs LIMIT 1")).first():
+            return
+        mine = ", ".join(repr(s.value) for s in USER_STATUSES)
+        c.execute(
+            text(
+                f"""
+                INSERT INTO user_jobs (user_id, job_id, score, score_reason, status,
+                    user_status_at, notion_page_id, notion_synced_at, created_at, updated_at)
+                SELECT :owner, id, score, score_reason,
+                    CASE WHEN status IN ({mine}) THEN status END,
+                    user_status_at, notion_page_id, notion_synced_at, created_at, updated_at
+                FROM job
+                WHERE score IS NOT NULL OR score_reason IS NOT NULL OR status IN ({mine})
+                    OR user_status_at IS NOT NULL OR notion_page_id IS NOT NULL
+                """  # noqa: S608 (statuses come from the enum)
+            ),
+            {"owner": OWNER},
+        )
+        c.execute(
+            text(
+                f"""
+                UPDATE job SET
+                    status_reason = CASE WHEN status IN ({mine}) THEN NULL ELSE score_reason END,
+                    status = CASE WHEN status NOT IN ({mine}) THEN status
+                                  WHEN data_json IS NULL THEN 'discovered' ELSE 'extracted' END
+                """  # noqa: S608 (statuses come from the enum)
+            )
+        )
 
 
 def _add_plans(engine: Engine) -> None:
@@ -167,6 +223,25 @@ def _add_new_columns(engine: Engine) -> None:
                     c.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
 
 
+# A job as one user sees it (models.Job): the posting with that user's score and status. Queries
+# read it as `FROM {JOB_VIEW} j` and pass the user's id as :uid.
+JOB_VIEW = """(SELECT j0.id, j0.canonical_url, j0.fingerprint, j0.company, j0.role, j0.deadline,
+        j0.data_json, u.score,
+        CASE WHEN u.status IS NOT NULL THEN u.score_reason
+             ELSE coalesce(j0.status_reason, u.score_reason) END AS score_reason,
+        j0.scam_risk, coalesce(u.status, j0.status) AS status, u.notion_page_id,
+        u.notion_synced_at, j0.prompt_version, u.user_status_at, j0.created_at, j0.updated_at
+    FROM job j0 LEFT JOIN user_jobs u ON u.job_id = j0.id AND u.user_id = :uid)"""
+
+
+def _among(column: str, values: list[str]) -> tuple[str, dict[str, Any]]:
+    """`column IN (...)` with one bound parameter per value; never true for no values."""
+    if not values:
+        return "1 = 0", {}
+    names = {f"v{i}": v for i, v in enumerate(values)}
+    return f"{column} IN ({', '.join(':' + n for n in names)})", names
+
+
 @dataclass(frozen=True)
 class Sighting:
     """One message that posted a job, with where it came from."""
@@ -189,10 +264,20 @@ class TaskRecord:
 
 
 class Repo:
-    def __init__(self, engine: Engine, clock: Clock = utcnow) -> None:
+    """Every query. Per-user ones (scores, statuses) are for `user_id` unless told otherwise:
+    `for_user` gives the same database for someone else."""
+
+    def __init__(self, engine: Engine, clock: Clock = utcnow, user_id: str = OWNER) -> None:
         self.engine = engine
         self._clock = clock
+        self.user_id = user_id
         self.pg = engine.dialect.name == "postgresql"
+
+    def for_user(self, user_id: str) -> Repo:
+        return self if user_id == self.user_id else Repo(self.engine, self._clock, user_id)
+
+    def _uid(self, user_id: str | None) -> str:
+        return user_id or self.user_id
 
     def _minutes(self, start: str, end: str) -> str:
         """SQL for the minutes between two ISO time columns."""
@@ -208,6 +293,26 @@ class Repo:
     def _tx(self) -> Iterator[Connection]:
         with self.engine.begin() as conn:
             yield conn
+
+    def _jobs(
+        self,
+        where: str = "1 = 1",
+        params: dict[str, Any] | None = None,
+        order: str = "j.created_at, j.id",
+        limit: int | None = None,
+        offset: int = 0,
+        user_id: str | None = None,
+    ) -> list[Job]:
+        """Jobs as this user sees them, filtered by `where` over JOB_VIEW's columns (`j.`)."""
+        sql = f"SELECT * FROM {JOB_VIEW} j WHERE {where} ORDER BY {order}"  # noqa: S608
+        if limit is not None:
+            sql += " LIMIT :limit OFFSET :offset"
+        with self._tx() as c:
+            rows = c.execute(
+                text(sql),
+                {**(params or {}), "uid": self._uid(user_id), "limit": limit, "offset": offset},
+            ).mappings()
+            return [Job(**row) for row in rows]
 
     # ---- sources and messages ---------------------------------------------------------------
 
@@ -306,9 +411,10 @@ class Repo:
             raise RuntimeError(f"job {job_id} conflicts on canonical_url {canonical_url}")
         return job, created
 
-    def get_job(self, job_id: str) -> Job | None:
-        with Session(self.engine) as s:
-            return s.get(Job, job_id)
+    def get_job(self, job_id: str, user_id: str | None = None) -> Job | None:
+        """The job as this user sees it (their score and status), or None."""
+        found = self._jobs("j.id = :id", {"id": job_id}, user_id=user_id)
+        return found[0] if found else None
 
     def add_job_source(self, job_id: str, raw_message_id: int) -> bool:
         """Record that a message posted this job. True if this pairing is new."""
@@ -364,41 +470,74 @@ class Repo:
             ).all()
         return [(r[1], r[2].split(",") if r[2] else []) for r in rows]
 
-    def job_urls(self, status: JobStatus) -> list[tuple[str, str]]:
-        with self._tx() as c:
-            rows = c.execute(
-                text(
-                    "SELECT id, canonical_url FROM job "
-                    "WHERE status = :status AND canonical_url IS NOT NULL"
-                ),
-                {"status": status.value},
-            ).all()
-        return [(str(r[0]), str(r[1])) for r in rows]
+    def job_urls(self, status: JobStatus, user_id: str | None = None) -> list[tuple[str, str]]:
+        jobs = self._jobs("j.status = :status AND j.canonical_url IS NOT NULL",
+                          {"status": status.value}, user_id=user_id)  # fmt: skip
+        return [(j.id, j.canonical_url) for j in jobs if j.canonical_url]
 
-    def jobs_with_sightings(self, at_least: int, status: JobStatus) -> list[str]:
+    def jobs_with_sightings(
+        self, at_least: int, status: JobStatus, user_id: str | None = None
+    ) -> list[str]:
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT j.id FROM job j JOIN job_source js ON js.job_id = j.id "
+                    f"SELECT j.id FROM {JOB_VIEW} j JOIN job_source js ON js.job_id = j.id "  # noqa: S608
                     "WHERE j.status = :status GROUP BY j.id HAVING count(*) >= :n"
                 ),
-                {"status": status.value, "n": at_least},
+                {"status": status.value, "n": at_least, "uid": self._uid(user_id)},
             ).all()
         return [str(r[0]) for r in rows]
 
-    def set_job_status(self, job_id: str, status: JobStatus, reason: str | None = None) -> None:
+    def set_job_status(
+        self, job_id: str, status: JobStatus, reason: str | None = None, user_id: str | None = None
+    ) -> None:
+        """Where the pipeline is with this job (discovered, extracted, needs a look, not a
+        job: for everyone), or what it decided for this user (new, hidden)."""
+        now = self._now()
         with self._tx() as c:
+            if JobStatus(status) in CATALOG_STATUSES:
+                self._catalog_status(c, job_id, JobStatus(status), reason, now)
+                return
             c.execute(
                 text(
                     """
-                    UPDATE job SET status = :status,
-                        score_reason = coalesce(CAST(:reason AS VARCHAR), score_reason),
-                        updated_at = :now
-                    WHERE id = :id
+                    INSERT INTO user_jobs (user_id, job_id, score_reason, status, created_at,
+                        updated_at)
+                    SELECT CAST(:uid AS VARCHAR), id,
+                        coalesce(CAST(:reason AS VARCHAR), status_reason),
+                        CAST(:status AS VARCHAR), CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                    FROM job WHERE id = :id
+                    ON CONFLICT (user_id, job_id) DO UPDATE SET status = excluded.status,
+                        score_reason = coalesce(CAST(:reason AS VARCHAR), user_jobs.score_reason),
+                        updated_at = excluded.updated_at
                     """
                 ),
-                {"id": job_id, "status": status.value, "reason": reason, "now": self._now()},
-            )
+                {"uid": self._uid(user_id), "id": job_id, "status": status.value, "reason": reason,
+                 "now": now},
+            )  # fmt: skip
+            c.execute(text("UPDATE job SET updated_at = :now WHERE id = :id"),
+                      {"id": job_id, "now": now})  # fmt: skip
+
+    def _catalog_status(
+        self, c: Connection, job_id: str, status: JobStatus, reason: str | None, now: str
+    ) -> None:
+        """Move the job itself back through the pipeline. Everyone who hasn't set its status
+        themselves sees it there again until it is matched anew."""
+        c.execute(
+            text(
+                "UPDATE job SET status = :status, updated_at = :now,"
+                " status_reason = coalesce(CAST(:reason AS VARCHAR), status_reason) "
+                "WHERE id = :id"
+            ),
+            {"id": job_id, "status": status.value, "reason": reason, "now": now},
+        )
+        c.execute(
+            text(
+                "UPDATE user_jobs SET status = NULL, updated_at = :now "
+                "WHERE job_id = :id AND user_status_at IS NULL AND status IS NOT NULL"
+            ),
+            {"id": job_id, "now": now},
+        )
 
     def latest_artifact(self, job_id: str, kind: str = "resume") -> Artifact | None:
         with Session(self.engine) as s:
@@ -445,22 +584,37 @@ class Repo:
             ).all()
         return [str(r[0]) for r in rows]
 
-    def jobs_in_notion(self) -> list[str]:
-        """Ids of jobs that have a Notion page."""
+    def jobs_in_notion(self, user_id: str | None = None) -> list[str]:
+        """Ids of this user's jobs that have a Notion page."""
         with self._tx() as c:
-            rows = c.execute(text("SELECT id FROM job WHERE notion_page_id IS NOT NULL")).all()
+            rows = c.execute(
+                text(
+                    "SELECT job_id FROM user_jobs "
+                    "WHERE user_id = :uid AND notion_page_id IS NOT NULL"
+                ),
+                {"uid": self._uid(user_id)},
+            ).all()
         return [str(r[0]) for r in rows]
 
-    def set_notion_page(self, job_id: str, page_id: str | None) -> None:
+    def set_notion_page(self, job_id: str, page_id: str | None, user_id: str | None = None) -> None:
+        now = self._now()
         with self._tx() as c:
             c.execute(
                 text(
-                    "UPDATE job SET notion_page_id = :page,"
-                    " notion_synced_at = CASE WHEN CAST(:page AS VARCHAR) IS NULL THEN NULL"
-                    "   ELSE :now END "
-                    "WHERE id = :id"
+                    """
+                    INSERT INTO user_jobs (user_id, job_id, notion_page_id, notion_synced_at,
+                        created_at, updated_at)
+                    SELECT CAST(:uid AS VARCHAR), id, CAST(:page AS VARCHAR),
+                        CASE WHEN CAST(:page AS VARCHAR) IS NULL THEN NULL
+                             ELSE CAST(:now AS VARCHAR) END,
+                        CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                    FROM job WHERE id = :id
+                    ON CONFLICT (user_id, job_id) DO UPDATE SET
+                        notion_page_id = excluded.notion_page_id,
+                        notion_synced_at = excluded.notion_synced_at
+                    """
                 ),
-                {"id": job_id, "page": page_id, "now": self._now()},
+                {"uid": self._uid(user_id), "id": job_id, "page": page_id, "now": now},
             )
 
     # ---- task queue ---------------------------------------------------------------------------
@@ -657,8 +811,8 @@ class Repo:
         if not job_ids:
             return []
         ids: Any = bindparam("ids", expanding=True)
-        with Session(self.engine) as s:
-            jobs = list(s.exec(select(Job).where(col(Job.id).in_(job_ids))))
+        where, params = _among("j.id", job_ids)
+        jobs = self._jobs(where, params)  # only the posting's own fields are used
         with self._tx() as c:
             pages: dict[str, str | None] = dict(c.execute(
                 text("SELECT job_id, text FROM fetched_page WHERE job_id IN :ids").bindparams(ids),
@@ -687,20 +841,25 @@ class Repo:
         deadline: str | None, prompt_version: str, status: JobStatus,
         fingerprint: str | None = None,
     ) -> None:  # fmt: skip
+        now = self._now()
         with self._tx() as c:
             c.execute(
                 text(
                     """
                     UPDATE job SET data_json = :data, company = :company, role = :role,
-                        deadline = :deadline, prompt_version = :version, status = :status,
+                        deadline = :deadline, prompt_version = :version,
                         fingerprint = :fingerprint, updated_at = :now
                     WHERE id = :id
                     """
                 ),
                 {"id": job_id, "data": data_json, "company": company, "role": role,
-                 "deadline": deadline, "version": prompt_version, "status": status.value,
-                 "fingerprint": fingerprint, "now": self._now()},
+                 "deadline": deadline, "version": prompt_version,
+                 "fingerprint": fingerprint, "now": now},
             )  # fmt: skip
+            catalog = status if JobStatus(status) in CATALOG_STATUSES else JobStatus.EXTRACTED
+            self._catalog_status(c, job_id, catalog, None, now)
+        if catalog != status:  # e.g. NEW: read, and matched for the owner too
+            self.set_job_status(job_id, status)
 
     def jobs_without_fingerprint(self) -> list[tuple[str, str | None, str | None]]:
         """(id, company, role) of extracted jobs with no role key yet."""
@@ -721,23 +880,19 @@ class Repo:
                     {"fp": key, "id": job_id},
                 )
 
-    def same_role_main(self, job_id: str, fingerprint: str, since: str) -> str | None:
+    def same_role_main(
+        self, job_id: str, fingerprint: str, since: str, user_id: str | None = None
+    ) -> str | None:
         """The oldest open job with this company and role, first seen since `since` and
         before this one, that you haven't moved in Notion; None if there is none."""
-        with self._tx() as c:
-            row = c.execute(
-                text(
-                    """
-                    SELECT id FROM job
-                    WHERE fingerprint = :fp AND id != :id AND user_status_at IS NULL
-                      AND status IN ('extracted', 'new') AND created_at >= :since
-                      AND created_at < (SELECT created_at FROM job WHERE id = :id)
-                    ORDER BY created_at, id LIMIT 1
-                    """
-                ),
-                {"fp": fingerprint, "id": job_id, "since": since},
-            ).first()
-        return str(row[0]) if row else None
+        found = self._jobs(
+            "j.fingerprint = :fp AND j.id != :id AND j.user_status_at IS NULL"
+            " AND j.status IN ('extracted', 'new') AND j.created_at >= :since"
+            " AND j.created_at < (SELECT created_at FROM job WHERE id = :id)",
+            {"fp": fingerprint, "id": job_id, "since": since},
+            order="j.created_at, j.id", limit=1, user_id=user_id,
+        )  # fmt: skip
+        return found[0].id if found else None
 
     def copy_sightings(self, from_job: str, to_job: str) -> int:
         """Add every message that posted `from_job` to `to_job` too. Returns how many."""
@@ -788,51 +943,66 @@ class Repo:
             ).first()
         return row is not None
 
-    def set_match_score(self, job_id: str, score: int | None, reason: str) -> bool:
-        """Store the score; an extracted job becomes `new` (in the Inbox). True if changed."""
+    def set_match_score(
+        self, job_id: str, score: int | None, reason: str, user_id: str | None = None
+    ) -> bool:
+        """Store this user's score; an extracted job becomes `new` (in their Inbox). True if
+        anything changed."""
+        now = self._now()
         with self._tx() as c:
             result = c.execute(
                 text(
                     """
-                    UPDATE job SET score = :score, score_reason = :reason, updated_at = :now,
-                        status = CASE WHEN status = 'extracted' THEN 'new' ELSE status END
-                    WHERE id = :id AND (score IS DISTINCT FROM :score
-                        OR score_reason IS DISTINCT FROM :reason
-                        OR status = 'extracted')
+                    INSERT INTO user_jobs (user_id, job_id, score, score_reason, status,
+                        created_at, updated_at)
+                    SELECT CAST(:uid AS VARCHAR), id, CAST(:score AS INTEGER),
+                        CAST(:reason AS VARCHAR),
+                        CASE WHEN status = 'extracted' THEN 'new' END,
+                        CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                    FROM job WHERE id = :id
+                    ON CONFLICT (user_id, job_id) DO UPDATE SET score = excluded.score,
+                        score_reason = excluded.score_reason,
+                        status = coalesce(user_jobs.status, excluded.status),
+                        updated_at = excluded.updated_at
+                    WHERE user_jobs.score IS DISTINCT FROM excluded.score
+                        OR user_jobs.score_reason IS DISTINCT FROM excluded.score_reason
+                        OR (user_jobs.status IS NULL AND excluded.status IS NOT NULL)
                     """
                 ),
-                {"id": job_id, "score": score, "reason": reason, "now": self._now()},
+                {
+                    "uid": self._uid(user_id),
+                    "id": job_id,
+                    "score": score,
+                    "reason": reason,
+                    "now": now,
+                },
             )
+            if result.rowcount:
+                c.execute(text("UPDATE job SET updated_at = :now WHERE id = :id"),
+                          {"id": job_id, "now": now})  # fmt: skip
         return bool(result.rowcount)
 
-    def jobs_to_match(self, version: str) -> list[str]:
+    def jobs_to_match(self, version: str, user_id: str | None = None) -> list[str]:
         """Open jobs without answers for this profile version."""
-        with self._tx() as c:
-            rows = c.execute(
-                text(
-                    """
-                    SELECT id FROM job WHERE status IN ('extracted', 'new')
-                        AND NOT EXISTS (SELECT 1 FROM match_result m
-                            WHERE m.job_id = job.id AND m.profile_version = :version)
-                    ORDER BY created_at
-                    """
-                ),
-                {"version": version},
-            ).all()
-        return [str(r[0]) for r in rows]
+        jobs = self._jobs(
+            "j.status IN ('extracted', 'new') AND NOT EXISTS (SELECT 1 FROM match_result m"
+            " WHERE m.job_id = j.id AND m.profile_version = :version)",
+            {"version": version}, order="j.created_at", user_id=user_id,
+        )  # fmt: skip
+        return [j.id for j in jobs]
 
-    def match_answers(self, version: str) -> list[tuple[str, str]]:
+    def match_answers(self, version: str, user_id: str | None = None) -> list[tuple[str, str]]:
         """(job_id, answers_json) for open jobs matched against this profile version."""
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    """
+                    f"""
                     SELECT m.job_id, m.answers_json FROM match_result m
-                    JOIN job ON job.id = m.job_id
-                    WHERE m.profile_version = :version AND job.status IN ('extracted', 'new')
-                    """
+                    JOIN {JOB_VIEW} j ON j.id = m.job_id
+                    WHERE m.profile_version = :version AND j.status IN ('extracted', 'new')
+                    """  # noqa: S608
                 ),
-                {"version": version},
+                {"version": version, "uid": self._uid(user_id)},
             ).all()
         return [(str(r[0]), str(r[1])) for r in rows]
 
@@ -866,6 +1036,31 @@ class Repo:
         with Session(self.engine) as s:
             return s.exec(select(User).where(User.auth_uid == auth_uid)).first()
 
+    def get_user(self, user_id: str) -> User | None:
+        with Session(self.engine) as s:
+            return s.get(User, user_id)
+
+    def take_over_owner(self, auth_uid: str) -> bool:
+        """The admin's first sign-in becomes the owner's account (which has every job's score
+        and status). An account made for that sign-in before (with nothing of its own yet) is
+        removed. False if the owner already belongs to someone."""
+        with self._tx() as c:
+            free = c.execute(
+                text("SELECT 1 FROM users WHERE id = :owner AND auth_uid = :local"),
+                {"owner": OWNER, "local": OWNER_AUTH_UID},
+            ).first()
+            if free is None:
+                return False
+            c.execute(
+                text("DELETE FROM users WHERE auth_uid = :uid AND id != :owner"),
+                {"uid": auth_uid, "owner": OWNER},
+            )
+            c.execute(
+                text("UPDATE users SET auth_uid = :uid WHERE id = :owner"),
+                {"uid": auth_uid, "owner": OWNER},
+            )
+        return True
+
     def add_user(self, user: User) -> User:
         with Session(self.engine) as s:
             s.add(user)
@@ -888,23 +1083,37 @@ class Repo:
                  "now": self._now()},
             )  # fmt: skip
 
-    def set_user_status(self, job_id: str, status: JobStatus) -> bool:
-        """Record a Status you set in Notion. False if the job is unknown or unchanged."""
+    def set_user_status(self, job_id: str, status: JobStatus, user_id: str | None = None) -> bool:
+        """Record a Status you set (dashboard, email button, Notion). False if the job is
+        unknown or unchanged."""
         now = self._now()
         with self._tx() as c:
             result = c.execute(
                 text(
                     """
-                    UPDATE job SET status = :status, user_status_at = :now, updated_at = :now,
-                        score_reason = CASE WHEN :status = 'hidden' THEN 'hidden by you'
-                                            ELSE score_reason END
-                    WHERE id = :id AND (status != :status OR user_status_at IS NULL)
+                    INSERT INTO user_jobs (user_id, job_id, score_reason, status, user_status_at,
+                        created_at, updated_at)
+                    SELECT CAST(:uid AS VARCHAR), id,
+                        CASE WHEN CAST(:status AS VARCHAR) = 'hidden' THEN 'hidden by you'
+                             ELSE status_reason END,
+                        CAST(:status AS VARCHAR), CAST(:now AS VARCHAR), CAST(:now AS VARCHAR),
+                        CAST(:now AS VARCHAR)
+                    FROM job WHERE id = :id
+                    ON CONFLICT (user_id, job_id) DO UPDATE SET status = excluded.status,
+                        user_status_at = excluded.user_status_at,
+                        updated_at = excluded.updated_at,
+                        score_reason = CASE WHEN excluded.status = 'hidden' THEN 'hidden by you'
+                                            ELSE user_jobs.score_reason END
+                    WHERE user_jobs.status IS DISTINCT FROM excluded.status
+                        OR user_jobs.user_status_at IS NULL
                     """
                 ),
-                {"id": job_id, "status": status.value, "now": now},
+                {"uid": self._uid(user_id), "id": job_id, "status": status.value, "now": now},
             )
             if not result.rowcount:
                 return False
+            c.execute(text("UPDATE job SET updated_at = :now WHERE id = :id"),
+                      {"id": job_id, "now": now})  # fmt: skip
             c.execute(
                 text(
                     "INSERT INTO status_change (job_id, status, changed_at) "
@@ -914,10 +1123,13 @@ class Repo:
             )
         return True
 
-    def status_counts(self) -> dict[str, int]:
-        """How many jobs are in each status right now."""
+    def status_counts(self, user_id: str | None = None) -> dict[str, int]:
+        """How many jobs are in each status right now, as this user sees them."""
         with self._tx() as c:
-            rows = c.execute(text("SELECT status, count(*) FROM job GROUP BY status")).all()
+            rows = c.execute(
+                text(f"SELECT j.status, count(*) FROM {JOB_VIEW} j GROUP BY j.status"),  # noqa: S608
+                {"uid": self._uid(user_id)},
+            ).all()
         return {str(r[0]): int(r[1]) for r in rows}
 
     def status_changes_since(self, since: str, until: str | None = None) -> dict[str, int]:
@@ -934,13 +1146,11 @@ class Repo:
             ).all()
         return {str(r[0]): int(r[1]) for r in rows}
 
-    def scores_by_status(self) -> dict[str, list[int]]:
+    def scores_by_status(self, user_id: str | None = None) -> dict[str, list[int]]:
         """Match Scores of the jobs in each status (jobs without a score are left out)."""
-        with self._tx() as c:
-            rows = c.execute(text("SELECT status, score FROM job WHERE score IS NOT NULL")).all()
         scores: dict[str, list[int]] = {}
-        for status, score in rows:
-            scores.setdefault(str(status), []).append(int(score))
+        for job in self._jobs("j.score IS NOT NULL", user_id=user_id):
+            scores.setdefault(job.status, []).append(int(job.score or 0))
         return scores
 
     # ---- company job boards -------------------------------------------------------------------
@@ -1017,87 +1227,69 @@ class Repo:
 
     # ---- digest -------------------------------------------------------------------------------
 
-    def jobs_created_since(self, since: str, until: str | None = None) -> list[Job]:
-        with Session(self.engine) as s:
-            query = select(Job).where(col(Job.created_at) >= since)
-            if until is not None:
-                query = query.where(col(Job.created_at) < until)
-            return list(s.exec(query))
+    def jobs_created_since(
+        self, since: str, until: str | None = None, user_id: str | None = None
+    ) -> list[Job]:
+        return self._jobs(
+            "j.created_at >= :since AND (CAST(:until AS VARCHAR) IS NULL OR j.created_at < :until)",
+            {"since": since, "until": until}, user_id=user_id,
+        )  # fmt: skip
 
-    def jobs_you_moved_to(self, statuses: list[JobStatus]) -> list[Job]:
+    def jobs_you_moved_to(self, statuses: list[JobStatus], user_id: str | None = None) -> list[Job]:
         """Jobs whose Status you set to one of these, most recent change first."""
-        with Session(self.engine) as s:
-            query = (
-                select(Job)
-                .where(
-                    col(Job.status).in_([st.value for st in statuses]),
-                    col(Job.user_status_at).is_not(None),
-                )
-                .order_by(col(Job.user_status_at).desc().nulls_last())
-            )
-            return list(s.exec(query))
+        where, params = _among("j.status", [st.value for st in statuses])
+        return self._jobs(f"{where} AND j.user_status_at IS NOT NULL", params,
+                          order="j.user_status_at DESC", user_id=user_id)  # fmt: skip
 
-    def jobs_applied(self) -> list[Job]:
+    def jobs_applied(self, user_id: str | None = None) -> list[Job]:
         """Jobs whose Status you set to Applied (and nothing since), oldest first."""
-        with Session(self.engine) as s:
-            query = (
-                select(Job)
-                .where(
-                    col(Job.status) == JobStatus.APPLIED.value,
-                    col(Job.user_status_at).is_not(None),
-                )
-                .order_by(col(Job.user_status_at))
-            )
-            return list(s.exec(query))
+        return self._jobs("j.status = 'applied' AND j.user_status_at IS NOT NULL",
+                          order="j.user_status_at", user_id=user_id)  # fmt: skip
 
     # ---- the dashboard's reads ------------------------------------------------------------
 
-    def good_new_jobs(self, min_score: int, since: str) -> list[Job]:
+    def good_new_jobs(self, min_score: int, since: str, user_id: str | None = None) -> list[Job]:
         """New jobs scoring at least `min_score`, first seen since `since`, best first."""
-        with Session(self.engine) as s:
-            query = (
-                select(Job)
-                .where(
-                    col(Job.status) == JobStatus.NEW.value,
-                    col(Job.score) >= min_score,
-                    col(Job.created_at) >= since,
-                )
-                .order_by(col(Job.score).desc().nulls_last(), col(Job.created_at).desc())
-            )
-            return list(s.exec(query))
+        return self._jobs(
+            "j.status = 'new' AND j.score >= :min AND j.created_at >= :since",
+            {"min": min_score, "since": since},
+            order="j.score DESC NULLS LAST, j.created_at DESC", user_id=user_id,
+        )  # fmt: skip
 
-    def jobs_in(self, statuses: list[JobStatus]) -> list[Job]:
+    def jobs_in(self, statuses: list[JobStatus], user_id: str | None = None) -> list[Job]:
         """Jobs in these statuses, the most recently changed first."""
-        with Session(self.engine) as s:
-            query = (
-                select(Job)
-                .where(col(Job.status).in_([st.value for st in statuses]))
-                .order_by(func.coalesce(Job.user_status_at, Job.updated_at).desc(), col(Job.id))
-            )
-            return list(s.exec(query))
+        where, params = _among("j.status", [st.value for st in statuses])
+        order = "coalesce(j.user_status_at, j.updated_at) DESC, j.id"
+        return self._jobs(where, params, order=order, user_id=user_id)
 
     def search_jobs(
-        self, statuses: list[str] | None, words: str, limit: int, offset: int, order: str = "new"
+        self,
+        statuses: list[str] | None,
+        words: str,
+        limit: int,
+        offset: int,
+        order: str = "new",
+        user_id: str | None = None,
     ) -> tuple[list[Job], int]:
         """A page of jobs in these statuses (None: any) whose company or role contains `words`,
         and how many match in all. `order`: "new" (newest first), "old" or "score"."""
-        where: list[Any] = []
+        where, params = "1 = 1", dict[str, Any]()
         if statuses is not None:
-            where.append(col(Job.status).in_(statuses))
-        if words := words.strip():
+            where, params = _among("j.status", statuses)
+        if words := words.strip().lower():
             like = "%" + words.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-            where.append(
-                col(Job.company).ilike(like, escape="\\") | col(Job.role).ilike(like, escape="\\")
-            )
-        with Session(self.engine) as s:
-            total = s.exec(select(func.count()).select_from(Job).where(*where)).one()
-            by: list[Any] = [col(Job.created_at).desc(), col(Job.id)]  # newest first
-            if order == "old":
-                by = [col(Job.created_at), col(Job.id)]
-            elif order == "score":
-                by = [col(Job.score).desc().nulls_last(), col(Job.created_at).desc()]
-            query = select(Job).where(*where).order_by(*by).limit(limit).offset(offset)
-            return list(s.exec(query)), int(total)
+            where += (" AND (lower(coalesce(j.company, '')) LIKE :like ESCAPE '\\'"
+                      " OR lower(coalesce(j.role, '')) LIKE :like ESCAPE '\\')")  # fmt: skip
+            params["like"] = like
+        by = {
+            "old": "j.created_at, j.id",
+            "score": "j.score DESC NULLS LAST, j.created_at DESC",
+        }.get(order, "j.created_at DESC, j.id")
+        with self._tx() as c:
+            total = c.execute(text(f"SELECT count(*) FROM {JOB_VIEW} j WHERE {where}"),  # noqa: S608
+                              {**params, "uid": self._uid(user_id)}).one()[0]  # fmt: skip
+        page = self._jobs(where, params, order=by, limit=limit, offset=offset, user_id=user_id)
+        return page, int(total)
 
     # ---- full-text search (the dashboard's All jobs) ------------------------------------
 
@@ -1195,11 +1387,12 @@ class Repo:
         order: str,
         limit: int,
         offset: int,
+        user_id: str | None = None,
     ) -> tuple[list[tuple[Job, str | None]], int]:
         """A page of jobs for All jobs, with a text snippet around what `match` found, and how
         many match in all. `order`: new, old, score, or relevance."""
         where: list[str] = ["1 = 1"]
-        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        params: dict[str, Any] = {"limit": limit, "offset": offset, "uid": self._uid(user_id)}
         join = ""
         rank = "j.created_at DESC"
         snippet = "NULL"
@@ -1249,16 +1442,16 @@ class Repo:
         with self._tx() as c:
             if not self.pg:
                 c.execute(text(self._FTS))
-            total = c.execute(text(f"SELECT count(*) FROM job j {join} WHERE {cond}"),  # noqa: S608
+            total = c.execute(text(f"SELECT count(*) FROM {JOB_VIEW} j {join} WHERE {cond}"),  # noqa: S608
                               params).one()[0]  # fmt: skip
             rows = c.execute(
-                text(f"SELECT j.id, {snippet} FROM job j {join} WHERE {cond} "  # noqa: S608
+                text(f"SELECT j.id, {snippet} FROM {JOB_VIEW} j {join} WHERE {cond} "  # noqa: S608
                      f"ORDER BY {by} LIMIT :limit OFFSET :offset"),
                 params,
             ).all()  # fmt: skip
         ids = [str(r[0]) for r in rows]
-        with Session(self.engine) as s:
-            found = {j.id: j for j in s.exec(select(Job).where(col(Job.id).in_(ids)))}
+        in_ids, id_params = _among("j.id", ids)
+        found = {j.id: j for j in self._jobs(in_ids, id_params, user_id=user_id)}
         return [(found[r[0]], r[1]) for r in rows if r[0] in found], int(total)
 
     def sources(self) -> list[tuple[int, str, str]]:
@@ -1296,33 +1489,38 @@ class Repo:
             ).first()
         return str(row[0]) if row else None
 
-    def good_job_sources(self, min_score: int, since: str) -> list[tuple[str, str, int]]:
+    def good_job_sources(
+        self, min_score: int, since: str, user_id: str | None = None
+    ) -> list[tuple[str, str, int]]:
         """(platform, chat or board title, jobs) for jobs scoring `min_score`+ first seen since
         `since`, each job counted once per source."""
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT s.platform, coalesce(s.title, s.chat_id), count(DISTINCT j.id) "
-                    "FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "SELECT s.platform, coalesce(s.title, s.chat_id), count(DISTINCT j.id) "  # noqa: S608
+                    f"FROM {JOB_VIEW} j JOIN job_source js ON js.job_id = j.id "
                     "JOIN raw_message m ON m.id = js.raw_message_id "
                     "JOIN source s ON s.id = m.source_id "
                     "WHERE j.created_at >= :since AND j.score >= :min "
                     "GROUP BY s.platform, s.id ORDER BY 3 DESC"
                 ),
-                {"since": since, "min": min_score},
+                {"since": since, "min": min_score, "uid": self._uid(user_id)},
             ).all()
         return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
 
-    def search_good_count(self, min_score: int) -> int:
+    def search_good_count(self, min_score: int, user_id: str | None = None) -> int:
         """Jobs that ever scored `min_score` or more (not counting what wasn't a job)."""
         with self._tx() as c:
             row = c.execute(
-                text("SELECT count(*) FROM job WHERE score >= :min AND status != 'discarded'"),
-                {"min": min_score},
-            ).one()
+                text(f"SELECT count(*) FROM {JOB_VIEW} j "  # noqa: S608
+                     "WHERE j.score >= :min AND j.status != 'discarded'"),
+                {"min": min_score, "uid": self._uid(user_id)},
+            ).one()  # fmt: skip
         return int(row[0])
 
-    def jobs_ever_in(self, statuses: list[JobStatus], undo_minutes: int = 0) -> int:
+    def jobs_ever_in(
+        self, statuses: list[JobStatus], undo_minutes: int = 0, user_id: str | None = None
+    ) -> int:
         """Jobs that are, or once were, in one of these statuses (by your status history).
         A status you changed again within `undo_minutes` is taken as a misclick."""
         gap = self._minutes("changed_at", "next_at")
@@ -1335,7 +1533,7 @@ class Repo:
                 FROM status_change
             )
             SELECT count(*) FROM (
-                SELECT id FROM job WHERE status IN :sts
+                SELECT j.id FROM {JOB_VIEW} j WHERE j.status IN :sts
                 UNION SELECT job_id FROM h WHERE status IN :sts AND (
                     next_at IS NULL
                     OR {gap} >= :undo)
@@ -1344,12 +1542,17 @@ class Repo:
         ).bindparams(bindparam("sts", expanding=True))
         with self._tx() as c:
             row = c.execute(
-                query, {"sts": [st.value for st in statuses], "undo": undo_minutes}
+                query,
+                {
+                    "sts": [st.value for st in statuses],
+                    "undo": undo_minutes,
+                    "uid": self._uid(user_id),
+                },
             ).one()
         return int(row[0])
 
     def applications_by_source(
-        self, undo_minutes: int = 10
+        self, undo_minutes: int = 10, user_id: str | None = None
     ) -> list[tuple[str, str, str, str, bool, bool]]:
         """(platform, source name, job id, its status now, reached the next round, found there
         first) for every job you applied to, once per source that carried it, newest find first.
@@ -1390,13 +1593,13 @@ class Repo:
                    p.seen = f.seen
             FROM per_source p
             JOIN source s ON s.id = p.source_id
-            JOIN job j ON j.id = p.job_id
+            JOIN {JOB_VIEW} j ON j.id = p.job_id
             JOIN firsts f ON f.job_id = p.job_id
             ORDER BY p.seen DESC
             """  # noqa: S608 (gap is built from column names)
         )
         with self._tx() as c:
-            rows = c.execute(query, {"undo": undo_minutes}).all()
+            rows = c.execute(query, {"undo": undo_minutes, "uid": self._uid(user_id)}).all()
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3]), bool(r[4]), bool(r[5])) for r in rows]
 
     def get_artifact(self, artifact_id: int) -> Artifact | None:
@@ -1437,48 +1640,35 @@ class Repo:
             )
             return list(s.exec(query))
 
-    def jobs_closing(self, first_day: str, last_day: str) -> list[Job]:
+    def jobs_closing(self, first_day: str, last_day: str, user_id: str | None = None) -> list[Job]:
         """Jobs you may still apply to whose deadline falls in these days (inclusive)."""
-        open_ = [JobStatus.NEW.value, JobStatus.SHORTLISTED.value, JobStatus.RESUME_READY.value]
-        with Session(self.engine) as s:
-            query = (
-                select(Job)
-                .where(
-                    col(Job.status).in_(open_),
-                    col(Job.deadline) >= first_day,
-                    col(Job.deadline) <= last_day,
-                )
-                .order_by(col(Job.deadline), col(Job.score).desc().nulls_last())
-            )
-            return list(s.exec(query))
+        return self._jobs(
+            "j.status IN ('new', 'shortlisted', 'resume_ready')"
+            " AND j.deadline >= :first AND j.deadline <= :last",
+            {"first": first_day, "last": last_day},
+            order="j.deadline, j.score DESC NULLS LAST", user_id=user_id,
+        )  # fmt: skip
 
-    def jobs_read_by_llm(self) -> list[Job]:
+    def jobs_read_by_llm(self, user_id: str | None = None) -> list[Job]:
         """Jobs with extraction data, for comparing extraction methods."""
-        with Session(self.engine) as s:
-            query = select(Job).where(
-                col(Job.data_json).is_not(None),
-                col(Job.status).in_([JobStatus.EXTRACTED.value, JobStatus.DISCARDED.value]),
-            )
-            return list(s.exec(query))
+        return self._jobs("j.data_json IS NOT NULL AND j.status IN ('extracted', 'discarded')",
+                          user_id=user_id)  # fmt: skip
 
-    def jobs_missing_extraction(self) -> list[str]:
+    def jobs_missing_extraction(self, user_id: str | None = None) -> list[str]:
         """Jobs that reached Notion before extraction existed (for `jobradar extract`)."""
-        with self._tx() as c:
-            rows = c.execute(
-                text(
-                    "SELECT id FROM job WHERE status = 'discovered' AND data_json IS NULL "
-                    "AND canonical_url IS NOT NULL ORDER BY created_at"
-                )
-            ).all()
-        return [str(r[0]) for r in rows]
+        jobs = self._jobs(
+            "j.status = 'discovered' AND j.data_json IS NULL AND j.canonical_url IS NOT NULL",
+            order="j.created_at", user_id=user_id,
+        )  # fmt: skip
+        return [j.id for j in jobs]
 
-    def jobs_from_source(self, title: str) -> list[str]:
+    def jobs_from_source(self, title: str, user_id: str | None = None) -> list[str]:
         """Jobs first or also seen in the source shown as `title` ("Workday · Accenture"),
         that you haven't moved in Notion (for `jobradar extract --again`)."""
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT DISTINCT j.id, j.created_at FROM job j "
+                    f"SELECT DISTINCT j.id, j.created_at FROM {JOB_VIEW} j "  # noqa: S608
                     "JOIN job_source js ON js.job_id = j.id "
                     "JOIN raw_message r ON r.id = js.raw_message_id "
                     "JOIN source s ON s.id = r.source_id "
@@ -1486,7 +1676,7 @@ class Repo:
                     "AND j.status != 'discarded' AND j.canonical_url IS NOT NULL "
                     "ORDER BY j.created_at"
                 ),
-                {"title": title},
+                {"title": title, "uid": self._uid(user_id)},
             ).all()
         return [str(r[0]) for r in rows]
 
@@ -1551,23 +1741,25 @@ class Repo:
         return [(str(r[0]), int(r[1]), int(r[2])) for r in rows]
 
     def jobs_since(
-        self, since: str
+        self, since: str, user_id: str | None = None
     ) -> list[tuple[str, str | None, str, int, int | None, str | None, str | None]]:
         """(id, URL, status, sightings, first post id, first post text, reason) for jobs
         created since."""
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT j.id, j.canonical_url, j.status, count(js.raw_message_id),"
+                    "SELECT j.id, j.canonical_url, j.status, count(js.raw_message_id),"  # noqa: S608
                     " min(js.raw_message_id),"
                     " (SELECT m.text FROM job_source x"
                     "  JOIN raw_message m ON m.id = x.raw_message_id"
                     "  WHERE x.job_id = j.id ORDER BY m.posted_at, m.id LIMIT 1), "
                     " j.score_reason "
-                    "FROM job j LEFT JOIN job_source js ON js.job_id = j.id "
-                    "WHERE j.created_at >= :since GROUP BY j.id ORDER BY j.created_at"
+                    f"FROM {JOB_VIEW} j LEFT JOIN job_source js ON js.job_id = j.id "
+                    "WHERE j.created_at >= :since "
+                    "GROUP BY j.id, j.canonical_url, j.status, j.score_reason, j.created_at "
+                    "ORDER BY j.created_at"
                 ),
-                {"since": since},
+                {"since": since, "uid": self._uid(user_id)},
             ).all()
         return [(str(r[0]), r[1], str(r[2]), int(r[3]), r[4], r[5], r[6]) for r in rows]
 

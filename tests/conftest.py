@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, text
 
 from jobradar.config import AuthConfig, Secrets
-from jobradar.db.repo import Repo, connect, init_db, make_engine
+from jobradar.db.repo import Repo, add_owner, connect, init_db, make_engine
 from jobradar.queue.tasks import TaskQueue
 
 # Set to a throwaway Postgres (never a real one: every table is emptied) to run the whole
@@ -53,6 +53,7 @@ def engine(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Engine]:
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
                 "AND tablename NOT IN ('alembic_version', 'plans')"))]  # fmt: skip
             c.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+        add_owner(eng)  # the self-hosted app's user, as init_db makes it
         yield eng
         return
     eng = make_engine(tmp_path / "data" / "test.db")
@@ -71,6 +72,13 @@ def queue(repo: Repo, clock: FakeClock) -> TaskQueue:
     import random
 
     return TaskQueue(repo, clock=clock, rng=random.Random(0))
+
+
+@pytest.fixture(autouse=True)
+def no_real_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A command run in a test (e.g. `alerts --test`) opens a throwaway database, never the
+    developer's data/jobradar.db."""
+    monkeypatch.setattr("jobradar.app.DEFAULT_DB_PATH", tmp_path / "default" / "jobradar.db")
 
 
 @pytest.fixture(autouse=True)

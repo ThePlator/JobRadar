@@ -1,8 +1,8 @@
 """Who is asking, and when: passed to every page-level service.
 
-Today JobRadar has one user, the owner, so `user_id` is always `OWNER`. The SaaS (SAASPLAN.md,
-PR 5) fills it from the sign-in and scopes every query by it; the services keep these
-signatures.
+The self-hosted app has one user, the owner (`OWNER`). In the SaaS `user_id` comes from the
+sign-in, and `repo` is scoped to that user: every score and status it reads or writes is
+theirs (SAASPLAN.md section 9).
 """
 
 from __future__ import annotations
@@ -12,10 +12,11 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from jobradar.config import Settings
+from jobradar.db.models import OWNER
 from jobradar.db.repo import Repo
 from jobradar.queue.tasks import TaskQueue
 
-OWNER = "owner"
+__all__ = ["OWNER", "Ctx"]
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,10 @@ class Ctx:
     now: datetime  # the request's moment, so one page shows one consistent time
     user_id: str = OWNER
     queue: TaskQueue | None = None  # the running app's queue; None: one on the same database
+
+    def __post_init__(self) -> None:
+        # Whatever repo was handed in, queries made through this Ctx are for its user.
+        object.__setattr__(self, "repo", self.repo.for_user(self.user_id))
 
     @property
     def tz(self) -> ZoneInfo:

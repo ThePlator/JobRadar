@@ -74,6 +74,8 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - `db/repo.py`: **every SQL query lives here**, portable between SQLite and Postgres;
   `db/models.py` the SQLModel tables; on `saas/main` also `db/migrations/` (Alembic, Postgres),
   `db/textsearch.py` (search queries for both databases), `db/transfer.py` (`saas-import`)
+  and `job` (the posting, for everyone) apart from `user_jobs` (one user's score and status),
+  joined into `Job` by `JOB_VIEW`; `Repo.for_user(id)` scopes per-user queries
 - `sources/`: Telegram, `boards/` (one reader per hiring system), `pages/`, email forward
 - `pipeline/`: ingest -> extract -> match -> decide; `status_rules.py` (what a status change may do,
   shared by email buttons and the dashboard); `skill_gaps.py` + `skill_detail.py` (Skills page)
@@ -111,6 +113,8 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - Tests come with every change, using fakes rather than real services.
 
 **Safety and privacy**
+- Tests never touch the real `data/jobradar.db`: `tests/conftest.py` points the default database
+  at a temp file. Keep it that way for any new command a test runs.
 - Never run a changed build against the real `data/jobradar.db`, `config/` or `.env`: use a copy
   (`.claude/skills/ship/sandbox.sh` makes one in `data/sandbox`).
 - Never commit secrets, `config/*`, `data/*` or personal details (the profile has the owner's
