@@ -1,8 +1,8 @@
 """People who sign in to the SaaS: their first sign-in creates their account.
 
 The admin's first sign-in takes over the `owner` account, which holds every score and status
-from before the SaaS. Until each user gets their own matches (SAASPLAN.md, PR 5), only the admin
-may open the dashboard; everyone else signs in and is told it opens soon.
+from before the SaaS. Each user sees only their own rows (PR 5d). While `AUTH_WAITLIST` is on,
+only the admin may open the dashboard; everyone else signs in and is told it opens soon.
 """
 
 from __future__ import annotations
@@ -51,6 +51,6 @@ def sign_in(ctx: Ctx, who: Identity, admin_email: str | None) -> User:
     return user
 
 
-def can_open_dashboard(user: User) -> bool:
-    """Only the admin, until the dashboard shows each user their own jobs (PR 5)."""
-    return user.role == Role.ADMIN
+def can_open_dashboard(user: User, waitlist: bool = True) -> bool:
+    """Everyone signed in, unless the waitlist is on: then only the admin."""
+    return user.role == Role.ADMIN or not waitlist

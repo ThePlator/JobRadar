@@ -37,7 +37,6 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from jobradar.clock import Clock, utcnow
 from jobradar.config import Settings
-from jobradar.db.models import OWNER
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.queue.tasks import TaskQueue
@@ -163,8 +162,10 @@ def create_app(
         """Who is asking (the signed-in user; on this computer, the owner), now, with the app's
         queue: what each request hands the services."""
         user = getattr(request.state, "user", None)
-        uid = user.id if user is not None else OWNER
-        return Ctx(repo, settings, now or clock(), user_id=uid, queue=queue)
+        if user is None:  # this computer only: the owner, as in the self-hosted app
+            return Ctx(repo, settings, now or clock(), queue=queue)
+        # Signed in: a repo that can only reach their rows (row-level security on Postgres).
+        return Ctx(repo.scoped(user.id), settings, now or clock(), user_id=user.id, queue=queue)
 
     def current_profile(request: Request) -> dict[str, Any] | None:
         """The asking user's profile (the owner's: profile.yaml, as it is now)."""

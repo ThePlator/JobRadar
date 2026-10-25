@@ -76,7 +76,8 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
   `db/textsearch.py` (search queries for both databases), `db/transfer.py` (`saas-import`)
   and `job` (the posting, for everyone) apart from `user_jobs` (one user's score and status),
   joined into `Job` by `JOB_VIEW`; `Repo.for_user(id)` scopes per-user queries (also status
-  history, alerts, resumes, and `user_settings` for one user's notes; `setting` is the app's)
+  history, alerts, resumes, and `user_settings` for one user's notes; `setting` is the app's);
+  `Repo.scoped(id)` adds Postgres row-level security, for everything a signed-in user asks
 - `sources/`: Telegram, `boards/` (one reader per hiring system), `pages/`, email forward
 - `pipeline/`: ingest -> extract -> match -> decide; `status_rules.py` (what a status change may do,
   shared by email buttons and the dashboard); `skill_gaps.py` + `skill_detail.py` (Skills page)

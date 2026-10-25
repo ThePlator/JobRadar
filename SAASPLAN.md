@@ -1425,8 +1425,9 @@ flowchart LR
   - **5b `saas/user-rows`:** `user_id` on status history, alerts, artifacts, tasks, follow-ups.
   - **5c `saas/profiles`:** profile and preferences from YAML into `profiles` / `preferences`.
   - **5d `saas/rls`:** RLS policies, database roles, `SET LOCAL app.user_id`, the isolation suite;
-    the dashboard opens to every signed-in user. Times and JSON become `timestamptz` / `jsonb`
-    here too.
+    the dashboard can open to every signed-in user.
+  - **5e `saas/types`:** times and JSON become `timestamptz` / `jsonb` (split from 5d on
+    2026-10-26: a type change touches every time comparison, and deserves its own review).
 - **As built, 5a (2026-10-25):**
   - The catalog table keeps its name, `job` (renaming it would touch every query for no gain);
     its `status` is now only where the pipeline is (`discovered`, `extracted`, `needs_review`,
@@ -1473,6 +1474,25 @@ flowchart LR
     copied in; for anyone else only their row changes.
   - The pipeline still runs on the owner's preferences from config.yaml (the same values);
     reading each user's comes with the fan-out (PR 8). Editing a profile on the site is PR 15.
+- **As built, 5d (2026-10-26):**
+  - Migration `0006`: a role per database, `<database>_app` (role names are shared by a whole
+    server, so a staging and a live database never share one), with rights on every table
+    except `users`, and the default rights for tables to come. Row-level security on the seven
+    per-user tables (`user_jobs`, `status_change`, `alert`, `artifact`, `user_settings`,
+    `profiles`, `preferences`): `user_id = current_setting('app.user_id', true)`, so a session
+    that never said whose it is sees no rows at all.
+  - `Repo.scoped(user_id)`: each transaction switches to that role and sets `app.user_id`
+    (`set_config(..., true)`: both end with the transaction, so pooled connections never carry
+    them over). Every signed-in request uses a scoped repo; background work and sign-in use the
+    login role, which owns the tables and so isn't limited (no `FORCE`).
+  - `AUTH_WAITLIST` (on by default): only the admin opens the dashboard until it is turned off,
+    since other users have no matches before the fan-out (PR 8).
+  - **Tests:** the isolation suite signs in as B and opens every page and endpoint: none shows A's
+    score reason, profile or status; A's resume is 404; B's actions change only B's rows. On
+    Postgres, B's queries with no user filter see only B's rows of all seven tables, can't
+    write a row for A, and can't read `users`. CI runs the Postgres suite twice: as a superuser
+    and as a login like Neon's (not a superuser; may create roles and bypass RLS), which caught
+    a role-ownership problem before it reached Neon.
 
 ### PR 6: `saas/api-read`
 

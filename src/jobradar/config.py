@@ -611,6 +611,9 @@ class AuthConfig(BaseSettings):
     firebase_project_id: str | None = Field(default=None, validation_alias="FIREBASE_PROJECT_ID")
     # How long you stay signed in on a device. Firebase allows at most 14 days.
     session_days: int = Field(default=14, ge=1, le=14, validation_alias="AUTH_SESSION_DAYS")
+    # True: only the admin opens the dashboard; anyone else who signs in is told it opens soon.
+    # Turn it off once others get their own matches (SAASPLAN.md PR 8).
+    waitlist: bool = Field(default=True, validation_alias="AUTH_WAITLIST")
 
     @field_validator("ways", mode="before")
     @classmethod

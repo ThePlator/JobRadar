@@ -6,6 +6,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### SaaS (branch `saas/main` only)
 
+- **Users kept apart by the database itself** (SaaS PR 5d): on Postgres, a signed-in user's requests can only reach their own scores, statuses, history, alerts, resumes, notes and profile (row-level security), even if a query forgot to ask for them. `AUTH_WAITLIST=false` opens the dashboard to everyone who signs in; it stays admin-only by default until others get their own matches.
 - **Your profile and preferences per user** (SaaS PR 5c): each user's profile and preferences (filters, score thresholds, digest times, timezone) are kept in the database. You still edit `profile.yaml` and `config.yaml`; JobRadar copies them in whenever they change. "I know this" still updates your `profile.yaml`.
 - **Your records are yours** (SaaS PR 5b): your status history, email alerts, resumes and notes about jobs (followed up, company replied, reminders sent) now each belong to a user. Someone else's resume can't be opened by its address. Your existing records move across as they are; nothing looks different.
 - **Sign-in settings moved to `.env`**: `AUTH_ENABLED`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID` (and optionally `AUTH_WAYS`, `AUTH_SESSION_DAYS`) replace the `auth:` section of `config.yaml`, so the same `config.yaml` works on `main` (which refused the unknown section) and on the SaaS branch.

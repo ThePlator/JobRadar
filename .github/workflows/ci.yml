@@ -49,6 +49,14 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --extra web --extra postgres --extra saas
       - run: uv run pytest
+      # Again as a login like Neon's: not a superuser, but may create roles and bypass
+      # row-level security (the app switches to its own role, which can't).
+      - name: tests as a Neon-like login
+        env:
+          PGPASSWORD: jobradar
+        run: |
+          psql -h localhost -U jobradar -d jobradar -c "CREATE ROLE neonlike LOGIN PASSWORD 'neonlike' CREATEROLE BYPASSRLS" -c "CREATE DATABASE neonlike OWNER neonlike"
+          JOBRADAR_TEST_DATABASE_URL=postgresql://neonlike:neonlike@localhost:5432/neonlike uv run pytest
 
   secrets:
     runs-on: ubuntu-latest

@@ -55,13 +55,35 @@ def connect(database_url: str | None, path: Path = DEFAULT_DB_PATH) -> Engine:
     # pre_ping: Neon and other serverless hosts close idle connections; reconnect quietly.
     # prepare_threshold None: no server-side prepared statements, which a connection pooler
     # (Neon's "-pooler" address, PgBouncer) can't keep across transactions.
-    return create_engine(
+    engine = create_engine(
         database_url,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=5,
         connect_args={"prepare_threshold": None},
     )
+    _as_the_user(engine)
+    return engine
+
+
+# The role that can't bypass row-level security: one per database (migration 0006).
+APP_ROLE = "current_database() || '_app'"
+
+
+def _as_the_user(engine: Engine) -> None:
+    """A transaction on a user's scoped repo (`Repo.scoped`) runs as the database's app role with
+    `app.user_id` set, so Postgres itself only shows and accepts that user's rows of the
+    per-user tables (SAASPLAN.md section 9). Both last until the transaction ends."""
+
+    @event.listens_for(engine, "begin")
+    def _begin(conn: Connection) -> None:
+        user_id = conn.get_execution_options().get("jobradar_user")
+        if user_id:
+            conn.exec_driver_sql(
+                f"SELECT set_config('role', {APP_ROLE}, true),"  # SET LOCAL ROLE
+                " set_config('app.user_id', %(uid)s, true)",
+                {"uid": str(user_id)},
+            )
 
 
 def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
@@ -307,14 +329,31 @@ class Repo:
     """Every query. Per-user ones (scores, statuses) are for `user_id` unless told otherwise:
     `for_user` gives the same database for someone else."""
 
-    def __init__(self, engine: Engine, clock: Clock = utcnow, user_id: str = OWNER) -> None:
+    def __init__(
+        self, engine: Engine, clock: Clock = utcnow, user_id: str = OWNER,
+        scoped: bool = False, root: Engine | None = None,
+    ) -> None:  # fmt: skip
         self.engine = engine
+        self._root = root or engine
         self._clock = clock
         self.user_id = user_id
+        self.is_scoped = scoped
         self.pg = engine.dialect.name == "postgresql"
 
+    def scoped(self, user_id: str) -> Repo:
+        """A repo that can only reach this user's rows, for what a signed-in user asks: every
+        query filters by them, and on Postgres row-level security makes sure of it."""
+        root = self._root
+        engine = root.execution_options(jobradar_user=user_id) if self.pg else root
+        return Repo(engine, self._clock, user_id, scoped=True, root=root)
+
     def for_user(self, user_id: str) -> Repo:
-        return self if user_id == self.user_id else Repo(self.engine, self._clock, user_id)
+        """The same database for someone else: scoped if this one is."""
+        if user_id == self.user_id:
+            return self
+        if self.is_scoped:
+            return self.scoped(user_id)
+        return Repo(self._root, self._clock, user_id, root=self._root)
 
     def _uid(self, user_id: str | None) -> str:
         return user_id or self.user_id
