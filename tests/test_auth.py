@@ -21,7 +21,7 @@ from google.auth import jwt as google_jwt
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from jobradar.config import AppConfig, ConfigError, Secrets, Settings
+from jobradar.config import AppConfig, AuthConfig, ConfigError, Secrets, Settings
 from jobradar.db.repo import Repo
 from jobradar.saas.auth import Firebase, Identity, SignInError
 from jobradar.services import users
@@ -185,9 +185,8 @@ def test_switched_off_accounts_cant_sign_in(repo: Repo, clock: FakeClock) -> Non
 
 
 def test_signing_in_needs_the_firebase_settings() -> None:
-    with pytest.raises(ValidationError, match=r"auth\.firebase_api_key"):
-        AppConfig.model_validate({"sources": {"telegram": {"enabled": False}},
-                                  "auth": {"enabled": True}})  # fmt: skip
+    with pytest.raises(ValidationError, match="FIREBASE_API_KEY"):
+        AuthConfig(enabled=True)
     s = auth_settings(secrets={})
     with pytest.raises(ConfigError, match="FIREBASE_CREDENTIALS, JOBRADAR_ADMIN_EMAIL"):
         s.require("auth")
@@ -198,12 +197,10 @@ def test_signing_in_needs_the_firebase_settings() -> None:
 
 def auth_settings(secrets: dict[str, Any] | None = None) -> Settings:
     return Settings(
-        config=AppConfig.model_validate({
-            "sources": {"telegram": {"enabled": False}},
-            "auth": {"enabled": True, "firebase_api_key": "AIza-test",
-                     "firebase_auth_domain": f"{PROJECT}.firebaseapp.com",
-                     "firebase_project_id": PROJECT},
-        }),
+        config=AppConfig.model_validate({"sources": {"telegram": {"enabled": False}}}),
+        auth=AuthConfig(enabled=True, firebase_api_key="AIza-test",
+                        firebase_auth_domain=f"{PROJECT}.firebaseapp.com",
+                        firebase_project_id=PROJECT),
         secrets=Secrets.model_validate(
             {"firebase_credentials": "config/firebase-admin.json",
              "jobradar_admin_email": OWNER} if secrets is None else secrets
@@ -358,3 +355,15 @@ def test_local_dashboard_needs_no_sign_in(repo: Repo, clock: FakeClock) -> None:
     local = TestClient(create_app(settings(), repo, clock), base_url="http://127.0.0.1:8080")
     assert local.get("/").status_code == 200
     assert local.get("/signin").status_code == 404
+
+
+def test_sign_in_settings_come_from_the_env_file(tmp_path: Path) -> None:
+    """config.yaml stays the same on main and saas/main; signing in is set in .env."""
+    env = tmp_path / ".env"
+    env.write_text(
+        "AUTH_ENABLED=true\nAUTH_WAYS=google, phone\nFIREBASE_API_KEY=AIza-test\n"
+        f"FIREBASE_AUTH_DOMAIN={PROJECT}.firebaseapp.com\nFIREBASE_PROJECT_ID={PROJECT}\n"
+    )
+    auth = AuthConfig(_env_file=env)  # type: ignore[call-arg]
+    assert auth.enabled and auth.ways == ["google", "phone"] and auth.session_days == 14
+    assert not AuthConfig(_env_file=None).enabled  # type: ignore[call-arg]  (off by default)

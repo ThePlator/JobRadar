@@ -1383,10 +1383,11 @@ flowchart LR
 - **Tests:** token verification with test keys; expired, wrong audience, revoked; CSRF required.
 - **Done when:** the site needs sign-in, and the owner signs in with Google.
 - **As built (2026-10-25):**
-  - `auth.enabled` in `config.yaml` turns sign-in on; off, the dashboard is the local one with the
-    page token, as on `main`. Settings: `auth.firebase_*` (public web config), `auth.ways`,
-    `auth.session_days`; `.env`: `FIREBASE_CREDENTIALS`, `JOBRADAR_ADMIN_EMAIL`. Extra `saas`
-    (`firebase-admin`).
+  - `AUTH_ENABLED` in `.env` turns sign-in on; off, the dashboard is the local one with the page
+    token, as on `main`. All sign-in settings are in `.env` (`FIREBASE_API_KEY`,
+    `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `AUTH_WAYS`, `AUTH_SESSION_DAYS`,
+    `FIREBASE_CREDENTIALS`, `JOBRADAR_ADMIN_EMAIL`), never `config.yaml`, which both branches
+    share: `main` refuses settings it doesn't know. Extra `saas` (`firebase-admin`).
   - **Three ways to sign in** (owner's choice): Google, email and password (with verification and
     reset emails), and phone (SMS code, invisible reCAPTCHA). The page uses the Firebase JS SDK
     from gstatic with in-memory persistence; its own CSP allows only Firebase, Google's sign-in

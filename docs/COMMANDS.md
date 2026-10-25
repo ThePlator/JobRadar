@@ -367,7 +367,7 @@ On `saas/main`, JobRadar can use Postgres instead of `data/jobradar.db`.
 
 ## SaaS branch only: signing in
 
-With `auth.enabled: true`, every dashboard page needs signing in first: with Google, an email and
+With `AUTH_ENABLED=true` in `.env`, every dashboard page needs signing in first: with Google, an email and
 password, or a phone number (a code by SMS), through Firebase Authentication.
 
 1. In the [Firebase console](https://console.firebase.google.com), create a project, then:
@@ -377,20 +377,17 @@ password, or a phone number (a code by SMS), through Firebase Authentication.
    - **Project settings, Your apps**: add a Web app and note `apiKey`, `authDomain`, `projectId`.
    - **Project settings, Service accounts, Generate new private key**: save the file as
      `config/firebase-admin.json` (never commit it).
-2. In `config/config.yaml`:
-   ```yaml
-   auth:
-     enabled: true
-     firebase_api_key: AIza...
-     firebase_auth_domain: your-project.firebaseapp.com
-     firebase_project_id: your-project
+2. In `.env` (not `config.yaml`, so the same `config.yaml` works on `main`):
    ```
-3. In `.env`:
-   ```
+   AUTH_ENABLED=true
+   FIREBASE_API_KEY=AIza...
+   FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   FIREBASE_PROJECT_ID=your-project
    FIREBASE_CREDENTIALS=config/firebase-admin.json
    JOBRADAR_ADMIN_EMAIL=you@example.com
    ```
-4. `uv sync --extra web --extra postgres --extra saas`, then `uv run jobradar web`, open
+   `AUTH_WAYS=google,email,phone` and `AUTH_SESSION_DAYS=14` are the defaults.
+3. `uv sync --extra web --extra postgres --extra saas`, then `uv run jobradar web`, open
    http://localhost:8080 and sign in with that email. It becomes the admin account.
 
 Anyone else who signs in gets an account and a "You're on the list" page: until every page shows

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine, text
 
-from jobradar.config import Secrets
+from jobradar.config import AuthConfig, Secrets
 from jobradar.db.repo import Repo, add_owner, connect, init_db, make_engine
 from jobradar.queue.tasks import TaskQueue
 
@@ -87,3 +87,6 @@ def no_real_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(Secrets.model_config, "env_file", None)
     for name in Secrets.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.setitem(AuthConfig.model_config, "env_file", None)
+    for field in AuthConfig.model_fields.values():
+        monkeypatch.delenv(str(field.validation_alias), raising=False)

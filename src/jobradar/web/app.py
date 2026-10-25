@@ -123,12 +123,12 @@ def create_app(
     app = FastAPI(title="JobRadar", docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=HERE / "templates")
     csrf: Callable[[Request], str] = lambda request: token  # noqa: E731
-    if config.auth.enabled:
+    if settings.auth.enabled:
         if auth is None:
             settings.require("auth")
             assert settings.secrets.firebase_credentials is not None  # noqa: S101 (required)
             auth = Firebase(
-                settings.secrets.firebase_credentials, config.auth.firebase_project_id or ""
+                settings.secrets.firebase_credentials, settings.auth.firebase_project_id or ""
             )
         csrf = signin.install(
             app, settings=settings, repo=repo, clock=clock, auth=auth, templates=templates,
