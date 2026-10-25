@@ -18,7 +18,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from jobradar.pipeline import oracle
 
@@ -493,39 +493,6 @@ SignInWay = Literal["google", "email", "phone"]
 SIGN_IN_WAYS: tuple[SignInWay, ...] = ("google", "email", "phone")
 
 
-class AuthConfig(_Strict):
-    """Signing in, for the SaaS (Firebase Authentication). Off: the dashboard is for this
-    computer only, as in the self-hosted app. The firebase_* values come from your Firebase
-    project's web app settings; they are shown in the sign-in page, so they aren't secrets."""
-
-    enabled: bool = False
-    # Which sign-in buttons the page shows. Each must also be on in Firebase (Authentication,
-    # Sign-in method). Phone codes are SMS messages, which Firebase bills.
-    ways: list[SignInWay] = Field(default_factory=lambda: list(SIGN_IN_WAYS))
-    firebase_api_key: str | None = None
-    firebase_auth_domain: str | None = None  # e.g. your-project.firebaseapp.com
-    firebase_project_id: str | None = None
-    # How long you stay signed in on a device. Firebase allows at most 14 days.
-    session_days: int = Field(default=14, ge=1, le=14)
-
-    @model_validator(mode="after")
-    def _firebase_is_set(self) -> AuthConfig:
-        if self.enabled:
-            missing = [
-                f"auth.{k}"
-                for k in ("firebase_api_key", "firebase_auth_domain", "firebase_project_id")
-                if not getattr(self, k)
-            ]
-            if missing:
-                raise ValueError(
-                    f"signing in needs {', '.join(missing)} (Firebase console, Project "
-                    "settings, Your apps), or set auth.enabled: false"
-                )
-            if not self.ways:
-                raise ValueError("auth.ways: list at least one of google, email, phone")
-        return self
-
-
 class AppConfig(_Strict):
     """Everything in config.yaml. Every section is optional and has defaults."""
 
@@ -541,7 +508,6 @@ class AppConfig(_Strict):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     notion: NotionConfig = Field(default_factory=NotionConfig)
-    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     @model_validator(mode="after")
     def _telegram_has_chats(self) -> AppConfig:
@@ -593,6 +559,59 @@ class Secrets(BaseSettings):
         return self.notify_to or self.email_address
 
 
+class AuthConfig(BaseSettings):
+    """Signing in, for the SaaS (Firebase Authentication), from .env so config.yaml stays the
+    same on `main` and `saas/main`. Off: the dashboard is for this computer only, as in the
+    self-hosted app. The FIREBASE_* values come from your Firebase project's web app settings;
+    the sign-in page shows them, so they aren't secrets."""
+
+    model_config = SettingsConfigDict(
+        env_file=DEFAULT_ENV_FILE, extra="ignore", frozen=True, populate_by_name=True
+    )
+
+    enabled: bool = Field(default=False, validation_alias="AUTH_ENABLED")
+    # Which sign-in buttons the page shows (comma-separated). Each must also be on in Firebase
+    # (Authentication, Sign-in method). Phone codes are SMS messages, which Firebase bills.
+    ways: Annotated[list[SignInWay], NoDecode] = Field(
+        default_factory=lambda: list(SIGN_IN_WAYS), validation_alias="AUTH_WAYS"
+    )
+    firebase_api_key: str | None = Field(default=None, validation_alias="FIREBASE_API_KEY")
+    firebase_auth_domain: str | None = Field(  # e.g. your-project.firebaseapp.com
+        default=None, validation_alias="FIREBASE_AUTH_DOMAIN"
+    )
+    firebase_project_id: str | None = Field(default=None, validation_alias="FIREBASE_PROJECT_ID")
+    # How long you stay signed in on a device. Firebase allows at most 14 days.
+    session_days: int = Field(default=14, ge=1, le=14, validation_alias="AUTH_SESSION_DAYS")
+
+    @field_validator("ways", mode="before")
+    @classmethod
+    def _comma_list(cls, v: Any) -> Any:
+        return [w.strip() for w in v.split(",") if w.strip()] if isinstance(v, str) else v
+
+    @field_validator("firebase_api_key", "firebase_auth_domain", "firebase_project_id",
+                     mode="before")  # fmt: skip
+    @classmethod
+    def _blank_is_unset(cls, v: Any) -> Any:
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _firebase_is_set(self) -> AuthConfig:
+        if self.enabled:
+            missing = [
+                k.upper()
+                for k in ("firebase_api_key", "firebase_auth_domain", "firebase_project_id")
+                if not getattr(self, k)
+            ]
+            if missing:
+                raise ValueError(
+                    f"signing in needs {', '.join(missing)} in .env (Firebase console, Project "
+                    "settings, Your apps), or set AUTH_ENABLED=false"
+                )
+            if not self.ways:
+                raise ValueError("AUTH_WAYS: list at least one of google, email, phone")
+        return self
+
+
 Feature = Literal["telegram", "notion", "llm", "email", "gdrive", "auth"]
 
 _REQUIRED: dict[Feature, tuple[str, ...]] = {
@@ -611,6 +630,8 @@ class Settings(BaseModel):
 
     config: AppConfig
     secrets: Secrets
+    # Read from .env by load_settings; off unless given, so tests never pick up a real one.
+    auth: AuthConfig = Field(default_factory=lambda: AuthConfig.model_construct())
 
     def missing(self, *features: Feature) -> list[str]:
         """Names of the .env variables the given features need but are not set."""
@@ -667,6 +688,7 @@ def load_settings(
     config = load_config(config_path)
     try:
         secrets = Secrets(_env_file=env_file)
+        auth = AuthConfig(_env_file=env_file)
     except ValidationError as e:
         raise ConfigError(_format_errors(str(env_file or "environment"), e)) from None
-    return Settings(config=config, secrets=secrets)
+    return Settings(config=config, secrets=secrets, auth=auth)

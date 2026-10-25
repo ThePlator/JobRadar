@@ -86,7 +86,7 @@ def install(
 ) -> Callable[[Request], str]:
     """Add the sign-in page, the session endpoints and the check every request passes. Returns
     the function giving a request's CSRF token."""
-    cfg = settings.config.auth
+    cfg = settings.auth
     admin_email = settings.secrets.jobradar_admin_email
 
     def csrf(request: Request) -> str:
