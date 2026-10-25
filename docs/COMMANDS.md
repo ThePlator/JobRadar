@@ -390,8 +390,10 @@ password, or a phone number (a code by SMS), through Firebase Authentication.
 3. `uv sync --extra web --extra postgres --extra saas`, then `uv run jobradar web`, open
    http://localhost:8080 and sign in with that email. It becomes the admin account.
 
-Anyone else who signs in gets an account and a "You're on the list" page: until every page shows
-each person their own jobs (SaaS PR 5), only the admin sees the dashboard. **Sign out** (sidebar)
+Anyone else who signs in gets an account and a "You're on the list" page while `AUTH_WAITLIST`
+is on (the default): they'd have no matches of their own yet (SaaS PR 8). With
+`AUTH_WAITLIST=false` everyone signed in gets a dashboard, and sees only their own scores,
+statuses, history and resumes (on Postgres, row-level security makes sure of it). **Sign out** (sidebar)
 signs you out on every device. Phone codes are SMS messages, which Firebase bills; for trying it
 out, add a test number under Authentication, Sign-in method, Phone, "Phone numbers for testing".
 

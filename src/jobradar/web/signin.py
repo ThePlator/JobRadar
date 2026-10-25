@@ -132,7 +132,8 @@ def install(
         if user is None or user.deleted_at:
             return signed_out(request, "This account is switched off.")
         request.state.user = user
-        if not users_svc.can_open_dashboard(user) and path not in {"/signout", "/api/v1/session"}:
+        open_ = users_svc.can_open_dashboard(user, cfg.waitlist)
+        if not open_ and path not in {"/signout", "/api/v1/session"}:
             return waiting(request, user)
         return await call_next(request)
 
