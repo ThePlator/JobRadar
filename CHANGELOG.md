@@ -6,6 +6,7 @@ All notable changes to JobRadar are listed here. The format follows [Keep a Chan
 
 ### SaaS (branch `saas/main` only)
 
+- **Your profile and preferences per user** (SaaS PR 5c): each user's profile and preferences (filters, score thresholds, digest times, timezone) are kept in the database. You still edit `profile.yaml` and `config.yaml`; JobRadar copies them in whenever they change. "I know this" still updates your `profile.yaml`.
 - **Your records are yours** (SaaS PR 5b): your status history, email alerts, resumes and notes about jobs (followed up, company replied, reminders sent) now each belong to a user. Someone else's resume can't be opened by its address. Your existing records move across as they are; nothing looks different.
 - **Sign-in settings moved to `.env`**: `AUTH_ENABLED`, `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID` (and optionally `AUTH_WAYS`, `AUTH_SESSION_DAYS`) replace the `auth:` section of `config.yaml`, so the same `config.yaml` works on `main` (which refused the unknown section) and on the SaaS branch.
 - **Each person's own view of a job** (SaaS PR 5a): a job's score, reason, status and Notion page are now kept per user (`user_jobs`), apart from the posting itself, which everyone shares. Your data moves across as it is (Postgres by migration, an older SQLite file on start, and `saas-import` as it copies), and your first sign-in as admin keeps it all. Nothing looks different yet; other people's dashboards open in PR 5d.

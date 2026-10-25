@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
-from jobradar.config import Settings
+from jobradar.config import Preferences, Settings
 from jobradar.db.models import OWNER
 from jobradar.db.repo import Repo
 from jobradar.queue.tasks import TaskQueue
@@ -31,15 +32,22 @@ class Ctx:
         # Whatever repo was handed in, queries made through this Ctx are for its user.
         object.__setattr__(self, "repo", self.repo.for_user(self.user_id))
 
+    @cached_property
+    def prefs(self) -> Preferences:
+        """The user's preferences (the owner's: config.yaml)."""
+        from jobradar.profile import user_preferences
+
+        return user_preferences(self.repo, self.settings)
+
     @property
     def tz(self) -> ZoneInfo:
         """The user's timezone, for showing times."""
-        return self.settings.config.notify.tz
+        return self.prefs.tz
 
     @property
     def good(self) -> int:
         """A good match scores at least this (`scoring.alert_above`)."""
-        return self.settings.config.scoring.alert_above
+        return self.prefs.scoring.alert_above
 
     @property
     def tasks(self) -> TaskQueue:

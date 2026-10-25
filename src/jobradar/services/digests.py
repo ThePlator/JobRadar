@@ -71,15 +71,14 @@ class DigestPage:
 def digest(ctx: Ctx, key: str, profile: dict[str, Any] | None) -> DigestPage:
     """A digest on the page: what the next one will say ("now"), or an earlier one again."""
     repo, settings, now = ctx.repo, ctx.settings, ctx.now
-    notify = settings.config.notify
-    tz = notify.tz
+    tz = ctx.tz
     local = now.astimezone(tz)
-    all_windows = windows(local, notify.digest_times)
+    all_windows = windows(local, ctx.prefs.digest_times)
     # No choice: the latest digest that went out (what's in your inbox), not the window
     # that's only just begun.
     window = next((w for w in all_windows if w.key == key), all_windows[1])
     data = gather(repo, settings, window.since, window.until, bounded=not window.current)
-    min_score = settings.config.scoring.alert_above
+    min_score = ctx.good
     gaps: list[Gap] = []
     gap_jobs = 0
     if profile:

@@ -1095,6 +1095,44 @@ class Repo:
                 {"uid": self.user_id, "k": key, "v": value},
             )
 
+    # ---- profile and preferences (one row each per user) -------------------------------------
+
+    def _one_json(self, table: str, column: str) -> tuple[dict[str, Any], str | None] | None:
+        with self._tx() as c:
+            row = c.execute(
+                text(f"SELECT {column}, source FROM {table} WHERE user_id = :uid"),  # noqa: S608
+                {"uid": self.user_id},
+            ).first()
+        return None if row is None else (json.loads(row[0]), row[1])
+
+    def _save_json(
+        self, table: str, column: str, value: dict[str, Any], source: str | None
+    ) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    f"INSERT INTO {table} (user_id, {column}, source, updated_at) "  # noqa: S608
+                    "VALUES (:uid, :v, :src, :now) ON CONFLICT (user_id) DO UPDATE SET "
+                    f"{column} = excluded.{column}, source = excluded.source, "
+                    "updated_at = excluded.updated_at"
+                ),
+                {"uid": self.user_id, "v": json.dumps(value, ensure_ascii=False),
+                 "src": source, "now": self._now()},
+            )  # fmt: skip
+
+    def get_profile(self) -> tuple[dict[str, Any], str | None] | None:
+        """(this user's profile, where it was copied from), or None."""
+        return self._one_json("profiles", "profile_json")
+
+    def save_profile(self, profile: dict[str, Any], source: str | None = None) -> None:
+        self._save_json("profiles", "profile_json", profile, source)
+
+    def get_preferences(self) -> tuple[dict[str, Any], str | None] | None:
+        return self._one_json("preferences", "preferences_json")
+
+    def save_preferences(self, preferences: dict[str, Any], source: str | None = None) -> None:
+        self._save_json("preferences", "preferences_json", preferences, source)
+
     # ---- users (the SaaS) -------------------------------------------------------------------
 
     def user_by_auth_uid(self, auth_uid: str) -> User | None:

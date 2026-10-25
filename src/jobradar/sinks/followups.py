@@ -30,7 +30,7 @@ from jobradar.db.models import Job, JobStatus
 from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.extract import own_post
 from jobradar.pipeline.task_types import FOLLOWUP_CHECK
-from jobradar.profile import load_profile
+from jobradar.profile import user_profile
 from jobradar.providers.skills_rule import compare_skills
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_actions import REPLIED, Actions, mailto, recruiter_email
@@ -206,7 +206,7 @@ class FollowUpReminder:
 
     def _profile(self) -> dict[str, Any]:
         try:
-            return load_profile(self.settings.config.matching.profile_path)
+            return user_profile(self.repo, self.settings)
         except ConfigError:
             return {}
 

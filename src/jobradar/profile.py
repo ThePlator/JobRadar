@@ -1,4 +1,5 @@
-"""config/profile.yaml, and the compact view of it that matching sends to a provider.
+"""A user's profile (the owner's is config/profile.yaml), and the compact view of it that
+matching sends to a provider.
 
 Only what matching needs leaves this machine: education, skills, experience and project
 bullets, preferences and filters. `basics` (name, email, phone, links), `summary` and
@@ -10,12 +11,16 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from jobradar.config import ConfigError, FiltersConfig, MatchingConfig
+from jobradar.config import ConfigError, FiltersConfig, MatchingConfig, Preferences, Settings
+from jobradar.db.models import OWNER
 from jobradar.pipeline.dedupe import sha1
+
+if TYPE_CHECKING:
+    from jobradar.db.repo import Repo
 
 
 def load_profile(path: Path) -> dict[str, Any]:
@@ -31,6 +36,63 @@ def load_profile(path: Path) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ConfigError(f"{path} must be a mapping (basics:, education:, skills:, ...).")
     return raw
+
+
+def sync_owner(repo: Repo, settings: Settings) -> None:
+    """The owner edits profile.yaml and config.yaml; copy them into the owner's rows whenever
+    they change (each copy remembers a hash of what it came from)."""
+    owner = repo.for_user(OWNER)
+    path = settings.config.matching.profile_path
+    if path.is_file():
+        text = path.read_text(encoding="utf-8")
+        source = sha1(text)[:16]
+        stored = owner.get_profile()
+        if stored is None or stored[1] != source:
+            owner.save_profile(load_profile(path), source)
+    prefs = Preferences.from_config(settings.config).model_dump(mode="json")
+    source = sha1(json.dumps(prefs, sort_keys=True))[:16]
+    stored_prefs = owner.get_preferences()
+    if stored_prefs is None or stored_prefs[1] != source:
+        owner.save_preferences(prefs, source)
+
+
+def user_profile(repo: Repo, settings: Settings) -> dict[str, Any]:
+    """The profile of the repo's user. Raises ConfigError when they have none yet."""
+    if repo.user_id == OWNER:
+        sync_owner(repo, settings)
+    stored = repo.get_profile()
+    if stored is None:
+        if repo.user_id == OWNER:  # no profile.yaml: say where it goes
+            return load_profile(settings.config.matching.profile_path)
+        raise ConfigError("You haven't added your profile yet.")
+    return stored[0]
+
+
+def user_preferences(repo: Repo, settings: Settings) -> Preferences:
+    """The preferences of the repo's user: the owner's are config.yaml's; anyone else's are
+    their row, or the defaults until they set them."""
+    if repo.user_id == OWNER:
+        return Preferences.from_config(settings.config)
+    stored = repo.get_preferences()
+    return Preferences.model_validate(stored[0]) if stored else Preferences()
+
+
+def with_skill(profile: dict[str, Any], name: str) -> dict[str, Any]:
+    """The profile with one more skill under skills.additional. Raises ConfigError if it's
+    there already."""
+    from jobradar.providers.skills_rule import profile_skill_keys, skill_key
+
+    name = " ".join(name.split())[:60]
+    if not name:
+        raise ConfigError("no skill name given")
+    if skill_key(name) in profile_skill_keys(profile):
+        raise ConfigError(f"{name} is already in your profile")
+    skills = profile.get("skills")
+    if isinstance(skills, list):
+        return {**profile, "skills": [*skills, name]}
+    skills = dict(skills) if isinstance(skills, dict) else {}
+    skills["additional"] = [*_list(skills.get("additional")), name]
+    return {**profile, "skills": skills}
 
 
 def _list(value: Any) -> list[Any]:

@@ -1458,6 +1458,21 @@ flowchart LR
     107 status changes, 392 alerts and the notes carry over, every status unchanged.
   - **Moved to PR 8:** `task.user_id`. Every task still works for the owner; which tasks are
     per user (match, alert, resume) is decided with the fan-out there.
+- **As built, 5c (2026-10-25):**
+  - `profiles` (the profile as JSON, same shape as profile.yaml) and `preferences`
+    (`config.Preferences`: filters, scoring thresholds, `branch_strict`, digest times, timezone),
+    one row per user; migration `0005`. JSON stays text until 5d, like the rest.
+  - **The owner keeps editing files:** `profile.sync_owner` copies profile.yaml and the
+    config.yaml values into the owner's rows whenever they change (each row keeps a hash of its
+    source), on every read of the owner's profile. Anyone else's exist only in the database.
+  - Everything that read profile.yaml (matching, resumes, digest, follow-ups, Skills, the job
+    page, Blip's greeting) asks for the user's profile (`profile.user_profile`); `Ctx.prefs` gives
+    services the user's thresholds, timezone and digest times, and the pages colour scores by
+    them.
+  - "I know this": the owner's profile.yaml gets the skill as before (with a backup), then it is
+    copied in; for anyone else only their row changes.
+  - The pipeline still runs on the owner's preferences from config.yaml (the same values);
+    reading each user's comes with the fan-out (PR 8). Editing a profile on the site is PR 15.
 
 ### PR 6: `saas/api-read`
 
