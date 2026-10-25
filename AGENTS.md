@@ -88,6 +88,8 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - `web/`: `app.py` (routes, security), `templates/` (Jinja), `static/app.css` + `app.js`; `signin.py` (SaaS
   sign-in page, sessions, CSRF)
 - `saas/`: SaaS-only parts; `auth.py` is the only code that talks to Firebase
+- `profile.py`: the profile; on `saas/main`, `user_profile` / `user_preferences` read the user's
+  rows (the owner's are copied from profile.yaml and config.yaml when they change)
 - `by_source.py`: applications and next rounds per source
 - `tests/`: pytest, about 680 tests, fakes in `tests/fakes.py`
 

@@ -493,6 +493,35 @@ SignInWay = Literal["google", "email", "phone"]
 SIGN_IN_WAYS: tuple[SignInWay, ...] = ("google", "email", "phone")
 
 
+class Preferences(_Strict):
+    """One user's own settings: which jobs they can apply to, when a match is good, and when
+    and where their day is. The owner's come from config.yaml; in the SaaS each user has a row
+    in `preferences`."""
+
+    filters: FiltersConfig = Field(default_factory=FiltersConfig)
+    scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    branch_strict: bool = False  # matching.branch_strict
+    digest_times: list[str] = Field(default_factory=lambda: ["09:00", "19:00"])
+    timezone: str = "Asia/Kolkata"
+
+    @model_validator(mode="after")
+    def _times_and_zone(self) -> Preferences:
+        NotifyConfig(digest_times=self.digest_times, timezone=self.timezone)  # same checks
+        return self
+
+    @classmethod
+    def from_config(cls, config: AppConfig) -> Preferences:
+        return cls(
+            filters=config.filters, scoring=config.scoring,
+            branch_strict=config.matching.branch_strict,
+            digest_times=config.notify.digest_times, timezone=config.notify.timezone,
+        )  # fmt: skip
+
+    @property
+    def tz(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+
 class AppConfig(_Strict):
     """Everything in config.yaml. Every section is optional and has defaults."""
 

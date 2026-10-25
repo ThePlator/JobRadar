@@ -24,7 +24,7 @@ from jobradar.db.repo import Repo, TaskRecord
 from jobradar.pipeline.decide import hidden_kind
 from jobradar.pipeline.skill_gaps import Gap, gap_line, skill_gaps
 from jobradar.pipeline.task_types import DIGEST
-from jobradar.profile import load_profile
+from jobradar.profile import user_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.sinks.email_actions import Actions
 from jobradar.sinks.email_notify import (
@@ -354,7 +354,7 @@ class Digest:
 
     def _gaps(self, now: datetime) -> tuple[list[Gap], int]:
         try:
-            profile = load_profile(self.settings.config.matching.profile_path)
+            profile = user_profile(self.repo, self.settings)
         except ConfigError:
             return [], 0
         alert_above = self.settings.config.scoring.alert_above

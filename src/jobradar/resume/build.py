@@ -34,7 +34,7 @@ from jobradar.llm import LLM, SchemaError
 from jobradar.pipeline.extract import PAGE_TEXT_LIMIT, own_post
 from jobradar.pipeline.schemas import JobPosting
 from jobradar.pipeline.task_types import NOTION_UPSERT
-from jobradar.profile import load_profile, resume_problems
+from jobradar.profile import resume_problems, user_profile
 from jobradar.providers.base import JobView
 from jobradar.queue.tasks import PermanentError, RetryableError, TaskQueue
 from jobradar.resume import ats
@@ -121,7 +121,7 @@ class ResumeBuilder:
             raise PermanentError(f"no job {job_id}")
         path = self.settings.config.matching.profile_path
         try:
-            profile = load_profile(path)
+            profile = user_profile(self.repo, self.settings)
         except ConfigError as e:
             raise PermanentError(str(e)) from e
         if problems := resume_problems(profile):

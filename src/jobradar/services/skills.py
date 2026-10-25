@@ -123,10 +123,9 @@ def skills_page(ctx: Ctx, profile: dict[str, Any] | None, days: int) -> SkillsPa
     """The skills your good matches ask for: the ones your profile lacks (what to learn, or
     to add if you know them) and the ones it has (what to put first on a resume). A missing
     skill counts only the jobs that need it: "Python, Java or C++" doesn't count for C++."""
-    repo, settings, now = ctx.repo, ctx.settings, ctx.now
+    repo, now = ctx.repo, ctx.now
     days = days if days in dict(SKILL_WINDOWS) else 30
-    min_score = settings.config.scoring.alert_above
-    tz = settings.config.notify.tz
+    min_score, tz = ctx.good, ctx.tz
     if not profile:
         return SkillsPage(days, 0, min_score, [], [], ["profile.yaml couldn't be read"])
     window = timedelta(days=days)
@@ -261,12 +260,12 @@ def skill_detail_page(
     ctx: Ctx, profile: dict[str, Any] | None, days: int, key: str
 ) -> SkillDetailPage | None:
     """What your good matches want of one skill; None when none of them named it."""
-    repo, settings, now = ctx.repo, ctx.settings, ctx.now
+    repo, now = ctx.repo, ctx.now
     days = days if days in dict(SKILL_WINDOWS) else 30
     if not profile:
         return None
-    tz = settings.config.notify.tz
-    d = demand(repo, profile, now - timedelta(days=days), None, settings.config.scoring.alert_above)
+    tz = ctx.tz
+    d = demand(repo, profile, now - timedelta(days=days), None, ctx.good)
     if key not in d.jobs:
         return None
     yours = _yours(profile)

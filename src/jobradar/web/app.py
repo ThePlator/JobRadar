@@ -36,11 +36,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from jobradar.clock import Clock, utcnow
-from jobradar.config import ConfigError, Settings
+from jobradar.config import Settings
 from jobradar.db.models import OWNER
 from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
-from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
 from jobradar.saas.auth import Auth, Firebase
 from jobradar.services import applications as applications_svc
@@ -115,7 +114,6 @@ def create_app(
     auth: Auth | None = None,
 ) -> FastAPI:
     config = settings.config
-    tz = config.notify.tz
     queue = queue or TaskQueue(repo, clock)
     nudge = wake or (lambda: None)  # inside `jobradar run`: start queued work now
     token = page_token(repo)
@@ -168,33 +166,30 @@ def create_app(
         uid = user.id if user is not None else OWNER
         return Ctx(repo, settings, now or clock(), user_id=uid, queue=queue)
 
-    cache: dict[str, Any] = {"mtime": None, "profile": None}
+    def current_profile(request: Request) -> dict[str, Any] | None:
+        """The asking user's profile (the owner's: profile.yaml, as it is now)."""
+        return profile_svc.profile(ctx_for(request))
 
-    def current_profile() -> dict[str, Any] | None:
-        """profile.yaml, read again whenever the file changes (e.g. "I know this")."""
-        path = config.matching.profile_path
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            return None
-        if cache["mtime"] != mtime:
-            cache["mtime"], cache["profile"] = mtime, your_profile(settings)
-        return cache["profile"]  # type: ignore[no-any-return]
-
-    profile = current_profile()
-    basics = profile.get("basics") if profile else None
-    name = str(basics.get("name") or "") if isinstance(basics, dict) else ""
+    def first_name(request: Request) -> str:
+        """For Blip's greeting: the profile's name, else the name you signed in with."""
+        profile = current_profile(request)
+        basics = profile.get("basics") if profile else None
+        if isinstance(basics, dict) and basics.get("name"):
+            return str(basics["name"])
+        account = getattr(request.state, "user", None)
+        return str(account.name or "") if account is not None else ""
 
     def render(
         request: Request, page: str, nav: str, status_code: int = 200, **context: object
     ) -> HTMLResponse:
         now = clock()
-        ov = home_svc.overview(ctx_for(request, now), name)
+        ctx = ctx_for(request, now)
+        ov = home_svc.overview(ctx, first_name(request))
         account = getattr(request.state, "user", None)  # signed in (the SaaS)
         return templates.TemplateResponse(
             request, page,
             {"nav": nav, "ov": ov, "now": now, "token": csrf(request), "account": account,
-             **context},
+             "good": ctx.good, "fair": ctx.prefs.scoring.hide_below, **context},
             status_code,
         )  # fmt: skip
 
@@ -213,8 +208,8 @@ def create_app(
         cards = jobs_svc.today(ctx)
         return render(
             request, "today.html", "today", cards=cards, days=cards_svc.TODAY_DAYS,
-            greeting=home_svc.greeting(now, tz, name),
-            says=home_svc.blip_says(cards, good),
+            greeting=home_svc.greeting(now, ctx.tz, first_name(request)),
+            says=home_svc.blip_says(cards, ctx.good),
             pulse=home_svc.pulse(ctx),
             sources=home_svc.sources(ctx),
             filters=cards_svc.QUICK_FILTERS,
@@ -256,16 +251,16 @@ def create_app(
 
     @app.get("/digest", response_class=HTMLResponse)
     def digest(request: Request, w: str = "") -> HTMLResponse:
-        page = digests_svc.digest(ctx_for(request), w, current_profile())
+        page = digests_svc.digest(ctx_for(request), w, current_profile(request))
         return render(request, "digest.html", "digest", d=page)
 
     @app.get("/digest/email", response_class=HTMLResponse)
-    def digest_email(w: str = "") -> HTMLResponse:
+    def digest_email(request: Request, w: str = "") -> HTMLResponse:
         """The digest exactly as the email looks. Email HTML is styled inline, so this one
         page may use inline styles; it still runs no script and loads nothing."""
-        notify = config.notify
-        local = clock().astimezone(tz)
-        options = digests_svc.windows(local, notify.digest_times)
+        ctx = ctx_for(request)
+        local = clock().astimezone(ctx.tz)
+        options = digests_svc.windows(local, ctx.prefs.digest_times)
         window = next((x for x in options if x.key == w), options[1])
         data = gather(repo, settings, window.since, window.until, bounded=not window.current)
         sender = settings.secrets.email_address or "jobradar@localhost"
@@ -277,7 +272,7 @@ def create_app(
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     def job(request: Request, job_id: str) -> HTMLResponse:
-        detail = jobs_svc.job_detail(ctx_for(request), job_id, current_profile())
+        detail = jobs_svc.job_detail(ctx_for(request), job_id, current_profile(request))
         if detail is None:
             raise HTTPException(status_code=404)
         return render(request, "job.html", "", job=detail)
@@ -299,11 +294,16 @@ def create_app(
         if request.headers.get("x-jobradar-token"):  # the page's own script: it updates itself
             undo = outcome.before if outcome.before in {s.value for s in rules.YOURS} else (
                 "shortlisted" if outcome.before == "resume_ready" else "new")  # fmt: skip
-            job = ctx_for(request).repo.get_job(job_id)
+            ctx = ctx_for(request)
+            job = ctx.repo.get_job(job_id)
             row = ""
             if job is not None and outcome.ok:
                 row = templates.get_template("_row.html").render(
-                    c=cards_svc.card(job, tz, clock()), with_status=True, token=csrf(request)
+                    c=cards_svc.card(job, ctx.tz, clock()),
+                    with_status=True,
+                    token=csrf(request),
+                    good=ctx.good,
+                    fair=ctx.prefs.scoring.hide_below,
                 )
             return JSONResponse(
                 {"ok": outcome.ok, "message": outcome.message, "status": outcome.after,
@@ -378,12 +378,12 @@ def create_app(
 
     @app.get("/skills", response_class=HTMLResponse)
     def skills(request: Request, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skills_page(ctx_for(request), current_profile(), days)
+        page = skills_svc.skills_page(ctx_for(request), current_profile(request), days)
         return render(request, "skills.html", "skills", s=page)
 
     @app.get("/skills/{key}", response_class=HTMLResponse)
     def skill(request: Request, key: str, days: int = 30) -> HTMLResponse:
-        page = skills_svc.skill_detail_page(ctx_for(request), current_profile(), days, key)
+        page = skills_svc.skill_detail_page(ctx_for(request), current_profile(request), days, key)
         if page is None:
             raise HTTPException(status_code=404)
         return render(request, "skill.html", "skills", s=page)
@@ -399,7 +399,8 @@ def create_app(
             ok, message = False, str(e)
         else:
             ok = True
-            message = (f"Added {name} to your profile (backup: {backup}). Matching counts it "
+            kept = f" (backup: {backup})" if backup else ""
+            message = (f"Added {name} to your profile{kept}. Matching counts it "
                        "from the next restart of jobradar run.")  # fmt: skip
             log.info("your dashboard skill", extra={"skill": name[:60]})
         if request.headers.get("x-jobradar-token"):
@@ -411,11 +412,3 @@ def create_app(
         return JSONResponse({"jobs": jobs_svc.search(ctx_for(request), q)})
 
     return app
-
-
-def your_profile(settings: Settings) -> dict[str, Any] | None:
-    """profile.yaml, for Blip's greeting and the skills you have; None when it can't be read."""
-    try:
-        return load_profile(settings.config.matching.profile_path)
-    except ConfigError:
-        return None

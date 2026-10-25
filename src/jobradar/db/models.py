@@ -319,6 +319,30 @@ class UserSetting(SQLModel, table=True):
     value: str
 
 
+class Profile(SQLModel, table=True):
+    """One user's profile: the same shape as profile.yaml (education, skills, experience,
+    projects, …). Resumes and matching read it from here."""
+
+    __tablename__ = "profiles"
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True)
+    profile_json: str
+    source: str | None = None  # the owner's: a hash of the profile.yaml it was copied from
+    updated_at: str
+
+
+class PreferencesRow(SQLModel, table=True):
+    """One user's preferences (`config.Preferences`): filters, score thresholds, digest times,
+    timezone."""
+
+    __tablename__ = "preferences"
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True)
+    preferences_json: str
+    source: str | None = None  # the owner's: a hash of the config.yaml values it came from
+    updated_at: str
+
+
 class LLMCache(SQLModel, table=True):
     __tablename__ = "llm_cache"
 
