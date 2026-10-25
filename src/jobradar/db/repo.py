@@ -39,6 +39,7 @@ from jobradar.db.models import (
     WatchedPage,
 )
 from jobradar.db.textsearch import TextQuery
+from jobradar.db.types import use_text_values
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
 OWNER_AUTH_UID = "local:owner"  # until the admin signs in to the SaaS for the first time
@@ -63,6 +64,7 @@ def connect(database_url: str | None, path: Path = DEFAULT_DB_PATH) -> Engine:
         connect_args={"prepare_threshold": None},
     )
     _as_the_user(engine)
+    event.listen(engine, "connect", lambda dbapi_conn, _record: use_text_values(dbapi_conn))
     return engine
 
 
@@ -368,6 +370,16 @@ class Repo:
     def _now(self) -> str:
         return to_iso(self._clock())
 
+    @property
+    def _time(self) -> str:
+        """`:now` as a moment in SQL: Postgres needs the type spelled out in a SELECT list."""
+        return self._moment("now")
+
+    def _moment(self, param: str) -> str:
+        """A bound time parameter, typed as a moment on Postgres (where times are timestamptz);
+        needed where Postgres can't tell, e.g. one that may be NULL."""
+        return f"CAST(:{param} AS timestamptz)" if self.pg else f":{param}"
+
     @contextmanager
     def _tx(self) -> Iterator[Connection]:
         with self.engine.begin() as conn:
@@ -579,17 +591,17 @@ class Repo:
                 return
             c.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO user_jobs (user_id, job_id, score_reason, status, created_at,
                         updated_at)
                     SELECT CAST(:uid AS VARCHAR), id,
                         coalesce(CAST(:reason AS VARCHAR), status_reason),
-                        CAST(:status AS VARCHAR), CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                        CAST(:status AS VARCHAR), {self._time}, {self._time}
                     FROM job WHERE id = :id
                     ON CONFLICT (user_id, job_id) DO UPDATE SET status = excluded.status,
                         score_reason = coalesce(CAST(:reason AS VARCHAR), user_jobs.score_reason),
                         updated_at = excluded.updated_at
-                    """
+                    """  # noqa: S608 (_time is one of two constants)
                 ),
                 {"uid": self._uid(user_id), "id": job_id, "status": status.value, "reason": reason,
                  "now": now},
@@ -686,18 +698,18 @@ class Repo:
         with self._tx() as c:
             c.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO user_jobs (user_id, job_id, notion_page_id, notion_synced_at,
                         created_at, updated_at)
                     SELECT CAST(:uid AS VARCHAR), id, CAST(:page AS VARCHAR),
                         CASE WHEN CAST(:page AS VARCHAR) IS NULL THEN NULL
-                             ELSE CAST(:now AS VARCHAR) END,
-                        CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                             ELSE {self._time} END,
+                        {self._time}, {self._time}
                     FROM job WHERE id = :id
                     ON CONFLICT (user_id, job_id) DO UPDATE SET
                         notion_page_id = excluded.notion_page_id,
                         notion_synced_at = excluded.notion_synced_at
-                    """
+                    """  # noqa: S608 (_time is one of two constants)
                 ),
                 {"uid": self._uid(user_id), "id": job_id, "page": page_id, "now": now},
             )
@@ -806,14 +818,15 @@ class Repo:
 
         A task re-enqueued while it was running always gets a fresh run instead.
         """
+        retry = self._moment("retry_at")
         with self._tx() as c:
             c.execute(
                 text(
-                    "UPDATE task SET"
+                    "UPDATE task SET"  # noqa: S608 (retry is one of two constants)
                     " status = CASE WHEN rerun THEN 'pending'"
-                    "   WHEN CAST(:retry_at AS VARCHAR) IS NULL THEN 'failed' ELSE 'pending' END,"
+                    f"   WHEN {retry} IS NULL THEN 'failed' ELSE 'pending' END,"
                     " run_after = CASE WHEN rerun THEN :now"
-                    "   ELSE coalesce(CAST(:retry_at AS VARCHAR), run_after) END,"
+                    f"   ELSE coalesce({retry}, run_after) END,"
                     " attempts = CASE WHEN rerun THEN 0 ELSE attempts END,"
                     " rerun = FALSE, started_at = NULL, last_error = :error "
                     "WHERE id = :id AND status = 'running'"
@@ -1037,13 +1050,13 @@ class Repo:
         with self._tx() as c:
             result = c.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO user_jobs (user_id, job_id, score, score_reason, status,
                         created_at, updated_at)
                     SELECT CAST(:uid AS VARCHAR), id, CAST(:score AS INTEGER),
                         CAST(:reason AS VARCHAR),
                         CASE WHEN status = 'extracted' THEN 'new' END,
-                        CAST(:now AS VARCHAR), CAST(:now AS VARCHAR)
+                        {self._time}, {self._time}
                     FROM job WHERE id = :id
                     ON CONFLICT (user_id, job_id) DO UPDATE SET score = excluded.score,
                         score_reason = excluded.score_reason,
@@ -1052,7 +1065,7 @@ class Repo:
                     WHERE user_jobs.score IS DISTINCT FROM excluded.score
                         OR user_jobs.score_reason IS DISTINCT FROM excluded.score_reason
                         OR (user_jobs.status IS NULL AND excluded.status IS NOT NULL)
-                    """
+                    """  # noqa: S608 (_time is one of two constants)
                 ),
                 {
                     "uid": self._uid(user_id),
@@ -1232,14 +1245,14 @@ class Repo:
         with self._tx() as c:
             result = c.execute(
                 text(
-                    """
+                    f"""
                     INSERT INTO user_jobs (user_id, job_id, score_reason, status, user_status_at,
                         created_at, updated_at)
                     SELECT CAST(:uid AS VARCHAR), id,
                         CASE WHEN CAST(:status AS VARCHAR) = 'hidden' THEN 'hidden by you'
                              ELSE status_reason END,
-                        CAST(:status AS VARCHAR), CAST(:now AS VARCHAR), CAST(:now AS VARCHAR),
-                        CAST(:now AS VARCHAR)
+                        CAST(:status AS VARCHAR), {self._time}, {self._time},
+                        {self._time}
                     FROM job WHERE id = :id
                     ON CONFLICT (user_id, job_id) DO UPDATE SET status = excluded.status,
                         user_status_at = excluded.user_status_at,
@@ -1248,7 +1261,7 @@ class Repo:
                                             ELSE user_jobs.score_reason END
                     WHERE user_jobs.status IS DISTINCT FROM excluded.status
                         OR user_jobs.user_status_at IS NULL
-                    """
+                    """  # noqa: S608 (_time is one of two constants)
                 ),
                 {"uid": self._uid(user_id), "id": job_id, "status": status.value, "now": now},
             )
@@ -1276,12 +1289,13 @@ class Repo:
 
     def status_changes_since(self, since: str, until: str | None = None) -> dict[str, int]:
         """How many jobs you moved into each status since this time (and before `until`)."""
+        before = self._moment("until")
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT status, count(DISTINCT job_id) FROM status_change "
+                    "SELECT status, count(DISTINCT job_id) FROM status_change "  # noqa: S608
                     "WHERE user_id = :uid AND changed_at >= :since"
-                    " AND (CAST(:until AS VARCHAR) IS NULL OR changed_at < :until) "
+                    f" AND ({before} IS NULL OR changed_at < {before}) "
                     "GROUP BY status"
                 ),
                 {"uid": self.user_id, "since": since, "until": until},
@@ -1344,12 +1358,13 @@ class Repo:
 
     def alerts_sent_since(self, since: str, until: str | None = None) -> int:
         """Alerts sent (or previewed in a dry run) since this time (and before `until`)."""
+        before = self._moment("until")
         with self._tx() as c:
             row = c.execute(
                 text(
-                    "SELECT count(*) FROM alert WHERE user_id = :uid "
+                    "SELECT count(*) FROM alert WHERE user_id = :uid "  # noqa: S608
                     "AND outcome IN ('sent', 'dry_run') AND sent_at >= :since"
-                    " AND (CAST(:until AS VARCHAR) IS NULL OR sent_at < :until)"
+                    f" AND ({before} IS NULL OR sent_at < {before})"
                 ),
                 {"uid": self.user_id, "since": since, "until": until},
             ).one()
@@ -1383,8 +1398,9 @@ class Repo:
     def jobs_created_since(
         self, since: str, until: str | None = None, user_id: str | None = None
     ) -> list[Job]:
+        before = self._moment("until")
         return self._jobs(
-            "j.created_at >= :since AND (CAST(:until AS VARCHAR) IS NULL OR j.created_at < :until)",
+            f"j.created_at >= :since AND ({before} IS NULL OR j.created_at < {before})",
             {"since": since, "until": until}, user_id=user_id,
         )  # fmt: skip
 

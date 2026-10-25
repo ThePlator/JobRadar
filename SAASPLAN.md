@@ -1493,6 +1493,20 @@ flowchart LR
     write a row for A, and can't read `users`. CI runs the Postgres suite twice: as a superuser
     and as a login like Neon's (not a superuser; may create roles and bypass RLS), which caught
     a role-ownership problem before it reached Neon.
+- **As built, 5e (2026-10-26):**
+  - Migration `0007`: 28 time columns become `timestamptz` and 10 JSON columns `jsonb` (empty
+    strings become NULL; `\u0000`, which jsonb can't hold, is dropped from JSON first). The
+    owner's data was checked first: every value converts.
+  - `db/types.py`: `IsoTime` and `JsonText` column types (`timestamptz` / `jsonb` on Postgres,
+    text on SQLite), and psycopg loaders that hand times back as UTC ISO text in `to_iso`'s
+    format and JSON as text, so no query or caller changed. Postgres now rejects a value that
+    isn't a time or JSON, and compares times as times (a `+05:30` time sorts correctly).
+  - SQL that types a bound time where Postgres can't tell (`:now` in a SELECT list, an optional
+    `:until`, `:retry_at`) uses `Repo._moment`.
+  - Checked on a copy of the owner's data loaded at the layout before 5e, then migrated: all
+    1,277 jobs read back with the same status, score and time; every page renders.
+- `deadline` stays text (a calendar day, compared as `YYYY-MM-DD`); a `date` column can follow
+  when something needs date maths on it.
 
 ### PR 6: `saas/api-read`
 
