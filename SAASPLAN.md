@@ -1513,6 +1513,24 @@ flowchart LR
 - **What:** every `GET` in [14.1](#141-endpoints), problem errors, cursors, OpenAPI with a
   snapshot test, docs page for signed-in users.
 - **Done when:** a script with a session can read everything the pages show.
+- **As built (2026-10-26):**
+  - `jobradar/api/`: a FastAPI app mounted at `/api/v1` behind the same sign-in check (and
+    row-level security) as the pages. Read endpoints for everything the pages show: `me`,
+    `profile`, `preferences`, `jobs` (filters, `q`, sort, cursor), `jobs/{id}` (posting, score
+    reasons, where it was posted, history, resumes), `history`, `resumes`, `files/{id}`,
+    `followup-draft`, `search` (snippets with `<mark>`), `applications`, `applications/by-source`,
+    `followups`, `skills`, `skills/{key}`, `digests`, `digests/{key}`, `sources`, `ready`.
+  - Responses are Pydantic models built from the data (real times and lists, not the pages'
+    display text); errors are RFC 9457 problem details, including the sign-in check's 401 and
+    the waitlist's 403; lists page with an opaque cursor (an offset for now; keyset paging can
+    replace it without changing the API).
+  - `/api`: the reference page, rendered from the OpenAPI document like any other page (Swagger
+    UI would need scripts from elsewhere, which the pages' CSP refuses).
+    `tests/snapshots/openapi.json` fails CI on any unreviewed API change.
+  - Not here, as their data arrives later: tokens and usage (PR 10), events (PR 11), tasks
+    (PR 9/12), admin, sources' follow state (PR 8).
+  - Also: Postgres search snippets now come from every field, as SQLite's do; a blank sign-in
+    setting in `.env` (`AUTH_ENABLED=`) counts as not set instead of stopping the app.
 
 ### PR 7: `saas/catalog`
 

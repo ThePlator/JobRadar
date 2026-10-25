@@ -35,6 +35,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from jobradar.api.app import build_api
+from jobradar.api.docs import reference
 from jobradar.clock import Clock, utcnow
 from jobradar.config import Settings
 from jobradar.db.repo import Repo
@@ -201,6 +203,15 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def _bad_request(request: Request, exc: RequestValidationError) -> Response:
         return render(request, "error.html", "", 400, status=400)
+
+    api = build_api(settings=settings, repo=repo, ctx_for=ctx_for)
+    app.state.api = api
+    app.mount("/api/v1", api)
+
+    @app.get("/api", response_class=HTMLResponse)
+    def api_reference(request: Request) -> HTMLResponse:
+        """The API's reference, for signed-in users (and this computer)."""
+        return render(request, "api.html", "", groups=reference(api))
 
     @app.get("/", response_class=HTMLResponse)
     def today(request: Request) -> HTMLResponse:

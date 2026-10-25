@@ -57,7 +57,11 @@ def test_b_never_sees_or_changes_as_things(repo: Repo, clock: FakeClock, tmp_pat
 
     pages = ["/", "/applications", "/jobs", "/jobs?show=all", "/jobs?show=all&q=Acme",
              "/digest", "/digest/email", "/jobs/j", "/skills", "/api/search?q=Acme",
-             "/api/jobs/j/resumes"]  # fmt: skip
+             "/api/jobs/j/resumes", "/api", "/api/v1/me", "/api/v1/preferences",
+             "/api/v1/jobs", "/api/v1/jobs?status=applied", "/api/v1/jobs/j",
+             "/api/v1/jobs/j/history", "/api/v1/jobs/j/resumes", "/api/v1/search?q=Acme",
+             "/api/v1/applications", "/api/v1/applications/by-source", "/api/v1/followups",
+             "/api/v1/skills", "/api/v1/digests", "/api/v1/digests/now"]  # fmt: skip
     for path in pages:
         page = b.get(path)
         assert page.status_code == 200, path
@@ -67,6 +71,10 @@ def test_b_never_sees_or_changes_as_things(repo: Repo, clock: FakeClock, tmp_pat
     )  # the posting is shared; A's status isn't
     assert b.get("/api/jobs/j/resumes").json()["count"] == 0
     assert b.get(f"/files/{resume}").status_code == 404  # A's resume: not found, not "forbidden"
+    assert b.get(f"/api/v1/files/{resume}").status_code == 404
+    assert b.get("/api/v1/jobs?status=applied").json()["items"] == []
+    assert b.get("/api/v1/jobs/j").json()["history"] == []
+    assert b.get("/api/v1/profile").status_code == 404  # B has none; A's isn't B's
 
     token = page_token(b.get("/").text)
     assert b.post("/jobs/j/act", data={"action": "shortlist", "token": token}).status_code == 303

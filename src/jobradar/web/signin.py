@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 SESSION = "jr_session"
 CSRF = "jr_csrf"  # the sign-in page's own token, before there is a session
 FIREBASE_JS = "https://www.gstatic.com/firebasejs/13.1.0/"
-OPEN = {"/signin", "/api/v1/health"}  # pages anyone may open
+OPEN = {"/signin", "/api/v1/health", "/api/v1/ready"}  # pages anyone may open
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -102,12 +102,21 @@ def install(
         if request.method == "GET" and not request.url.path.startswith("/api/"):
             back = request.url.path + (f"?{request.url.query}" if request.url.query else "")
             response = RedirectResponse(f"/signin?next={quote(back, safe='')}", status_code=303)
-        else:
-            response = JSONResponse({"message": message}, status_code=401)
+        else:  # a script: problem details, as the rest of the API answers
+            response = JSONResponse(
+                {"type": "about:blank", "title": "Sign in first", "status": 401, "detail": message},
+                status_code=401, media_type="application/problem+json",
+            )  # fmt: skip
         response.delete_cookie(SESSION, path="/")
         return response
 
     def waiting(request: Request, user: User) -> Response:
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"type": "about:blank", "title": "Not open yet", "status": 403,
+                 "detail": "Your account is on the list; JobRadar opens to you soon."},
+                status_code=403, media_type="application/problem+json",
+            )  # fmt: skip
         return templates.TemplateResponse(
             request, "waiting.html", {"user": user, "token": csrf(request)}, status_code=403
         )

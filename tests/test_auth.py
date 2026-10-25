@@ -367,3 +367,6 @@ def test_sign_in_settings_come_from_the_env_file(tmp_path: Path) -> None:
     auth = AuthConfig(_env_file=env)  # type: ignore[call-arg]
     assert auth.enabled and auth.ways == ["google", "phone"] and auth.session_days == 14
     assert not AuthConfig(_env_file=None).enabled  # type: ignore[call-arg]  (off by default)
+    env.write_text("AUTH_ENABLED=\nAUTH_WAYS=\nAUTH_SESSION_DAYS=\n")  # blank: not set
+    blank = AuthConfig(_env_file=env)  # type: ignore[call-arg]
+    assert not blank.enabled and blank.ways == ["google", "email", "phone"]

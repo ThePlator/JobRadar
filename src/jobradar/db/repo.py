@@ -31,6 +31,7 @@ from jobradar.db.models import (
     FetchedPage,
     Job,
     JobStatus,
+    Plan,
     Platform,
     RawMessage,
     Source,
@@ -1191,6 +1192,10 @@ class Repo:
         with Session(self.engine) as s:
             return s.exec(select(User).where(User.auth_uid == auth_uid)).first()
 
+    def get_plan(self, plan_id: str) -> Plan | None:
+        with Session(self.engine) as s:
+            return s.get(Plan, plan_id)
+
     def get_user(self, user_id: str) -> User | None:
         with Session(self.engine) as s:
             return s.get(User, user_id)
@@ -1572,7 +1577,10 @@ class Repo:
                 params["q"] = q
                 rank = "ts_rank(f.doc, to_tsquery('simple', :q)) DESC"
                 snippet = (
-                    "ts_headline('simple', f.body, to_tsquery('simple', :q), "
+                    # Every field, as SQLite's snippet() picks from: a match in the
+                    # role or company shows too, not only one in the page text.
+                    "ts_headline('simple', concat_ws(' · ', f.role, f.company, f.places, "
+                    "f.skills, f.body), to_tsquery('simple', :q), "
                     "'StartSel=' || chr(2) || ', StopSel=' || chr(3) || "
                     "', MaxWords=18, MinWords=6, ShortWord=2, MaxFragments=1, "
                     "FragmentDelimiter=…')"
