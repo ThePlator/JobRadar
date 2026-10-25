@@ -183,7 +183,7 @@ async def test_digest_without_notion_points_at_the_dashboard(
         add_job(repo, f"j{n}", JobStatus.NEW, 90 - n)
     add_job(repo, "h", JobStatus.HIDDEN, 30, "weak match (30)")
     with repo.engine.begin() as c:  # pages made while Notion was on
-        c.exec_driver_sql("UPDATE job SET notion_page_id = 'page-1'")
+        c.exec_driver_sql("UPDATE user_jobs SET notion_page_id = 'page-1'")
     clock.advance(4 * 3600 + 30 * 60)
     base = settings()
     off = base.model_copy(

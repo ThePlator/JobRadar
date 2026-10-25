@@ -1,7 +1,8 @@
 """People who sign in to the SaaS: their first sign-in creates their account.
 
-Until every query is scoped to a user (SAASPLAN.md, PR 5), the dashboard shows the owner's
-jobs, so only the admin may open it; everyone else signs in and is told it opens soon.
+The admin's first sign-in takes over the `owner` account, which holds every score and status
+from before the SaaS. Until each user gets their own matches (SAASPLAN.md, PR 5), only the admin
+may open the dashboard; everyone else signs in and is told it opens soon.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ def sign_in(ctx: Ctx, who: Identity, admin_email: str | None) -> User:
     """The account for this sign-in, created the first time. Raises Refused if the admin has
     switched it off."""
     role = Role.ADMIN if is_admin_email(who, admin_email) else Role.USER
+    if role == Role.ADMIN:
+        ctx.repo.take_over_owner(who.uid)  # your jobs so far are the owner's
     user = ctx.repo.user_by_auth_uid(who.uid)
     if user is None:
         now = to_iso(ctx.now)
@@ -44,6 +47,7 @@ def sign_in(ctx: Ctx, who: Identity, admin_email: str | None) -> User:
     if user.role != Role.ADMIN:  # the admin role is never taken away by a sign-in
         user.role = role.value
     ctx.repo.saw_user(user.id, who.email, who.phone, who.name, user.role)
+    user.email, user.phone, user.name = who.email, who.phone, who.name
     return user
 
 
