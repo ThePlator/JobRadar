@@ -6,8 +6,12 @@ from sqlalchemy.exc import IntegrityError
 
 from jobradar.db.models import Platform
 from jobradar.db.repo import Repo, init_db, make_engine
+from tests.conftest import PG_URL
+
+sqlite_only = pytest.mark.skipif(bool(PG_URL), reason="SQLite settings and repairs")
 
 
+@sqlite_only
 def test_pragmas(engine: Engine) -> None:
     with engine.connect() as c:
         assert c.execute(text("PRAGMA journal_mode")).scalar() == "wal"
@@ -49,7 +53,7 @@ def test_foreign_keys_enforced(repo: Repo) -> None:
 
 def test_check_constraints(engine: Engine) -> None:
     with pytest.raises(IntegrityError), engine.begin() as c:
-        c.execute(text("INSERT INTO source (platform, chat_id, enabled) VALUES ('bot', 'x', 1)"))
+        c.execute(text("INSERT INTO source (platform, chat_id, enabled) VALUES ('bot', 'x', TRUE)"))
 
 
 def test_new_columns_are_added_to_an_old_database(tmp_path: Path) -> None:
@@ -128,3 +132,48 @@ def test_jobs_from_source(repo: Repo) -> None:
         repo.add_job_source(f"j{n}", raw)
     repo.set_user_status("j1", JobStatus.APPLIED)  # you moved it in Notion: left alone
     assert repo.jobs_from_source("workday · accenture") == ["j0"]
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_migrations_match_the_models(engine: Engine) -> None:
+    """Every model change needs a migration: compare the migrated database with the models."""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+    from sqlmodel import SQLModel
+
+    from jobradar.db.migrations.env_filter import include_object
+
+    with engine.connect() as c:
+        ctx = MigrationContext.configure(
+            c, opts={"compare_type": True, "include_object": include_object}
+        )
+        assert compare_metadata(ctx, SQLModel.metadata) == []
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_claims_skip_rows_another_worker_holds(engine: Engine) -> None:
+    """Two workers claiming at once never get the same task (FOR UPDATE SKIP LOCKED)."""
+    repo = Repo(engine)
+    repo.enqueue("fetch", "a")
+    repo.enqueue("fetch", "b")
+    with engine.connect() as held:
+        held.execute(text("BEGIN"))
+        row = held.execute(text("SELECT id, key FROM task WHERE key = 'a' FOR UPDATE")).one()
+        other = repo.claim()
+        assert other is not None and other.key == "b"  # 'a' is locked: skipped, not waited on
+        held.execute(text("ROLLBACK"))
+    assert row.key == "a"
+
+
+def test_index_material_reads_many_jobs_at_once(repo: Repo) -> None:
+    """The search index's reads: each job, its page, its first posts (oldest first, no blanks)."""
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Chat")
+    assert src.id is not None
+    for job_id in ("a", "b"):
+        repo.get_or_create_job(job_id, f"https://acme.com/{job_id}")
+    repo.save_page("a", "https://acme.com/a", "Role", "Page text of a")
+    for n, body in enumerate(["first", "", "second", "third", "fourth"]):
+        raw, _ = repo.save_raw_message(src.id, str(n), f"2026-10-0{n + 1}T00:00:00Z", body)
+        repo.add_job_source("a", raw)
+    got = {job.id: (page, posts) for job, page, posts in repo.index_material(["a", "b", "x"], 3)}
+    assert got == {"a": ("Page text of a", ["first", "second"]), "b": (None, [])}

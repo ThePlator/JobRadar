@@ -932,6 +932,43 @@ def web() -> None:
         _fail(str(e))
 
 
+@app.command("saas-import")
+def saas_import(
+    source: Annotated[
+        Path, typer.Option("--from", help="The SQLite database to copy (opened read-only).")
+    ] = Path("data/jobradar.db"),
+) -> None:
+    """Copy your SQLite database into the Postgres in DATABASE_URL (the SaaS). Safe to run
+    again: rows already there are kept."""
+    from jobradar.db.repo import Repo, connect
+    from jobradar.db.transfer import copy, read_only
+    from jobradar.services import search
+
+    settings = _settings()
+    url = settings.secrets.database_url
+    if url is None:
+        _fail("Set DATABASE_URL in .env to your Postgres first (see SAASPLAN.md, PR 3).")
+        raise typer.Exit(1)
+    target = connect(url.get_secret_value())
+    if target.dialect.name != "postgresql":
+        _fail("DATABASE_URL isn't a Postgres address.")
+    try:
+        report = copy(read_only(source), target)
+    except FileNotFoundError as e:
+        _fail(str(e))
+        raise
+    width = max(len(r.table) for r in report)
+    for r in report:
+        mark = "✓" if r.ok else "✗"
+        counts = f"{r.in_sqlite:>7} in SQLite  {r.in_postgres:>7} in Postgres"
+        typer.echo(f"  {mark} {r.table:<{width}}  {counts}")
+    indexed = search.refresh(Repo(target), datetime.now(UTC))
+    typer.echo(f"  search index built for {indexed} jobs")
+    if not all(r.ok for r in report):
+        _fail("Some tables have fewer rows in Postgres than in SQLite (see ✗ above).")
+    typer.secho(f"✓ copied {source} into Postgres; {source} is unchanged", fg="green")
+
+
 @app.command()
 def stats(days: Annotated[int, typer.Option(help="Window in days.")] = 7) -> None:
     """Posts received, jobs created, reposts merged and likely duplicates."""

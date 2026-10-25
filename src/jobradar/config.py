@@ -536,6 +536,9 @@ class Secrets(BaseSettings):
     email_app_password: SecretStr | None = None
     notify_to: str | None = None
     gdrive_folder_id: str | None = None
+    # The SaaS database (Postgres), e.g. postgresql+psycopg://user:pass@host/db?sslmode=require.
+    # Not set: the local SQLite file data/jobradar.db, as in the self-hosted app.
+    database_url: SecretStr | None = None
 
     @field_validator("*", mode="before")
     @classmethod

@@ -71,7 +71,9 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - `__main__.py`: the `jobradar` CLI (run, web, add, boards, resume, digest, skills, sources, stats, ...)
 - `app.py`: wiring for `jobradar run` (pipeline, worker, schedules, dashboard)
 - `config.py`: `config/config.yaml` + `.env`, validated with pydantic; fails fast with clear messages
-- `db/repo.py`: **every SQL query lives here**; `db/models.py` the SQLModel tables
+- `db/repo.py`: **every SQL query lives here**, portable between SQLite and Postgres;
+  `db/models.py` the SQLModel tables; on `saas/main` also `db/migrations/` (Alembic, Postgres),
+  `db/textsearch.py` (search queries for both databases), `db/transfer.py` (`saas-import`)
 - `sources/`: Telegram, `boards/` (one reader per hiring system), `pages/`, email forward
 - `pipeline/`: ingest -> extract -> match -> decide; `status_rules.py` (what a status change may do,
   shared by email buttons and the dashboard); `skill_gaps.py` + `skill_detail.py` (Skills page)

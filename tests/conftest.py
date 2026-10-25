@@ -1,13 +1,18 @@
+import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 
 from jobradar.config import Secrets
-from jobradar.db.repo import Repo, init_db, make_engine
+from jobradar.db.repo import Repo, connect, init_db, make_engine
 from jobradar.queue.tasks import TaskQueue
+
+# Set to a throwaway Postgres (never a real one: every table is emptied) to run the whole
+# suite on Postgres, as CI does: postgresql://jobradar:jobradar@localhost:55432/jobradar
+PG_URL = os.environ.get("JOBRADAR_TEST_DATABASE_URL")
 
 
 class FakeClock:
@@ -26,8 +31,29 @@ def clock() -> FakeClock:
     return FakeClock()
 
 
+@pytest.fixture(scope="session")
+def pg_engine() -> Iterator[Engine]:
+    """One Postgres for the session, built with the real migrations from an empty schema."""
+    assert PG_URL
+    eng = connect(PG_URL)
+    with eng.begin() as c:
+        c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+    init_db(eng)
+    yield eng
+    eng.dispose()
+
+
 @pytest.fixture
-def engine(tmp_path: Path) -> Iterator[Engine]:
+def engine(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Engine]:
+    if PG_URL:
+        eng: Engine = request.getfixturevalue("pg_engine")
+        with eng.begin() as c:
+            tables = [r[0] for r in c.execute(text(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                "AND tablename != 'alembic_version'"))]  # fmt: skip
+            c.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+        yield eng
+        return
     eng = make_engine(tmp_path / "data" / "test.db")
     init_db(eng)
     yield eng

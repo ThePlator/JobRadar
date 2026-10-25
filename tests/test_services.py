@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from sqlalchemy import text
 
 from jobradar.db.models import JobStatus
 from jobradar.db.repo import Repo
@@ -26,7 +27,9 @@ def ctx(repo: Repo, clock: FakeClock, queue: TaskQueue | None = None, s: Any = N
 
 def queued(repo: Repo, type_: str) -> list[str]:
     with repo.engine.connect() as c:
-        rows = c.exec_driver_sql("SELECT key FROM task WHERE type = ?", (type_,)).fetchall()
+        rows = c.execute(
+            text("SELECT key FROM task WHERE type = :t ORDER BY id"), {"t": type_}
+        ).all()
     return [r[0] for r in rows]
 
 

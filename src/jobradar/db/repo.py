@@ -34,8 +34,29 @@ from jobradar.db.models import (
     TaskStatus,
     WatchedPage,
 )
+from jobradar.db.textsearch import TextQuery
 
 DEFAULT_DB_PATH = Path("data/jobradar.db")
+
+
+def connect(database_url: str | None, path: Path = DEFAULT_DB_PATH) -> Engine:
+    """Postgres when `database_url` is set (the SaaS), else the SQLite file at `path`."""
+    if not database_url:
+        return make_engine(path)
+    if database_url.startswith("postgres://"):  # what some providers print
+        database_url = "postgresql://" + database_url.removeprefix("postgres://")
+    if database_url.startswith("postgresql://"):
+        database_url = "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
+    # pre_ping: Neon and other serverless hosts close idle connections; reconnect quietly.
+    # prepare_threshold None: no server-side prepared statements, which a connection pooler
+    # (Neon's "-pooler" address, PgBouncer) can't keep across transactions.
+    return create_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=5,
+        connect_args={"prepare_threshold": None},
+    )
 
 
 def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
@@ -55,6 +76,13 @@ def make_engine(path: Path = DEFAULT_DB_PATH) -> Engine:
 
 
 def init_db(engine: Engine) -> None:
+    """Bring the schema up to date: Alembic migrations on Postgres; on SQLite (tests and the
+    self-hosted app) create_all plus the two small repairs below."""
+    if engine.dialect.name == "postgresql":
+        from jobradar.db.migrate import upgrade
+
+        upgrade(engine)
+        return
     SQLModel.metadata.create_all(engine)
     _add_new_columns(engine)
     _refresh_source_platforms(engine)
@@ -146,6 +174,14 @@ class Repo:
     def __init__(self, engine: Engine, clock: Clock = utcnow) -> None:
         self.engine = engine
         self._clock = clock
+        self.pg = engine.dialect.name == "postgresql"
+
+    def _minutes(self, start: str, end: str) -> str:
+        """SQL for the minutes between two ISO time columns."""
+        if self.pg:
+            span = f"CAST({end} AS timestamptz) - CAST({start} AS timestamptz)"
+            return f"EXTRACT(EPOCH FROM ({span})) / 60"
+        return f"(julianday({end}) - julianday({start})) * 1440"
 
     def _now(self) -> str:
         return to_iso(self._clock())
@@ -198,7 +234,7 @@ class Repo:
                     "INSERT INTO raw_message "
                     "(source_id, message_id, text, urls_json, media_path, posted_at, received_at,"
                     " processed) "
-                    "VALUES (:sid, :mid, :text, :urls, :media, :posted, :now, 0) "
+                    "VALUES (:sid, :mid, :text, :urls, :media, :posted, :now, FALSE) "
                     "ON CONFLICT (source_id, message_id) DO NOTHING RETURNING id"
                 ),
                 {
@@ -225,7 +261,9 @@ class Repo:
 
     def mark_processed(self, raw_id: int) -> None:
         with self._tx() as c:
-            c.execute(text("UPDATE raw_message SET processed = 1 WHERE id = :id"), {"id": raw_id})
+            c.execute(
+                text("UPDATE raw_message SET processed = TRUE WHERE id = :id"), {"id": raw_id}
+            )
 
     # ---- jobs ---------------------------------------------------------------------------------
 
@@ -291,17 +329,18 @@ class Repo:
 
     def job_post_contexts(self, job_id: str, limit: int = 30) -> list[tuple[str | None, list[str]]]:
         """For each post carrying this job's link: (post text, ids of the other jobs in it)."""
+        agg = "string_agg(other.job_id, ',')" if self.pg else "group_concat(other.job_id)"
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    """
-                    SELECT m.id, m.text, group_concat(other.job_id) FROM job_source js
+                    f"""
+                    SELECT m.id, m.text, {agg} FROM job_source js
                     JOIN raw_message m ON m.id = js.raw_message_id
                     LEFT JOIN job_source other
                         ON other.raw_message_id = m.id AND other.job_id != js.job_id
                     WHERE js.job_id = :job
                     GROUP BY m.id ORDER BY m.posted_at, m.id LIMIT :limit
-                    """
+                    """  # noqa: S608 (agg is one of two fixed strings)
                 ),
                 {"job": job_id, "limit": limit},
             ).all()
@@ -335,7 +374,8 @@ class Repo:
                 text(
                     """
                     UPDATE job SET status = :status,
-                        score_reason = coalesce(:reason, score_reason), updated_at = :now
+                        score_reason = coalesce(CAST(:reason AS VARCHAR), score_reason),
+                        updated_at = :now
                     WHERE id = :id
                     """
                 ),
@@ -398,7 +438,8 @@ class Repo:
             c.execute(
                 text(
                     "UPDATE job SET notion_page_id = :page,"
-                    " notion_synced_at = CASE WHEN :page IS NULL THEN NULL ELSE :now END "
+                    " notion_synced_at = CASE WHEN CAST(:page AS VARCHAR) IS NULL THEN NULL"
+                    "   ELSE :now END "
                     "WHERE id = :id"
                 ),
                 {"id": job_id, "page": page_id, "now": self._now()},
@@ -426,20 +467,24 @@ class Repo:
                 text(
                     "INSERT INTO task (type, key, payload, status, attempts, run_after, rerun,"
                     " priority) "
-                    "VALUES (:type, :key, :payload, 'pending', 0, :run_after, 0, :priority) "
+                    "VALUES (:type, :key, :payload, 'pending', 0, :run_after, FALSE, :priority) "
                     "ON CONFLICT (type, key) DO UPDATE SET "
                     " payload = excluded.payload,"
-                    " priority = max(coalesce(priority, 0), excluded.priority),"
-                    " run_after = CASE status"
-                    "   WHEN 'pending' THEN min(run_after, excluded.run_after)"
-                    "   WHEN 'running' THEN run_after"
+                    " priority = CASE"
+                    "   WHEN coalesce(task.priority, 0) > coalesce(excluded.priority, 0)"
+                    "   THEN coalesce(task.priority, 0) ELSE excluded.priority END,"
+                    " run_after = CASE task.status"
+                    "   WHEN 'pending' THEN CASE WHEN excluded.run_after < task.run_after"
+                    "     THEN excluded.run_after ELSE task.run_after END"
+                    "   WHEN 'running' THEN task.run_after"
                     "   ELSE excluded.run_after END,"
-                    " attempts = CASE WHEN status IN ('done', 'failed') THEN 0 ELSE attempts END,"
-                    " last_error = CASE WHEN status IN ('done', 'failed') THEN NULL"
-                    "   ELSE last_error END,"
-                    " rerun = CASE WHEN status = 'running' THEN 1 ELSE rerun END,"
-                    " status = CASE WHEN status IN ('done', 'failed') THEN 'pending'"
-                    "   ELSE status END"
+                    " attempts = CASE WHEN task.status IN ('done', 'failed') THEN 0"
+                    "   ELSE task.attempts END,"
+                    " last_error = CASE WHEN task.status IN ('done', 'failed') THEN NULL"
+                    "   ELSE task.last_error END,"
+                    " rerun = CASE WHEN task.status = 'running' THEN TRUE ELSE task.rerun END,"
+                    " status = CASE WHEN task.status IN ('done', 'failed') THEN 'pending'"
+                    "   ELSE task.status END"
                 ),
                 {
                     "type": type_,
@@ -459,13 +504,15 @@ class Repo:
             names = [f":t{i}" for i in range(len(types))]
             type_filter = f" AND type IN ({', '.join(names)})"
             params |= {f"t{i}": t for i, t in enumerate(types)}
+        # Postgres: several workers claim at once; each skips rows another is taking.
+        lock = " FOR UPDATE SKIP LOCKED" if self.pg else ""
         with self._tx() as c:
             # type_filter only adds generated placeholder names; values stay bound parameters.
             sql = (
                 "UPDATE task SET status = 'running', attempts = attempts + 1,"  # noqa: S608
                 " started_at = :now WHERE id = (SELECT id FROM task"
                 " WHERE status = 'pending' AND run_after <= :now"
-                f"{type_filter} ORDER BY coalesce(priority, 0) DESC, run_after, id LIMIT 1) "
+                f"{type_filter} ORDER BY coalesce(priority, 0) DESC, run_after, id LIMIT 1{lock}) "
                 "RETURNING id, type, key, payload, attempts"
             )
             row = c.execute(
@@ -491,7 +538,7 @@ class Repo:
                     " status = CASE WHEN rerun THEN 'pending' ELSE 'done' END,"
                     " attempts = CASE WHEN rerun THEN 0 ELSE attempts END,"
                     " run_after = CASE WHEN rerun THEN :now ELSE run_after END,"
-                    " rerun = 0, started_at = NULL, last_error = NULL "
+                    " rerun = FALSE, started_at = NULL, last_error = NULL "
                     "WHERE id = :id AND status = 'running'"
                 ),
                 {"id": task_id, "now": now},
@@ -507,11 +554,11 @@ class Repo:
                 text(
                     "UPDATE task SET"
                     " status = CASE WHEN rerun THEN 'pending'"
-                    "   WHEN :retry_at IS NULL THEN 'failed' ELSE 'pending' END,"
+                    "   WHEN CAST(:retry_at AS VARCHAR) IS NULL THEN 'failed' ELSE 'pending' END,"
                     " run_after = CASE WHEN rerun THEN :now"
-                    "   ELSE coalesce(:retry_at, run_after) END,"
+                    "   ELSE coalesce(CAST(:retry_at AS VARCHAR), run_after) END,"
                     " attempts = CASE WHEN rerun THEN 0 ELSE attempts END,"
-                    " rerun = 0, started_at = NULL, last_error = :error "
+                    " rerun = FALSE, started_at = NULL, last_error = :error "
                     "WHERE id = :id AND status = 'running'"
                 ),
                 {"id": task_id, "error": error[:2000], "retry_at": retry_at, "now": self._now()},
@@ -523,7 +570,8 @@ class Repo:
             c.execute(
                 text(
                     "UPDATE task SET status = 'pending', run_after = :until,"
-                    " attempts = max(attempts - 1, 0), rerun = 0, started_at = NULL "
+                    " attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,"
+                    " rerun = FALSE, started_at = NULL "
                     "WHERE id = :id AND status = 'running'"
                 ),
                 {"id": task_id, "until": until},
@@ -535,7 +583,7 @@ class Repo:
             result = c.execute(
                 text(
                     "UPDATE task SET status = 'pending', run_after = :now, started_at = NULL,"
-                    " rerun = 0 WHERE status = 'running' AND started_at < :cutoff"
+                    " rerun = FALSE WHERE status = 'running' AND started_at < :cutoff"
                 ),
                 {"now": self._now(), "cutoff": started_before},
             )
@@ -582,6 +630,35 @@ class Repo:
             page.fetched_at = self._now()
             s.add(page)
             s.commit()
+
+    def index_material(
+        self, job_ids: list[str], posts: int = 3
+    ) -> list[tuple[Job, str | None, list[str]]]:
+        """For the search index, in three queries however many jobs: each job, its page text
+        and the text of its first `posts` posts (oldest first, empty ones dropped)."""
+        if not job_ids:
+            return []
+        ids: Any = bindparam("ids", expanding=True)
+        with Session(self.engine) as s:
+            jobs = list(s.exec(select(Job).where(col(Job.id).in_(job_ids))))
+        with self._tx() as c:
+            pages: dict[str, str | None] = dict(c.execute(
+                text("SELECT job_id, text FROM fetched_page WHERE job_id IN :ids").bindparams(ids),
+                {"ids": job_ids}).all())  # fmt: skip
+            rows = c.execute(
+                text(
+                    "SELECT js.job_id, m.text FROM job_source js "
+                    "JOIN raw_message m ON m.id = js.raw_message_id "
+                    "WHERE js.job_id IN :ids ORDER BY js.job_id, m.posted_at, m.id"
+                ).bindparams(ids),
+                {"ids": job_ids},
+            ).all()
+        firsts: dict[str, list[str | None]] = {}
+        for job_id, body in rows:
+            seen = firsts.setdefault(job_id, [])
+            if len(seen) < posts:
+                seen.append(body)
+        return [(j, pages.get(j.id), [t for t in firsts.get(j.id, []) if t]) for j in jobs]
 
     def get_page(self, job_id: str) -> FetchedPage | None:
         with Session(self.engine) as s:
@@ -701,7 +778,8 @@ class Repo:
                     """
                     UPDATE job SET score = :score, score_reason = :reason, updated_at = :now,
                         status = CASE WHEN status = 'extracted' THEN 'new' ELSE status END
-                    WHERE id = :id AND (score IS NOT :score OR score_reason IS NOT :reason
+                    WHERE id = :id AND (score IS DISTINCT FROM :score
+                        OR score_reason IS DISTINCT FROM :reason
                         OR status = 'extracted')
                     """
                 ),
@@ -802,7 +880,8 @@ class Repo:
             rows = c.execute(
                 text(
                     "SELECT status, count(DISTINCT job_id) FROM status_change "
-                    "WHERE changed_at >= :since AND (:until IS NULL OR changed_at < :until) "
+                    "WHERE changed_at >= :since"
+                    " AND (CAST(:until AS VARCHAR) IS NULL OR changed_at < :until) "
                     "GROUP BY status"
                 ),
                 {"since": since, "until": until},
@@ -867,7 +946,8 @@ class Repo:
             row = c.execute(
                 text(
                     "SELECT count(*) FROM alert WHERE outcome IN ('sent', 'dry_run') "
-                    "AND sent_at >= :since AND (:until IS NULL OR sent_at < :until)"
+                    "AND sent_at >= :since"
+                    " AND (CAST(:until AS VARCHAR) IS NULL OR sent_at < :until)"
                 ),
                 {"since": since, "until": until},
             ).one()
@@ -907,7 +987,7 @@ class Repo:
                     col(Job.status).in_([st.value for st in statuses]),
                     col(Job.user_status_at).is_not(None),
                 )
-                .order_by(col(Job.user_status_at).desc())
+                .order_by(col(Job.user_status_at).desc().nulls_last())
             )
             return list(s.exec(query))
 
@@ -936,7 +1016,7 @@ class Repo:
                     col(Job.score) >= min_score,
                     col(Job.created_at) >= since,
                 )
-                .order_by(col(Job.score).desc(), col(Job.created_at).desc())
+                .order_by(col(Job.score).desc().nulls_last(), col(Job.created_at).desc())
             )
             return list(s.exec(query))
 
@@ -984,7 +1064,8 @@ class Repo:
         """Jobs whose searchable text may have changed since `since` (all when None): the job
         itself, its page, or a new post about it."""
         with self._tx() as c:
-            c.execute(text(self._FTS))
+            if not self.pg:
+                c.execute(text(self._FTS))
             if since is None:
                 rows = c.execute(text("SELECT id FROM job")).all()
             else:
@@ -1003,6 +1084,9 @@ class Repo:
     def index_jobs(self, rows: list[tuple[str, str, str, str, str, str]]) -> None:
         """(job id, role, company, places, skills, body) into the search index, replacing."""
         if not rows:
+            return
+        if self.pg:
+            self._index_jobs_pg(rows)
             return
         with self._tx() as c:
             c.execute(text(self._FTS))
@@ -1032,10 +1116,33 @@ class Repo:
                     ],
                 )
 
+    def _index_jobs_pg(self, rows: list[tuple[str, str, str, str, str, str]]) -> None:
+        """Postgres: job_search keeps the text; its tsvector columns compute themselves."""
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "INSERT INTO job_search (job_id, role, company, places, skills, body) "
+                    "VALUES (:id, :role, :company, :places, :skills, :body) "
+                    "ON CONFLICT (job_id) DO UPDATE SET role = excluded.role, "
+                    "company = excluded.company, places = excluded.places, "
+                    "skills = excluded.skills, body = excluded.body"
+                ),
+                [
+                    # NUL can't be stored in Postgres text; pages occasionally contain it.
+                    {
+                        k: v.replace("\x00", "")
+                        for k, v in zip(
+                            ("id", "role", "company", "places", "skills", "body"), r, strict=True
+                        )
+                    }
+                    for r in rows
+                ],
+            )
+
     def find_jobs(
         self,
         statuses: list[str] | None,
-        match: str | None,
+        match: TextQuery | None,
         min_score: int | None,
         since: str | None,
         source_id: int | None,
@@ -1043,15 +1150,34 @@ class Repo:
         limit: int,
         offset: int,
     ) -> tuple[list[tuple[Job, str | None]], int]:
-        """A page of jobs for All jobs, with a text snippet around what `match` (an FTS5
-        query) found, and how many match in all. `order`: new, old, score, or relevance."""
+        """A page of jobs for All jobs, with a text snippet around what `match` found, and how
+        many match in all. `order`: new, old, score, or relevance."""
         where: list[str] = ["1 = 1"]
         params: dict[str, Any] = {"limit": limit, "offset": offset}
         join = ""
-        if match:
+        rank = "j.created_at DESC"
+        snippet = "NULL"
+        if match and self.pg:
+            join = "JOIN job_search f ON f.job_id = j.id"
+            if q := match.words_tsquery():
+                where.append("f.doc @@ to_tsquery('simple', :q)")
+                params["q"] = q
+                rank = "ts_rank(f.doc, to_tsquery('simple', :q)) DESC"
+                snippet = (
+                    "ts_headline('simple', f.body, to_tsquery('simple', :q), "
+                    "'StartSel=' || chr(2) || ', StopSel=' || chr(3) || "
+                    "', MaxWords=18, MinWords=6, ShortWord=2, MaxFragments=1, "
+                    "FragmentDelimiter=…')"
+                )
+            if pq := match.places_tsquery():
+                where.append("f.places_doc @@ to_tsquery('simple', :pq)")
+                params["pq"] = pq
+        elif match:
             join = "JOIN job_fts f ON f.job_id = j.id"
             where.append("job_fts MATCH :match")
-            params["match"] = match
+            params["match"] = match.fts5()
+            rank = "bm25(job_fts, 0, 8, 6, 3, 4, 1)"
+            snippet = "snippet(job_fts, -1, char(2), char(3), '…', 14)"
         if statuses is not None:
             marks = ", ".join(f":st{i}" for i in range(len(statuses)))
             where.append(f"j.status IN ({marks})" if statuses else "0 = 1")
@@ -1071,12 +1197,12 @@ class Repo:
         by = {
             "old": "j.created_at, j.id",
             "score": "j.score IS NULL, j.score DESC, j.created_at DESC",
-            "relevance": "bm25(job_fts, 0, 8, 6, 3, 4, 1)" if match else "j.created_at DESC",
+            "relevance": rank,
         }.get(order, "j.created_at DESC, j.id")
-        snippet = "snippet(job_fts, -1, char(2), char(3), '…', 14)" if match else "NULL"
         cond = " AND ".join(where)
         with self._tx() as c:
-            c.execute(text(self._FTS))
+            if not self.pg:
+                c.execute(text(self._FTS))
             total = c.execute(text(f"SELECT count(*) FROM job j {join} WHERE {cond}"),  # noqa: S608
                               params).one()[0]  # fmt: skip
             rows = c.execute(
@@ -1107,7 +1233,7 @@ class Repo:
             row = c.execute(
                 text(
                     "SELECT max(t) FROM (SELECT max(received_at) AS t FROM raw_message "
-                    "UNION ALL SELECT max(last_checked) FROM feed_board)"
+                    "UNION ALL SELECT max(last_checked) FROM feed_board) AS seen"
                 )
             ).one()
         return str(row[0]) if row[0] else None
@@ -1153,8 +1279,9 @@ class Repo:
     def jobs_ever_in(self, statuses: list[JobStatus], undo_minutes: int = 0) -> int:
         """Jobs that are, or once were, in one of these statuses (by your status history).
         A status you changed again within `undo_minutes` is taken as a misclick."""
+        gap = self._minutes("changed_at", "next_at")
         query = text(
-            """
+            f"""
             WITH h AS (
                 SELECT job_id, status, changed_at,
                        LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
@@ -1165,9 +1292,9 @@ class Repo:
                 SELECT id FROM job WHERE status IN :sts
                 UNION SELECT job_id FROM h WHERE status IN :sts AND (
                     next_at IS NULL
-                    OR (julianday(next_at) - julianday(changed_at)) * 1440 >= :undo)
-            )
-            """
+                    OR {gap} >= :undo)
+            ) AS ever
+            """  # noqa: S608 (gap is built from column names)
         ).bindparams(bindparam("sts", expanding=True))
         with self._tx() as c:
             row = c.execute(
@@ -1184,8 +1311,9 @@ class Repo:
         Applied means Applied or any later status in your history; the next round means Interview
         or Offer. A status changed again within `undo_minutes` is taken as a misclick and ignored,
         so Interview undone 8 seconds later isn't an interview."""
+        gap = self._minutes("changed_at", "next_at")
         query = text(
-            """
+            f"""
             WITH h AS (
                 SELECT job_id, status, changed_at,
                        LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
@@ -1195,10 +1323,12 @@ class Repo:
             kept AS (
                 SELECT job_id, status FROM h
                 WHERE next_at IS NULL
-                   OR (julianday(next_at) - julianday(changed_at)) * 1440 >= :undo
+                   OR {gap} >= :undo
             ),
             outcome AS (
-                SELECT job_id, MAX(status IN ('interview', 'offer')) AS next_round
+                SELECT job_id,
+                       MAX(CASE WHEN status IN ('interview', 'offer') THEN 1 ELSE 0 END)
+                           AS next_round
                 FROM kept WHERE status IN ('applied', 'interview', 'offer', 'rejected')
                 GROUP BY job_id
             ),
@@ -1207,17 +1337,17 @@ class Repo:
                 FROM outcome o
                 JOIN job_source js ON js.job_id = o.job_id
                 JOIN raw_message m ON m.id = js.raw_message_id
-                GROUP BY m.source_id, o.job_id
+                GROUP BY m.source_id, o.job_id, o.next_round
             ),
-            first AS (SELECT job_id, MIN(seen) AS seen FROM per_source GROUP BY job_id)
+            firsts AS (SELECT job_id, MIN(seen) AS seen FROM per_source GROUP BY job_id)
             SELECT s.platform, coalesce(s.title, s.chat_id), p.job_id, j.status, p.next_round,
                    p.seen = f.seen
             FROM per_source p
             JOIN source s ON s.id = p.source_id
             JOIN job j ON j.id = p.job_id
-            JOIN first f ON f.job_id = p.job_id
+            JOIN firsts f ON f.job_id = p.job_id
             ORDER BY p.seen DESC
-            """
+            """  # noqa: S608 (gap is built from column names)
         )
         with self._tx() as c:
             rows = c.execute(query, {"undo": undo_minutes}).all()
@@ -1272,7 +1402,7 @@ class Repo:
                     col(Job.deadline) >= first_day,
                     col(Job.deadline) <= last_day,
                 )
-                .order_by(col(Job.deadline), col(Job.score).desc())
+                .order_by(col(Job.deadline), col(Job.score).desc().nulls_last())
             )
             return list(s.exec(query))
 
@@ -1302,7 +1432,8 @@ class Repo:
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT DISTINCT j.id FROM job j JOIN job_source js ON js.job_id = j.id "
+                    "SELECT DISTINCT j.id, j.created_at FROM job j "
+                    "JOIN job_source js ON js.job_id = j.id "
                     "JOIN raw_message r ON r.id = js.raw_message_id "
                     "JOIN source s ON s.id = r.source_id "
                     "WHERE lower(s.title) = lower(:title) AND j.user_status_at IS NULL "
@@ -1349,8 +1480,9 @@ class Repo:
         with self._tx() as c:
             row = c.execute(
                 text(
-                    "SELECT count(*), sum(processed = 1 AND NOT EXISTS ("
-                    " SELECT 1 FROM job_source js WHERE js.raw_message_id = m.id)) "
+                    "SELECT count(*), sum(CASE WHEN processed AND NOT EXISTS ("
+                    " SELECT 1 FROM job_source js WHERE js.raw_message_id = m.id)"
+                    " THEN 1 ELSE 0 END) "
                     "FROM raw_message m WHERE m.received_at >= :since"
                 ),
                 {"since": since},
