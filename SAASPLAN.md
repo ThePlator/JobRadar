@@ -1419,6 +1419,32 @@ flowchart LR
   - `SET LOCAL app.user_id` per request and per task.
 - **Tests:** the isolation suite: two users, every page and endpoint, B can't see A's anything.
 - **Done when:** two test users have fully separate dashboards.
+- **Split into four PRs** (2026-10-25), each reviewable on its own and leaving the app working:
+  - **5a `saas/user-jobs`:** `job` → catalog + `user_jobs`; the repo scoped to a user.
+  - **5b `saas/user-rows`:** `user_id` on status history, alerts, artifacts, tasks, follow-ups.
+  - **5c `saas/profiles`:** profile and preferences from YAML into `profiles` / `preferences`.
+  - **5d `saas/rls`:** RLS policies, database roles, `SET LOCAL app.user_id`, the isolation suite;
+    the dashboard opens to every signed-in user. Times and JSON become `timestamptz` / `jsonb`
+    here too.
+- **As built, 5a (2026-10-25):**
+  - The catalog table keeps its name, `job` (renaming it would touch every query for no gain);
+    its `status` is now only where the pipeline is (`discovered`, `extracted`, `needs_review`,
+    `discarded`), with `status_reason`. `user_jobs` holds score, reason, status (`new` …
+    `skipped`, or NULL: not matched yet), `user_status_at` and the Notion page, keyed by
+    `(user_id, job_id)` with indexes starting at `user_id`.
+  - `models.Job` is no longer a table: it is the job as one user sees it, built by `JOB_VIEW` in
+    `repo.py` (the posting LEFT JOIN that user's row), so cards, pages, emails and the pipeline
+    read it unchanged. A catalog step (re-read, re-extract) puts the job back in the pipeline for
+    every user who hasn't set its status themselves, as before.
+  - `Repo.for_user(id)` scopes every per-user query; `Ctx` always hands services a repo scoped to
+    its `user_id`, and the dashboard's `Ctx` comes from the signed-in user. The pipeline still
+    works for the owner (fan-out per user is PR 8).
+  - The owner is a real `users` row (`id = 'owner'`); the admin's first sign-in takes it over,
+    keeping every existing score and status. Migration `0003` moves Postgres data;
+    `init_db` does the same once for an old SQLite file; `saas-import` splits old rows as it
+    copies. Checked on a copy of the owner's data: all 1,265 jobs read back identically.
+  - Fixed: a CLI test (`alerts --test`) opened `data/jobradar.db` in the repo; tests now always
+    get a throwaway default database.
 
 ### PR 6: `saas/api-read`
 

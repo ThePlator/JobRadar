@@ -1,9 +1,10 @@
 """SQLModel tables: source, raw_message, job, job_source, artifact, task, llm_cache; and for the
-SaaS, users and plans.
+SaaS, users, plans and user_jobs.
 
 Mirrors the LLD schema. Timestamps are UTC text from `jobradar.clock.to_iso`.
 """
 
+from collections.abc import Iterable
 from enum import StrEnum
 
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
@@ -42,7 +43,7 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
 
 
-def _in(column: str, values: type[StrEnum]) -> str:
+def _in(column: str, values: Iterable[StrEnum]) -> str:
     return f"{column} IN ({', '.join(repr(v.value) for v in values)})"
 
 
@@ -76,11 +77,22 @@ class RawMessage(SQLModel, table=True):
     processed: bool = False
 
 
-class Job(SQLModel, table=True):
+# Where the pipeline is with a posting: true for everyone (the catalog).
+CATALOG_STATUSES = (JobStatus.DISCOVERED, JobStatus.EXTRACTED, JobStatus.NEEDS_REVIEW,
+                    JobStatus.DISCARDED)  # fmt: skip
+# What one person's view of a job is: matched (new or hidden), or where they moved it.
+USER_STATUSES = tuple(s for s in JobStatus if s not in CATALOG_STATUSES)
+OWNER = "owner"  # the self-hosted app's one user; the SaaS owner signs in as this user
+
+
+class JobRow(SQLModel, table=True):
+    """A job posting as everyone sees it (SAASPLAN.md section 8: the catalog). One person's
+    score, status and Notion page are in `user_jobs`; `Job` joins the two."""
+
     __tablename__ = "job"
     __table_args__ = (
         CheckConstraint("scam_risk IN ('low', 'medium', 'high')", name="job_scam_risk"),
-        CheckConstraint(_in("status", JobStatus), name="job_status_value"),
+        CheckConstraint(_in("status", CATALOG_STATUSES), name="job_status_value"),
         Index("job_fingerprint", "fingerprint"),
         Index("job_status", "status"),
     )
@@ -92,6 +104,47 @@ class Job(SQLModel, table=True):
     role: str | None = None
     deadline: str | None = None
     data_json: str | None = None  # full JobPosting
+    scam_risk: str | None = None
+    status: str = JobStatus.DISCOVERED.value  # one of CATALOG_STATUSES
+    status_reason: str | None = None  # why it needs a look, e.g. "several jobs in one post"
+    prompt_version: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class UserJob(SQLModel, table=True):
+    """One person's view of one job: its score for them, their status, their Notion page."""
+
+    __tablename__ = "user_jobs"
+    __table_args__ = (
+        CheckConstraint(_in("status", USER_STATUSES), name="user_jobs_status"),
+        Index("user_jobs_status", "user_id", "status"),
+        Index("user_jobs_score", "user_id", "score"),
+    )
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True)
+    job_id: str = Field(foreign_key="job.id", primary_key=True)
+    score: int | None = None
+    score_reason: str | None = None
+    status: str | None = None  # None: not matched yet, the job's own status shows
+    user_status_at: str | None = None  # you set the Status: JobRadar never overrides it
+    notion_page_id: str | None = None
+    notion_synced_at: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class Job(SQLModel):
+    """A job as one person sees it: the posting (`job`) with their score and status
+    (`user_jobs`). What the rest of JobRadar reads; the repo builds it with one join."""
+
+    id: str
+    canonical_url: str | None = None
+    fingerprint: str | None = None
+    company: str | None = None
+    role: str | None = None
+    deadline: str | None = None
+    data_json: str | None = None
     score: int | None = None
     score_reason: str | None = None
     scam_risk: str | None = None
@@ -99,7 +152,7 @@ class Job(SQLModel, table=True):
     notion_page_id: str | None = None
     notion_synced_at: str | None = None
     prompt_version: str | None = None
-    user_status_at: str | None = None  # you set the Status in Notion: JobRadar never overrides it
+    user_status_at: str | None = None
     created_at: str
     updated_at: str
 
