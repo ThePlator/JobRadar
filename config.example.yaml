@@ -122,3 +122,12 @@ web:                      # the dashboard at http://127.0.0.1:8080 (needs `uv sy
 
 notion:                   # Notion as a second place to track jobs (the dashboard has it all)
   enabled: true           # false: no Notion key needed and nothing is sent there
+
+auth:                     # SaaS only (branch saas/main): signing in to the dashboard
+  enabled: false          # true: every page needs signing in (docs/COMMANDS.md, "Signing in")
+  ways: [google, email, phone]   # the sign-in buttons; each must be on in Firebase too
+  # From Firebase: Project settings > Your apps > Web app. Shown in the sign-in page, not secret.
+  # firebase_api_key: AIza...
+  # firebase_auth_domain: your-project.firebaseapp.com
+  # firebase_project_id: your-project
+  session_days: 14        # how long you stay signed in on a device (at most 14)

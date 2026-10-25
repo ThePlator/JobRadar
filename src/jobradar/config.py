@@ -489,6 +489,43 @@ class NotionConfig(_Strict):
     enabled: bool = True
 
 
+SignInWay = Literal["google", "email", "phone"]
+SIGN_IN_WAYS: tuple[SignInWay, ...] = ("google", "email", "phone")
+
+
+class AuthConfig(_Strict):
+    """Signing in, for the SaaS (Firebase Authentication). Off: the dashboard is for this
+    computer only, as in the self-hosted app. The firebase_* values come from your Firebase
+    project's web app settings; they are shown in the sign-in page, so they aren't secrets."""
+
+    enabled: bool = False
+    # Which sign-in buttons the page shows. Each must also be on in Firebase (Authentication,
+    # Sign-in method). Phone codes are SMS messages, which Firebase bills.
+    ways: list[SignInWay] = Field(default_factory=lambda: list(SIGN_IN_WAYS))
+    firebase_api_key: str | None = None
+    firebase_auth_domain: str | None = None  # e.g. your-project.firebaseapp.com
+    firebase_project_id: str | None = None
+    # How long you stay signed in on a device. Firebase allows at most 14 days.
+    session_days: int = Field(default=14, ge=1, le=14)
+
+    @model_validator(mode="after")
+    def _firebase_is_set(self) -> AuthConfig:
+        if self.enabled:
+            missing = [
+                f"auth.{k}"
+                for k in ("firebase_api_key", "firebase_auth_domain", "firebase_project_id")
+                if not getattr(self, k)
+            ]
+            if missing:
+                raise ValueError(
+                    f"signing in needs {', '.join(missing)} (Firebase console, Project "
+                    "settings, Your apps), or set auth.enabled: false"
+                )
+            if not self.ways:
+                raise ValueError("auth.ways: list at least one of google, email, phone")
+        return self
+
+
 class AppConfig(_Strict):
     """Everything in config.yaml. Every section is optional and has defaults."""
 
@@ -504,6 +541,7 @@ class AppConfig(_Strict):
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     notion: NotionConfig = Field(default_factory=NotionConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
     @model_validator(mode="after")
     def _telegram_has_chats(self) -> AppConfig:
@@ -539,6 +577,10 @@ class Secrets(BaseSettings):
     # The SaaS database (Postgres), e.g. postgresql+psycopg://user:pass@host/db?sslmode=require.
     # Not set: the local SQLite file data/jobradar.db, as in the self-hosted app.
     database_url: SecretStr | None = None
+    # Signing in (auth.enabled): the Firebase service account key file (Project settings,
+    # Service accounts, Generate new private key), and the email that gets the admin role.
+    firebase_credentials: Path | None = None
+    jobradar_admin_email: str | None = None
 
     @field_validator("*", mode="before")
     @classmethod
@@ -551,13 +593,14 @@ class Secrets(BaseSettings):
         return self.notify_to or self.email_address
 
 
-Feature = Literal["telegram", "notion", "llm", "email", "gdrive"]
+Feature = Literal["telegram", "notion", "llm", "email", "gdrive", "auth"]
 
 _REQUIRED: dict[Feature, tuple[str, ...]] = {
     "telegram": ("tg_api_id", "tg_api_hash"),
     "notion": ("notion_token", "notion_database_id"),
     "email": ("email_address", "email_app_password"),
     "gdrive": ("gdrive_folder_id",),
+    "auth": ("firebase_credentials", "jobradar_admin_email"),
 }
 
 _PROVIDER_KEYS = {"gemini": "gemini_api_key", "groq": "groq_api_key"}

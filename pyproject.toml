@@ -43,6 +43,8 @@ postgres = [
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
 ]
+# The SaaS: sign-in with Firebase (Google, email and password, phone).
+saas = ["firebase-admin>=6.5"]
 
 [project.scripts]
 jobradar = "jobradar.__main__:app"
@@ -102,5 +104,5 @@ filterwarnings = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["telethon", "telethon.*", "playwright", "playwright.*"]
+module = ["telethon", "telethon.*", "playwright", "playwright.*", "firebase_admin", "firebase_admin.*"]
 ignore_missing_imports = true

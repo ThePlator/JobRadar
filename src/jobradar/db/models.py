@@ -1,4 +1,5 @@
-"""SQLModel tables: source, raw_message, job, job_source, artifact, task, llm_cache.
+"""SQLModel tables: source, raw_message, job, job_source, artifact, task, llm_cache; and for the
+SaaS, users and plans.
 
 Mirrors the LLD schema. Timestamps are UTC text from `jobradar.clock.to_iso`.
 """
@@ -254,3 +255,49 @@ class LLMCache(SQLModel, table=True):
     output: str
     cost_inr: float | None = None
     created_at: str
+
+
+class Role(StrEnum):
+    USER = "user"
+    ADMIN = "admin"
+
+
+class Plan(SQLModel, table=True):
+    """What a plan allows per day (SAASPLAN.md section 17). Rows, so numbers change without a
+    release."""
+
+    __tablename__ = "plans"
+
+    id: str = Field(primary_key=True)  # free | pro
+    llm_calls_per_day: int
+    resume_builds_per_day: int
+    emails_per_day: int
+    followed_sources_max: int | None = None  # None: no limit
+    api_tokens_max: int
+
+
+PLANS = (
+    Plan(id="free", llm_calls_per_day=100, resume_builds_per_day=5, emails_per_day=20,
+         followed_sources_max=50, api_tokens_max=2),
+    Plan(id="pro", llm_calls_per_day=1000, resume_builds_per_day=50, emails_per_day=100,
+         followed_sources_max=None, api_tokens_max=10),
+)  # fmt: skip
+
+
+class User(SQLModel, table=True):
+    """Someone who signs in to the SaaS. Firebase knows who they are (`auth_uid`); everything
+    else in JobRadar refers to `id`, so the sign-in provider can change."""
+
+    __tablename__ = "users"
+    __table_args__ = (CheckConstraint(_in("role", Role), name="users_role"),)
+
+    id: str = Field(primary_key=True)  # random uuid, hex
+    auth_uid: str = Field(unique=True)
+    email: str | None = None  # None when they sign in with a phone number
+    phone: str | None = None
+    name: str | None = None
+    role: str = Role.USER.value
+    plan_id: str = Field(foreign_key="plans.id", default="free")
+    created_at: str
+    last_seen_at: str | None = None
+    deleted_at: str | None = None  # switched off by the admin: sign-in is refused

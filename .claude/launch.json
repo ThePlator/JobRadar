@@ -28,7 +28,7 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": [
         "-c",
-        "cd data/sandbox && exec ../../.venv/bin/jobradar web"
+        "cd data/sandbox && exec env DATABASE_URL= ../../.venv/bin/jobradar web"
       ],
       "port": 8095
     }

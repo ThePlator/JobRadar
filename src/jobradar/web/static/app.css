@@ -810,3 +810,38 @@ footer .keys kbd + kbd { margin-left: -2px; }
   .ring.lg { width: 60px; height: 60px; }
   h1 { font-size: 24px; }
 }
+
+/* ---- signing in (the SaaS): one card in the middle of the page ---- */
+.gate-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; box-sizing: border-box; }
+.gate { width: 100%; max-width: 420px; box-sizing: border-box; padding: 28px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 14px; }
+.gate-head { display: flex; gap: 16px; align-items: center; }
+.gate-blip { width: 72px; flex: none; }
+.gate-brand { margin: 0; color: var(--accent); font-weight: 800; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+.gate h1 { margin: 2px 0 4px; }
+.gate .lede { font-size: 14px; }
+.gate-msg { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--bad-soft); color: var(--bad); font-size: 14px; }
+.gate-msg.good { background: var(--good-soft); color: var(--good); }
+.gate-google { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; }
+.gate-google:hover { background: var(--raise); }
+.gate-google svg { width: 20px; height: 20px; }
+.gate-or { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--faint); font-size: 13px; }
+.gate-or::before, .gate-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.gate-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; background: var(--raise); border: 1px solid var(--line); }
+.gate-tabs button { padding: 7px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.gate-tabs button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.gate-form { display: flex; flex-direction: column; gap: 12px; }
+.gate-form[hidden], .gate-form [hidden] { display: none; }
+.gate-form label { display: flex; flex-direction: column; gap: 5px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.gate-form input { font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); }
+.gate-form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.gate-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.gate .btn { border: 0; font: inherit; font-weight: 700; cursor: pointer; }
+.gate .btn.quiet { border: 1px solid var(--line); }
+.gate button:disabled { opacity: .55; cursor: progress; }
+.gate-link { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-size: 13.5px; cursor: pointer; }
+.gate-note { margin: -6px 0 0; font-size: 13px; }
+.gate-foot { margin: 6px 0 0; font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gate-theme { flex: none; padding: 5px 8px; }
+.signout { margin: 0; }
+.signout .theme { width: 100%; }
+@media (max-width: 480px) { .gate { padding: 22px 18px; } .gate-blip { width: 56px; } }

@@ -16,7 +16,7 @@ user short: the PR link, what's in it, test count, anything skipped and why.
 ```bash
 uv run ruff format src tests && uv run ruff check src tests && uv run mypy
 uv run pytest -q
-UV_PROJECT_ENVIRONMENT=data/venv311 uv sync -q --locked --python 3.11 --extra web && UV_PROJECT_ENVIRONMENT=data/venv311 uv run -q --python 3.11 pytest -q
+UV_PROJECT_ENVIRONMENT=data/venv311 uv sync -q --locked --python 3.11 --extra web --extra postgres --extra saas && UV_PROJECT_ENVIRONMENT=data/venv311 uv run -q --python 3.11 pytest -q
 ```
 The 3.11 run catches what CI (3.11, 3.12, 3.13) catches and the 3.14 `.venv` doesn't, e.g. a
 class method named `list` shadowing the `list[...]` annotations below it.

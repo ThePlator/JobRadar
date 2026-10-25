@@ -82,7 +82,9 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - `services/`: the one way in for reads (jobs, applications, home, digests, skills, stats,
   search) and changes (statuses, resumes, profile, intake, tasks, notify); each takes a `Ctx`
   (who is asking, and when) and raises `NotFound` / `Refused`
-- `web/`: `app.py` (routes, security), `templates/` (Jinja), `static/app.css` + `app.js`
+- `web/`: `app.py` (routes, security), `templates/` (Jinja), `static/app.css` + `app.js`; `signin.py` (SaaS
+  sign-in page, sessions, CSRF)
+- `saas/`: SaaS-only parts; `auth.py` is the only code that talks to Firebase
 - `by_source.py`: applications and next rounds per source
 - `tests/`: pytest, about 680 tests, fakes in `tests/fakes.py`
 
