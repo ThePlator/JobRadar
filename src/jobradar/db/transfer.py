@@ -21,7 +21,7 @@ from sqlmodel import SQLModel
 
 from jobradar.db import models  # noqa: F401 (registers every table on SQLModel.metadata)
 from jobradar.db.models import OWNER, USER_STATUSES
-from jobradar.db.repo import init_db
+from jobradar.db.repo import init_db, move_user_settings
 
 BATCH = 1000
 
@@ -110,6 +110,7 @@ def copy(source: Engine, target: Engine) -> list[Copied]:
                 _insert(target, table, batch)
             in_sqlite = src.execute(select(func.count()).select_from(table)).scalar_one()
         report.append(_count(target, table, int(in_sqlite)))
+    move_user_settings(target)  # per-job notes from the self-hosted app: the owner's
     _reset_counters(target)
     with target.begin() as c:  # the search index is Postgres's own: rebuild it from scratch
         c.execute(text("DELETE FROM setting WHERE key = 'search_indexed_at'"))

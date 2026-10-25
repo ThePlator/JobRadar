@@ -53,14 +53,14 @@ REPLY_WORDS = {"interview": "Interview invite", "test": "Online test", "rejected
 
 
 def track(repo: Repo, job: Job, tz: ZoneInfo, now: datetime, nudges: FollowUpReminder) -> Track:
-    raw = repo.get_setting(REPLIED + job.id)
+    raw = repo.get_user_setting(REPLIED + job.id)
     replied = None
     if raw:
         try:
             replied = str(json.loads(raw).get("kind") or "") or None
         except ValueError:
             replied = None
-    followed = repo.get_setting(FOLLOWED_UP + job.id) or ""
+    followed = repo.get_user_setting(FOLLOWED_UP + job.id) or ""
     next_nudge, nudge_in, waited, reminders = "", None, 0, 0
     if job.status == JobStatus.APPLIED.value and job.user_status_at and replied is None:
         _, since, reminders = nudges.status(job)

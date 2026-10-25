@@ -340,10 +340,10 @@ def create_app(
     # ---- resumes and cover letters ---------------------------------------------------------
 
     @app.get("/files/{artifact_id}")
-    def file(artifact_id: int, cover: int = 0) -> FileResponse:
+    def file(request: Request, artifact_id: int, cover: int = 0) -> FileResponse:
         """A resume (or the cover letter beside it) by its id in the database. The path comes
         from the database, never the address, and must be a PDF inside storage.local_dir."""
-        artifact = repo.get_artifact(artifact_id)
+        artifact = ctx_for(request).repo.get_artifact(artifact_id)  # only your own
         path = jobs_svc.artifact_file(settings, artifact, bool(cover)) if artifact else None
         if path is None:
             raise HTTPException(status_code=404)

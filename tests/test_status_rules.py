@@ -55,7 +55,7 @@ def test_followed_up_keeps_the_status(repo: Repo, queue: TaskQueue) -> None:
     add(repo, "j", status=JobStatus.APPLIED, you=True)
     done = rules.act(repo, queue, job(repo), "followed up", TODAY)  # type: ignore[arg-type]
     assert done.ok and done.after == "applied"
-    assert repo.get_setting(FOLLOWED_UP + "j") == "2026-10-20"
+    assert repo.get_user_setting(FOLLOWED_UP + "j") == "2026-10-20"
     assert queued(queue, NOTION_STATUS) == [{"followed_up": "2026-10-20"}]
 
 

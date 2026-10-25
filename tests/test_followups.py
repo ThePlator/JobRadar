@@ -86,7 +86,7 @@ async def test_your_followed_up_date_restarts_the_wait(
     applied(repo, "a")
     r = make(repo, queue, clock, tmp_path)
     clock.advance(10 * DAY)
-    repo.set_setting(FOLLOWED_UP + "a", "2026-10-15")  # you followed up yourself on day 7
+    repo.set_user_setting(FOLLOWED_UP + "a", "2026-10-15")  # you followed up yourself on day 7
     assert await r.check_now() == "no application is due a follow-up"
     clock.advance(7 * DAY)  # 25 Oct: ten days after the 15th
     assert (await r.check_now()).startswith("sent:")

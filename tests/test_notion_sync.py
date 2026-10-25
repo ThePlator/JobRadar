@@ -108,6 +108,6 @@ async def test_followed_up_date_is_kept_per_job(
     cleared["properties"]["Followed Up"] = {"type": "date", "date": None}
     s = sync(repo, queue, clock, FakeClient([dated], [cleared]))
     await s.poll_now()
-    assert repo.get_setting(FOLLOWED_UP + "j1") == "2026-10-19"
+    assert repo.get_user_setting(FOLLOWED_UP + "j1") == "2026-10-19"
     await s.poll_now()
-    assert repo.get_setting(FOLLOWED_UP + "j1") == ""  # you cleared it
+    assert repo.get_user_setting(FOLLOWED_UP + "j1") == ""  # you cleared it
