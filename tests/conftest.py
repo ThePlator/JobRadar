@@ -48,9 +48,10 @@ def engine(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Engine]:
     if PG_URL:
         eng: Engine = request.getfixturevalue("pg_engine")
         with eng.begin() as c:
+            # Everything but the plan rows init_db adds once per session.
             tables = [r[0] for r in c.execute(text(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-                "AND tablename != 'alembic_version'"))]  # fmt: skip
+                "AND tablename NOT IN ('alembic_version', 'plans')"))]  # fmt: skip
             c.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
         yield eng
         return

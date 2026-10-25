@@ -34,6 +34,12 @@
   </div>
   <button class="cmdk" type="button" data-palette-open><svg class="i"><use href="#i-search"/></svg><span>Jump to a job</span><kbd>Ctrl K</kbd></button>
   <button class="theme" id="theme" type="button" aria-label="Theme: follows your system"><svg class="i"><use href="#i-auto"/></svg><span>System</span></button>
+  {% if account %}
+  <form class="signout" method="post" action="/signout">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="theme" type="submit" title="Signed in as {{ account.email or account.phone }}"><svg class="i"><use href="#i-signout"/></svg><span>Sign out</span></button>
+  </form>
+  {% endif %}
 </aside>
 <div class="content">
 <main class="{% block main_class %}{% endblock %}">

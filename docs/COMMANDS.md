@@ -365,6 +365,39 @@ On `saas/main`, JobRadar can use Postgres instead of `data/jobradar.db`.
 4. Start as usual (`uv run jobradar run` or `jobradar web`). Remove `DATABASE_URL` to go back to
    SQLite.
 
+## SaaS branch only: signing in
+
+With `auth.enabled: true`, every dashboard page needs signing in first: with Google, an email and
+password, or a phone number (a code by SMS), through Firebase Authentication.
+
+1. In the [Firebase console](https://console.firebase.google.com), create a project, then:
+   - **Authentication, Sign-in method**: turn on Google, Email/Password and Phone.
+   - **Authentication, Settings, Authorized domains**: `localhost` is there already; add
+     `127.0.0.1` and your Tailscale name if you open the dashboard by those.
+   - **Project settings, Your apps**: add a Web app and note `apiKey`, `authDomain`, `projectId`.
+   - **Project settings, Service accounts, Generate new private key**: save the file as
+     `config/firebase-admin.json` (never commit it).
+2. In `config/config.yaml`:
+   ```yaml
+   auth:
+     enabled: true
+     firebase_api_key: AIza...
+     firebase_auth_domain: your-project.firebaseapp.com
+     firebase_project_id: your-project
+   ```
+3. In `.env`:
+   ```
+   FIREBASE_CREDENTIALS=config/firebase-admin.json
+   JOBRADAR_ADMIN_EMAIL=you@example.com
+   ```
+4. `uv sync --extra web --extra postgres --extra saas`, then `uv run jobradar web`, open
+   http://localhost:8080 and sign in with that email. It becomes the admin account.
+
+Anyone else who signs in gets an account and a "You're on the list" page: until every page shows
+each person their own jobs (SaaS PR 5), only the admin sees the dashboard. **Sign out** (sidebar)
+signs you out on every device. Phone codes are SMS messages, which Firebase bills; for trying it
+out, add a test number under Authentication, Sign-in method, Phone, "Phone numbers for testing".
+
 Tests run on SQLite by default. To run them on a throwaway Postgres (every table is emptied, so
 never point this at a real database):
 ```bash

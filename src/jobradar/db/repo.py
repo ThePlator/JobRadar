@@ -32,6 +32,7 @@ from jobradar.db.models import (
     RawMessage,
     Source,
     TaskStatus,
+    User,
     WatchedPage,
 )
 from jobradar.db.textsearch import TextQuery
@@ -82,10 +83,27 @@ def init_db(engine: Engine) -> None:
         from jobradar.db.migrate import upgrade
 
         upgrade(engine)
-        return
-    SQLModel.metadata.create_all(engine)
-    _add_new_columns(engine)
-    _refresh_source_platforms(engine)
+    else:
+        SQLModel.metadata.create_all(engine)
+        _add_new_columns(engine)
+        _refresh_source_platforms(engine)
+    _add_plans(engine)
+
+
+def _add_plans(engine: Engine) -> None:
+    """The plans every new user can be on. Existing rows are left alone, so numbers changed
+    in the database stay changed."""
+    with engine.begin() as c:
+        for plan in models.PLANS:
+            c.execute(
+                text(
+                    "INSERT INTO plans (id, llm_calls_per_day, resume_builds_per_day, "
+                    "emails_per_day, followed_sources_max, api_tokens_max) VALUES (:id, "
+                    ":llm_calls_per_day, :resume_builds_per_day, :emails_per_day, "
+                    ":followed_sources_max, :api_tokens_max) ON CONFLICT (id) DO NOTHING"
+                ),
+                plan.model_dump(),
+            )
 
 
 def _refresh_source_platforms(engine: Engine) -> None:
@@ -841,6 +859,34 @@ class Repo:
                 ),
                 {"k": key, "v": value},
             )
+
+    # ---- users (the SaaS) -------------------------------------------------------------------
+
+    def user_by_auth_uid(self, auth_uid: str) -> User | None:
+        with Session(self.engine) as s:
+            return s.exec(select(User).where(User.auth_uid == auth_uid)).first()
+
+    def add_user(self, user: User) -> User:
+        with Session(self.engine) as s:
+            s.add(user)
+            s.commit()
+            s.refresh(user)
+            return user
+
+    def saw_user(
+        self, user_id: str, email: str | None, phone: str | None, name: str | None, role: str
+    ) -> None:
+        """Keep a user's details as their sign-in provider has them, and note when they were
+        last here."""
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "UPDATE users SET email = :email, phone = :phone, name = :name, "
+                    "role = :role, last_seen_at = :now WHERE id = :id"
+                ),
+                {"id": user_id, "email": email, "phone": phone, "name": name, "role": role,
+                 "now": self._now()},
+            )  # fmt: skip
 
     def set_user_status(self, job_id: str, status: JobStatus) -> bool:
         """Record a Status you set in Notion. False if the job is unknown or unchanged."""

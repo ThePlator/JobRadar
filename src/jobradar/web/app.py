@@ -5,6 +5,8 @@ buttons or Notion.
 It runs on this computer only. A browser sends requests to 127.0.0.1 from any site you have
 open, so requests naming any other host are refused (that stops a site posing as localhost,
 "DNS rebinding"), and pages may not be framed or load anything from elsewhere.
+
+For the SaaS (`auth.enabled`), every page needs signing in first: see `signin.py`.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from jobradar.db.repo import Repo
 from jobradar.pipeline import status_rules as rules
 from jobradar.profile import load_profile
 from jobradar.queue.tasks import TaskQueue
+from jobradar.saas.auth import Auth, Firebase
 from jobradar.services import applications as applications_svc
 from jobradar.services import cards as cards_svc
 from jobradar.services import digests as digests_svc
@@ -50,6 +53,8 @@ from jobradar.services import statuses as statuses_svc
 from jobradar.services.context import Ctx
 from jobradar.services.errors import NotFound, Refused
 from jobradar.sinks.digest import build_digest, gather
+from jobradar.web import signin
+from jobradar.web.signin import from_another_site, safe_next
 
 log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
@@ -99,19 +104,13 @@ def page_token(repo: Repo) -> str:
     return token
 
 
-def safe_next(path: str | None) -> str:
-    """Where to go back to after a form post: a path on this dashboard, never another site."""
-    if path and path.startswith("/") and not path.startswith("//") and "\\" not in path:
-        return path
-    return "/"
-
-
 def create_app(
     settings: Settings,
     repo: Repo,
     clock: Clock = utcnow,
     queue: TaskQueue | None = None,
     wake: Callable[[], None] | None = None,
+    auth: Auth | None = None,
 ) -> FastAPI:
     config = settings.config
     tz = config.notify.tz
@@ -120,17 +119,30 @@ def create_app(
     token = page_token(repo)
     hosts = allowed_hosts(config.web.host, config.web.url)
     app = FastAPI(title="JobRadar", docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+    templates = Jinja2Templates(directory=HERE / "templates")
+    csrf: Callable[[Request], str] = lambda request: token  # noqa: E731
+    if config.auth.enabled:
+        if auth is None:
+            settings.require("auth")
+            assert settings.secrets.firebase_credentials is not None  # noqa: S101 (required)
+            auth = Firebase(
+                settings.secrets.firebase_credentials, config.auth.firebase_project_id or ""
+            )
+        csrf = signin.install(
+            app, settings=settings, repo=repo, clock=clock, auth=auth, templates=templates,
+            secret=token, hosts=hosts,
+        )  # fmt: skip
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)  # checked first
 
     @app.middleware("http")
     async def _headers(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         response = await call_next(request)
-        email_csp = response.headers.get("Content-Security-Policy") == EMAIL_CSP
+        own_csp = response.headers.get("Content-Security-Policy")  # e.g. the emails, sign-in
         response.headers.update(HEADERS)
-        if email_csp:
-            response.headers["Content-Security-Policy"] = EMAIL_CSP
+        if own_csp:
+            response.headers["Content-Security-Policy"] = own_csp
         if request.url.path.startswith("/files/") and response.status_code == 200:
             # A PDF, shown by the browser's own viewer: the page policy can stop that viewer.
             del response.headers["Content-Security-Policy"]
@@ -141,7 +153,6 @@ def create_app(
         return response
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
-    templates = Jinja2Templates(directory=HERE / "templates")
     good = config.scoring.alert_above
     templates.env.globals.update(
         good=good, fair=config.scoring.hide_below, asset=asset, token=token,
@@ -174,9 +185,13 @@ def create_app(
     ) -> HTMLResponse:
         now = clock()
         ov = home_svc.overview(Ctx(repo, settings, now), name)
+        account = getattr(request.state, "user", None)  # signed in (the SaaS)
         return templates.TemplateResponse(
-            request, page, {"nav": nav, "ov": ov, "now": now, **context}, status_code
-        )
+            request, page,
+            {"nav": nav, "ov": ov, "now": now, "token": csrf(request), "account": account,
+             **context},
+            status_code,
+        )  # fmt: skip
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException) -> Response:
@@ -266,13 +281,12 @@ def create_app(
 
     async def checked_form(request: Request) -> dict[str, str]:
         """The posted fields, after checking the request came from one of our pages."""
-        origin = request.headers.get("origin")
-        if origin and urlsplit(origin).hostname not in {h.strip("[]") for h in hosts}:
+        if from_another_site(request, hosts):
             raise HTTPException(status_code=403)
         body = (await request.body())[:4096].decode("utf-8", "replace")
         fields = {k: v[0] for k, v in parse_qs(body).items()}
         sent = request.headers.get("x-jobradar-token") or fields.get("token", "")
-        if not hmac.compare_digest(sent.encode(), token.encode()):
+        if not hmac.compare_digest(sent.encode(), csrf(request).encode()):
             raise HTTPException(status_code=403)
         return fields
 
@@ -284,7 +298,7 @@ def create_app(
             row = ""
             if job is not None and outcome.ok:
                 row = templates.get_template("_row.html").render(
-                    c=cards_svc.card(job, tz, clock()), with_status=True
+                    c=cards_svc.card(job, tz, clock()), with_status=True, token=csrf(request)
                 )
             return JSONResponse(
                 {"ok": outcome.ok, "message": outcome.message, "status": outcome.after,

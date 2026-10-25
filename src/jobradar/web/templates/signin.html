@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · JobRadar</title>
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<script src="{{ asset('app.js') }}"></script>
+<script type="module" src="{{ asset('signin.js') }}"></script>
+</head>
+<body class="gate-page">
+{% include "_sprite.html" %}
+<main class="gate" data-signin data-api-key="{{ cfg.firebase_api_key }}" data-auth-domain="{{ cfg.firebase_auth_domain }}" data-project-id="{{ cfg.firebase_project_id }}" data-csrf="{{ csrf }}" data-next="{{ next }}">
+  <div class="gate-head">
+    <svg class="blip gate-blip" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <div>
+      <p class="gate-brand">JobRadar</p>
+      <h1>Sign in</h1>
+      <p class="lede">Blip reads job boards and channels for you, and keeps your applications in one place.</p>
+    </div>
+  </div>
+
+  <p class="gate-msg" data-msg role="alert" hidden></p>
+
+  {% if 'google' in cfg.ways %}
+  <button class="gate-google" type="button" data-google>
+    <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.6 13.3l7.8 6C12.3 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 7l7.4 5.7c4.3-4 6.9-9.9 6.9-17.2z"/><path fill="#FBBC05" d="M10.4 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.9-4.7l-7.8-6A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.7-4.1-13.6-9.8l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg>
+    <span>Continue with Google</span>
+  </button>
+  {% endif %}
+
+  {% set others = cfg.ways | reject('equalto', 'google') | list %}
+  {% if others %}
+  {% if 'google' in cfg.ways %}<p class="gate-or"><span>or</span></p>{% endif %}
+  {% if others | length > 1 %}
+  <div class="gate-tabs" role="group" aria-label="Sign in with">
+    <button type="button" data-tab="email" aria-pressed="true">Email</button>
+    <button type="button" data-tab="phone" aria-pressed="false">Phone</button>
+  </div>
+  {% endif %}
+
+  {% if 'email' in cfg.ways %}
+  <form class="gate-form" data-panel="email" data-email-form>
+    <label>Email <input type="email" name="email" autocomplete="email" required></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" minlength="6" required></label>
+    <div class="gate-row">
+      <button class="btn" type="submit" value="signin">Sign in</button>
+      <button class="btn quiet" type="submit" value="create">Create account</button>
+    </div>
+    <button class="gate-link" type="button" data-reset>Forgot your password?</button>
+  </form>
+  {% endif %}
+
+  {% if 'phone' in cfg.ways %}
+  <form class="gate-form" data-panel="phone" data-phone-form {% if 'email' in cfg.ways %}hidden{% endif %}>
+    <label>Phone number <input type="tel" name="phone" autocomplete="tel" value="+91 " required></label>
+    <p class="faint gate-note">We text you a 6-digit code. Include the country code.</p>
+    <div class="gate-row"><button class="btn" type="submit">Send code</button></div>
+    <div data-code hidden>
+      <label>Code from the SMS <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></label>
+      <div class="gate-row"><button class="btn" type="button" data-verify>Sign in</button></div>
+    </div>
+    <div id="recaptcha"></div>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  <p class="faint gate-foot">JobRadar never applies or writes to recruiters for you. <button class="theme gate-theme" id="theme" type="button" aria-label="Theme: follows your system"><svg class="i"><use href="#i-auto"/></svg><span>System</span></button></p>
+</main>
+</body>
+</html>

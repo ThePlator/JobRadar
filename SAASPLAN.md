@@ -1382,6 +1382,30 @@ flowchart LR
   `plans` tables, admin claim. The 127.0.0.1 page token is replaced by sessions.
 - **Tests:** token verification with test keys; expired, wrong audience, revoked; CSRF required.
 - **Done when:** the site needs sign-in, and the owner signs in with Google.
+- **As built (2026-10-25):**
+  - `auth.enabled` in `config.yaml` turns sign-in on; off, the dashboard is the local one with the
+    page token, as on `main`. Settings: `auth.firebase_*` (public web config), `auth.ways`,
+    `auth.session_days`; `.env`: `FIREBASE_CREDENTIALS`, `JOBRADAR_ADMIN_EMAIL`. Extra `saas`
+    (`firebase-admin`).
+  - **Three ways to sign in** (owner's choice): Google, email and password (with verification and
+    reset emails), and phone (SMS code, invisible reCAPTCHA). The page uses the Firebase JS SDK
+    from gstatic with in-memory persistence; its own CSP allows only Firebase, Google's sign-in
+    APIs and reCAPTCHA. No inline scripts or styles.
+  - `saas/auth.py`: the only Firebase code, behind an `Auth` protocol. ID tokens must be from the
+    last 5 minutes; session cookies are checked locally and against Firebase for sign-outs and
+    switched-off accounts at most every 5 minutes per session; refuses to start if
+    `FIREBASE_AUTH_EMULATOR_HOST` is set (the library skips signature checks then).
+  - `web/signin.py`: `GET /signin`, `POST /api/v1/session` (double-submit CSRF cookie + Origin
+    check), `DELETE /api/v1/session` and `POST /signout` (revoke everywhere), `GET
+    /api/v1/health`, and the check every request passes. Form tokens are an HMAC of the session
+    cookie, so they change with each sign-in.
+  - `users` (with `phone` and `last_seen_at` beyond section 8) and `plans` (section 17 numbers,
+    plus `api_tokens_max`); migration `0002`; plan rows added by `init_db`. First sign-in creates
+    the user on the free plan; a verified `JOBRADAR_ADMIN_EMAIL` gets `role = admin` and the
+    Firebase claim.
+  - **Until PR 5, only the admin opens the dashboard** (it still shows the owner's data); anyone
+    else gets an account and a "You're on the list" page. The admin's second factor (section
+    10.2) is left for PR 16, before the site is public.
 
 ### PR 5: `saas/user-scoping`
 

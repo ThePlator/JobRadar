@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Almost ready · JobRadar</title>
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<script src="{{ asset('app.js') }}"></script>
+</head>
+<body class="gate-page">
+{% include "_sprite.html" %}
+<main class="gate">
+  <div class="gate-head">
+    <svg class="blip gate-blip sleep" viewBox="0 0 200 230" aria-hidden="true"><use href="#blip"/></svg>
+    <div>
+      <p class="gate-brand">JobRadar</p>
+      <h1>You're on the list</h1>
+      <p class="lede">You're signed in as <b>{{ user.email or user.phone or user.name }}</b>. JobRadar is open to its first user only for now. Your own dashboard opens soon, and nothing is needed from you until then.</p>
+    </div>
+  </div>
+  <form method="post" action="/signout" class="gate-row">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button class="btn quiet" type="submit">Sign out</button>
+  </form>
+</main>
+</body>
+</html>
