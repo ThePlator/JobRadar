@@ -82,6 +82,8 @@ def old_database(path: Path) -> Engine:
     engine = make_engine(path)
     with engine.begin() as c:
         c.execute(text(OLD_JOB))
+        for sql in OLD_OTHERS + OLD_OTHER_ROWS:
+            c.execute(text(sql))
         for id_, data, score, reason, status, page, yours in OLD_ROWS:
             c.execute(
                 text("INSERT INTO job (id, data_json, score, score_reason, status, notion_page_id,"
@@ -91,6 +93,32 @@ def old_database(path: Path) -> Engine:
                  "page": page, "yours": yours},
             )  # fmt: skip
     return engine
+
+
+OLD_OTHERS = [
+    "CREATE TABLE IF NOT EXISTS alert (job_id VARCHAR PRIMARY KEY, queued_at VARCHAR NOT NULL,"
+    " sent_at VARCHAR, outcome VARCHAR)",
+    "CREATE TABLE IF NOT EXISTS status_change (id INTEGER PRIMARY KEY, job_id VARCHAR NOT NULL,"
+    " status VARCHAR NOT NULL, changed_at VARCHAR NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS setting (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)",
+]
+OLD_OTHER_ROWS = [
+    "INSERT INTO alert (job_id, queued_at, sent_at, outcome) VALUES ('applied', 't', 't', 'sent')",
+    "INSERT INTO status_change (job_id, status, changed_at) VALUES ('applied', 'applied', 't')",
+    "INSERT INTO setting (key, value) VALUES ('followed_up:applied', '2026-10-05')",
+    "INSERT INTO setting (key, value) VALUES ('web_token', 'app-wide')",
+]
+
+
+def check_owned(repo: Repo) -> None:
+    """Alerts, status history and per-job notes from before user_id are the owner's."""
+    assert repo.status_history("applied") == [("applied", "t")]
+    assert repo.alerts_sent_since("s") == 1 and not repo.queue_alert("applied")
+    assert repo.get_user_setting("followed_up:applied") == "2026-10-05"
+    assert repo.get_setting("followed_up:applied") is None  # moved, not copied
+    assert repo.get_setting("web_token") == "app-wide"  # the app's own stay
+    other = repo.for_user("u2")
+    assert other.status_history("applied") == [] and other.alerts_sent_since("s") == 0
 
 
 def check_split(repo: Repo) -> None:
@@ -112,9 +140,13 @@ def check_split(repo: Repo) -> None:
 def test_an_old_sqlite_database_is_split_on_start(tmp_path: Path, clock: FakeClock) -> None:
     engine = old_database(tmp_path / "old.db")
     init_db(engine)
-    check_split(Repo(engine, clock))
+    repo = Repo(engine, clock)
+    other_user(repo)
+    check_split(repo)
+    check_owned(repo)
     init_db(engine)  # again: nothing moves twice
-    check_split(Repo(engine, clock))
+    check_split(repo)
+    check_owned(repo)
 
 
 def test_split_job() -> None:
@@ -139,7 +171,10 @@ def test_saas_import_splits_old_jobs(tmp_path: Path, engine: Engine, clock: Fake
     counts = {c.table: c for c in report}
     assert counts["job"].in_postgres == 5 and counts["user_jobs"].in_postgres == 4
     assert all(c.ok for c in report)
-    check_split(Repo(engine, clock))
+    repo = Repo(engine, clock)
+    other_user(repo)
+    check_split(repo)
+    check_owned(repo)
 
 
 @pg_only
@@ -158,9 +193,14 @@ def test_migration_0003_moves_scores_to_the_owner(pg_engine: Engine, clock: Fake
                 {"id": id_, "data": data, "score": score, "reason": reason, "status": status,
                  "page": page, "yours": yours},
             )  # fmt: skip
+        for sql in OLD_OTHER_ROWS:
+            c.execute(text(sql))
     try:
         init_db(pg_engine)
-        check_split(Repo(pg_engine, clock))
+        repo = Repo(pg_engine, clock)
+        other_user(repo)
+        check_split(repo)
+        check_owned(repo)
     finally:  # leave the schema as the other tests expect it
         with pg_engine.begin() as c:
             c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
@@ -171,3 +211,23 @@ def test_job_data_stays_text(repo: Repo) -> None:
     add(repo, "j", skills_required=["Python"])
     job = repo.get_job("j")
     assert job is not None and json.loads(job.data_json or "{}")["skills_required"] == ["Python"]
+
+
+def test_each_persons_records_are_their_own(repo: Repo, tmp_path: Path) -> None:
+    add(repo, "j")
+    other = other_user(repo)
+    mine = repo.save_artifact("j", "resume", 1, str(tmp_path / "r.pdf"), "{}")
+    theirs = other.save_artifact("j", "resume", 1, str(tmp_path / "t.pdf"), "{}")
+    assert repo.get_artifact(theirs.id or 0) is None  # someone else's resume: not found
+    assert other.get_artifact(mine.id or 0) is None
+    assert [a.id for a in repo.artifacts_of("j")] == [mine.id]
+    assert repo.next_version("j") == other.next_version("j") == 2
+    assert repo.queue_alert("j") and other.queue_alert("j")  # one alert each
+    assert repo.pending_alerts() == other.pending_alerts() == ["j"]
+    other.finish_alerts(["j"], "sent")
+    assert repo.pending_alerts() == ["j"] and other.pending_alerts() == []
+    other.set_user_status("j", JobStatus.APPLIED)
+    assert repo.status_history("j") == [] and len(other.status_history("j")) == 1
+    assert repo.status_changes_since("2000") == {}
+    other.set_user_setting("followed_up:j", "2026-10-09")
+    assert repo.get_user_setting("followed_up:j") is None

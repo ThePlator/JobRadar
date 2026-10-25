@@ -229,7 +229,7 @@ class CompanyReplies:
         if not replies:
             return []
         for r in replies:
-            self.repo.set_setting(REPLIED + r.job.id, json.dumps(
+            self.repo.set_user_setting(REPLIED + r.job.id, json.dumps(
                 {"kind": r.kind, "subject": r.subject[:200], "from": r.sender[:200],
                  "day": r.day, "message_id": r.message_id}))  # fmt: skip
             log.info("company replied", extra={"job_id": r.job.id[:10], "kind": r.kind})
@@ -270,7 +270,7 @@ class CompanyReplies:
         return Reply(job, kind, subject, sender, day, message_id)
 
     def _seen(self, job: Job, message_id: str) -> bool:
-        raw = self.repo.get_setting(REPLIED + job.id)
+        raw = self.repo.get_user_setting(REPLIED + job.id)
         return raw is not None and json.loads(raw).get("message_id") == message_id
 
     # ---- telling you --------------------------------------------------------------------

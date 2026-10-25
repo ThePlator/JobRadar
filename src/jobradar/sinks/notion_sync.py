@@ -125,8 +125,8 @@ class StatusSync:
         if not job_id or self.repo.get_job(job_id) is None:
             return
         day = page_followed_up(page) or ""
-        if (self.repo.get_setting(FOLLOWED_UP + job_id) or "") != day:
-            self.repo.set_setting(FOLLOWED_UP + job_id, day)
+        if (self.repo.get_user_setting(FOLLOWED_UP + job_id) or "") != day:
+            self.repo.set_user_setting(FOLLOWED_UP + job_id, day)
             if day:
                 log.info("you followed up", extra={"job_id": job_id[:10], "on": day})
 

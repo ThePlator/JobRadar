@@ -386,7 +386,7 @@ class Digest:
             log.info("digest skipped: nothing new", extra={"since": since.isoformat()})
             return "nothing new since the last digest: not sent"
         week = f"{now.isocalendar().year}-W{now.isocalendar().week:02d}"
-        if self.notify.skill_gaps and self.repo.get_setting(GAPS_SENT) != week:
+        if self.notify.skill_gaps and self.repo.get_user_setting(GAPS_SENT) != week:
             data.skill_gaps, data.gap_jobs = self._gaps(now)
         secrets = self.settings.secrets
         sender = secrets.email_address or "jobradar@localhost"
@@ -404,5 +404,5 @@ class Digest:
         await asyncio.to_thread(smtp_send, self.settings, msg)
         log.info("digest sent", extra={"subject": msg["Subject"]})
         if data.skill_gaps:
-            self.repo.set_setting(GAPS_SENT, week)  # the first digest each week carries them
+            self.repo.set_user_setting(GAPS_SENT, week)  # the first digest each week carries them
         return f"sent: {msg['Subject']}"

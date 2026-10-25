@@ -143,7 +143,7 @@ class FollowUpReminder:
     # ---- who's due ------------------------------------------------------------------------
 
     def _sent(self, job_id: str) -> tuple[int, datetime | None]:
-        raw = self.repo.get_setting(SENT + job_id)
+        raw = self.repo.get_user_setting(SENT + job_id)
         if not raw:
             return 0, None
         data = json.loads(raw)
@@ -154,7 +154,7 @@ class FollowUpReminder:
         applied = from_iso(job.user_status_at or job.updated_at)
         count, last = self._sent(job.id)
         since = [applied, *([last] if last else [])]
-        if day := self.repo.get_setting(FOLLOWED_UP + job.id):
+        if day := self.repo.get_user_setting(FOLLOWED_UP + job.id):
             local = datetime.fromisoformat(day).replace(tzinfo=self.notify.tz)
             since.append(local)
         return applied, max(since), count
@@ -163,7 +163,7 @@ class FollowUpReminder:
         now = self.clock()
         found = []
         for job in self.repo.jobs_applied():
-            if self.repo.get_setting(REPLIED + job.id):
+            if self.repo.get_user_setting(REPLIED + job.id):
                 continue  # the company wrote back: no nudging
             applied, since, count = self.status(job)
             if count >= MAX_REMINDERS or now - since < self.after or now - since > QUIET_AFTER:
@@ -238,7 +238,7 @@ class FollowUpReminder:
             outcome = f"sent: {msg['Subject']}"
         now = to_iso(self.clock())
         for d in due:
-            self.repo.set_setting(SENT + d.job.id, json.dumps({"count": d.nth, "last": now}))
+            self.repo.set_user_setting(SENT + d.job.id, json.dumps({"count": d.nth, "last": now}))
         return outcome
 
 

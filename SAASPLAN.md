@@ -1446,6 +1446,18 @@ flowchart LR
     copies. Checked on a copy of the owner's data: all 1,265 jobs read back identically.
   - Fixed: a CLI test (`alerts --test`) opened `data/jobradar.db` in the repo; tests now always
     get a throwaway default database.
+- **As built, 5b (2026-10-25):**
+  - `user_id` (required, foreign key to `users`) on `status_change`, `alert` (key now
+    `(user_id, job_id)`: one alert per job and user) and `artifact`; indexes start at `user_id`.
+    Every query on them is for the repo's user; someone else's resume reads as not found.
+  - One user's per-job notes (`followed_up:`, `company_replied:`, `closing_reminder:`,
+    `followup_reminder:`, `skill_gaps_week`) move from `setting` to `user_settings`
+    (`get_user_setting` / `set_user_setting`); `setting` keeps the app's own state.
+  - Migration `0004` moves Postgres rows to the owner; an older SQLite file is repaired once on
+    start; `saas-import` moves the notes as it copies. Checked on a copy of the owner's data:
+    107 status changes, 392 alerts and the notes carry over, every status unchanged.
+  - **Moved to PR 8:** `task.user_id`. Every task still works for the owner; which tasks are
+    per user (match, alert, resume) is decided with the fan-out there.
 
 ### PR 6: `saas/api-read`
 

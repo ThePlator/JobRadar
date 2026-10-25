@@ -123,7 +123,7 @@ class ClosingReminder:
             for job in self.repo.jobs_closing(
                 today.isoformat(), (today + timedelta(days=1)).isoformat()
             )
-            if job.status in _SHORTLISTED and self.repo.get_setting(REMINDED + job.id) is None
+            if job.status in _SHORTLISTED and self.repo.get_user_setting(REMINDED + job.id) is None
         ]
         jobs = [job for job in due if not await self._closed(job)]
         if not jobs:
@@ -144,7 +144,7 @@ class ClosingReminder:
             log.info("closing reminder sent", extra={"jobs": len(jobs)})
             outcome = f"sent: {msg['Subject']}"
         for job in jobs:
-            self.repo.set_setting(REMINDED + job.id, to_iso(self.clock()))
+            self.repo.set_user_setting(REMINDED + job.id, to_iso(self.clock()))
         return outcome
 
     async def _closed(self, job: Job) -> bool:
@@ -158,7 +158,7 @@ class ClosingReminder:
             if state == Liveness.CLOSED:
                 log.info("shortlisted job already closed; no reminder",
                          extra={"job_id": job.id[:10]})  # fmt: skip
-                self.repo.set_setting(REMINDED + job.id, "closed")
+                self.repo.set_user_setting(REMINDED + job.id, "closed")
                 return True
             if state == Liveness.OPEN:
                 return False

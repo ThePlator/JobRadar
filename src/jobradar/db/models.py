@@ -166,9 +166,13 @@ class JobSource(SQLModel, table=True):
 
 class Artifact(SQLModel, table=True):
     __tablename__ = "artifact"
-    __table_args__ = (CheckConstraint("kind IN ('resume', 'kit')", name="artifact_kind"),)
+    __table_args__ = (
+        CheckConstraint("kind IN ('resume', 'kit')", name="artifact_kind"),
+        Index("artifact_user_job", "user_id", "job_id"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", default=OWNER)  # whose resume
     job_id: str = Field(foreign_key="job.id", index=True)
     kind: str
     version: int = 1
@@ -231,8 +235,10 @@ class StatusChange(SQLModel, table=True):
     """Every Status you set in Notion, with when JobRadar noticed: your application funnel."""
 
     __tablename__ = "status_change"
+    __table_args__ = (Index("status_change_user", "user_id", "changed_at"),)
 
     id: int | None = Field(default=None, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", default=OWNER)  # who set it
     job_id: str = Field(foreign_key="job.id", index=True)
     status: str
     changed_at: str
@@ -291,14 +297,26 @@ class Setting(SQLModel, table=True):
 
 
 class Alert(SQLModel, table=True):
-    """At most one email alert per job, ever."""
+    """At most one email alert per job and user, ever."""
 
     __tablename__ = "alert"
 
+    user_id: str = Field(foreign_key="users.id", primary_key=True, default=OWNER)
     job_id: str = Field(foreign_key="job.id", primary_key=True)
     queued_at: str
     sent_at: str | None = None
     outcome: str | None = None  # sent | dry_run | capped (daily limit reached)
+
+
+class UserSetting(SQLModel, table=True):
+    """One user's small bits of state, e.g. the day you followed up on a job (`setting` is
+    for the app's own)."""
+
+    __tablename__ = "user_settings"
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True)
+    key: str = Field(primary_key=True)
+    value: str
 
 
 class LLMCache(SQLModel, table=True):

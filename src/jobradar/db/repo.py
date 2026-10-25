@@ -95,6 +95,7 @@ def init_db(engine: Engine) -> None:
     add_owner(engine)
     if engine.dialect.name == "sqlite":
         _split_user_jobs(engine)
+        _own_old_rows(engine)
 
 
 def add_owner(engine: Engine) -> None:
@@ -108,6 +109,40 @@ def add_owner(engine: Engine) -> None:
             ),
             {"id": OWNER, "uid": OWNER_AUTH_UID, "now": to_iso(utcnow())},
         )
+
+
+# Setting keys that are one user's, not the app's: moved to user_settings (migration 0004).
+USER_SETTING_PREFIXES = (
+    "closing_reminder:", "company_replied:", "followed_up:", "followup_reminder:",
+    "skill_gaps_week",
+)  # fmt: skip
+
+
+def _own_old_rows(engine: Engine) -> None:
+    """A database from before user_id: `alert` was one row per job (keyed by job_id alone), and
+    per-job notes lived in `setting`. Make both the owner's. Postgres: migration 0004."""
+    with engine.begin() as c:
+        keys = [row[1] for row in c.execute(text("PRAGMA table_info('alert')")) if row[5]]
+        if keys == ["job_id"]:  # the old key: one alert per user and job needs its own index
+            c.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS alert_user_job ON alert (user_id, job_id)")
+            )
+    move_user_settings(engine)
+
+
+def move_user_settings(engine: Engine) -> None:
+    """Per-job notes kept in `setting` (one user's, from before users) become the owner's."""
+    with engine.begin() as c:
+        for prefix in USER_SETTING_PREFIXES:
+            like = {"p": prefix.replace("_", "\\_") + "%", "owner": OWNER}
+            c.execute(
+                text(
+                    "INSERT INTO user_settings (user_id, key, value) SELECT :owner, key, value "
+                    "FROM setting WHERE key LIKE :p ESCAPE '\\' ON CONFLICT DO NOTHING"
+                ),
+                like,
+            )
+            c.execute(text("DELETE FROM setting WHERE key LIKE :p ESCAPE '\\'"), like)
 
 
 def _split_user_jobs(engine: Engine) -> None:
@@ -217,10 +252,15 @@ def _add_new_columns(engine: Engine) -> None:
             have = {row[1] for row in c.execute(text(f"PRAGMA table_info('{table.name}')"))}
             for column in table.columns:
                 if column.name not in have:
-                    if not column.nullable:
-                        raise RuntimeError(f"cannot add required column {table.name}.{column.name}")
                     kind = column.type.compile(engine.dialect)
-                    c.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
+                    extra = ""
+                    if column.name == "user_id":  # rows from before users: the owner's
+                        extra = f" NOT NULL DEFAULT '{OWNER}'"
+                    elif not column.nullable:
+                        raise RuntimeError(f"cannot add required column {table.name}.{column.name}")
+                    c.execute(
+                        text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}{extra}')
+                    )
 
 
 # A job as one user sees it (models.Job): the posting with that user's score and status. Queries
@@ -543,9 +583,12 @@ class Repo:
         with Session(self.engine) as s:
             query = (
                 select(Artifact)
-                .where(Artifact.job_id == job_id, Artifact.kind == kind)
+                .where(
+                    Artifact.user_id == self.user_id, Artifact.job_id == job_id,
+                    Artifact.kind == kind,
+                )
                 .order_by(col(Artifact.version).desc())
-            )
+            )  # fmt: skip
             return s.exec(query).first()
 
     def next_version(self, job_id: str, kind: str = "resume") -> int:
@@ -557,7 +600,7 @@ class Repo:
     ) -> Artifact:
         """One version of this job's resume (or kit)."""
         artifact = Artifact(
-            job_id=job_id, kind=kind, version=version, local_path=local_path,
+            user_id=self.user_id, job_id=job_id, kind=kind, version=version, local_path=local_path,
             content_json=content_json, created_at=self._now(),
         )  # fmt: skip
         with Session(self.engine) as s:
@@ -569,8 +612,11 @@ class Repo:
     def artifacts_since(self, since: str, kind: str = "resume") -> int:
         with self._tx() as c:
             row = c.execute(
-                text("SELECT COUNT(*) FROM artifact WHERE kind = :k AND created_at >= :since"),
-                {"k": kind, "since": since},
+                text(
+                    "SELECT COUNT(*) FROM artifact "
+                    "WHERE user_id = :uid AND kind = :k AND created_at >= :since"
+                ),
+                {"uid": self.user_id, "k": kind, "since": since},
             ).first()
         return int(row[0]) if row else 0
 
@@ -1030,6 +1076,25 @@ class Repo:
                 {"k": key, "v": value},
             )
 
+    def get_user_setting(self, key: str) -> str | None:
+        """One of this user's own bits of state (e.g. "followed_up:<job id>")."""
+        with self._tx() as c:
+            row = c.execute(
+                text("SELECT value FROM user_settings WHERE user_id = :uid AND key = :k"),
+                {"uid": self.user_id, "k": key},
+            ).first()
+        return None if row is None else str(row[0])
+
+    def set_user_setting(self, key: str, value: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "INSERT INTO user_settings (user_id, key, value) VALUES (:uid, :k, :v) "
+                    "ON CONFLICT (user_id, key) DO UPDATE SET value = excluded.value"
+                ),
+                {"uid": self.user_id, "k": key, "v": value},
+            )
+
     # ---- users (the SaaS) -------------------------------------------------------------------
 
     def user_by_auth_uid(self, auth_uid: str) -> User | None:
@@ -1116,10 +1181,10 @@ class Repo:
                       {"id": job_id, "now": now})  # fmt: skip
             c.execute(
                 text(
-                    "INSERT INTO status_change (job_id, status, changed_at) "
-                    "VALUES (:id, :status, :now)"
+                    "INSERT INTO status_change (user_id, job_id, status, changed_at) "
+                    "VALUES (:uid, :id, :status, :now)"
                 ),
-                {"id": job_id, "status": status.value, "now": now},
+                {"uid": self._uid(user_id), "id": job_id, "status": status.value, "now": now},
             )
         return True
 
@@ -1138,11 +1203,11 @@ class Repo:
             rows = c.execute(
                 text(
                     "SELECT status, count(DISTINCT job_id) FROM status_change "
-                    "WHERE changed_at >= :since"
+                    "WHERE user_id = :uid AND changed_at >= :since"
                     " AND (CAST(:until AS VARCHAR) IS NULL OR changed_at < :until) "
                     "GROUP BY status"
                 ),
-                {"since": since, "until": until},
+                {"uid": self.user_id, "since": since, "until": until},
             ).all()
         return {str(r[0]): int(r[1]) for r in rows}
 
@@ -1182,17 +1247,21 @@ class Repo:
         with self._tx() as c:
             result = c.execute(
                 text(
-                    "INSERT INTO alert (job_id, queued_at) VALUES (:job, :now) "
-                    "ON CONFLICT (job_id) DO NOTHING"
+                    "INSERT INTO alert (user_id, job_id, queued_at) VALUES (:uid, :job, :now) "
+                    "ON CONFLICT (user_id, job_id) DO NOTHING"
                 ),
-                {"job": job_id, "now": self._now()},
+                {"uid": self.user_id, "job": job_id, "now": self._now()},
             )
         return bool(result.rowcount)
 
     def pending_alerts(self) -> list[str]:
         with self._tx() as c:
             rows = c.execute(
-                text("SELECT job_id FROM alert WHERE outcome IS NULL ORDER BY queued_at")
+                text(
+                    "SELECT job_id FROM alert WHERE user_id = :uid AND outcome IS NULL "
+                    "ORDER BY queued_at"
+                ),
+                {"uid": self.user_id},
             ).all()
         return [str(r[0]) for r in rows]
 
@@ -1201,11 +1270,11 @@ class Repo:
         with self._tx() as c:
             row = c.execute(
                 text(
-                    "SELECT count(*) FROM alert WHERE outcome IN ('sent', 'dry_run') "
-                    "AND sent_at >= :since"
+                    "SELECT count(*) FROM alert WHERE user_id = :uid "
+                    "AND outcome IN ('sent', 'dry_run') AND sent_at >= :since"
                     " AND (CAST(:until AS VARCHAR) IS NULL OR sent_at < :until)"
                 ),
-                {"since": since, "until": until},
+                {"uid": self.user_id, "since": since, "until": until},
             ).one()
         return int(row[0])
 
@@ -1213,7 +1282,11 @@ class Repo:
         """When the latest alert email went out (or was previewed in a dry run)."""
         with self._tx() as c:
             row = c.execute(
-                text("SELECT max(sent_at) FROM alert WHERE outcome IN ('sent', 'dry_run')")
+                text(
+                    "SELECT max(sent_at) FROM alert "
+                    "WHERE user_id = :uid AND outcome IN ('sent', 'dry_run')"
+                ),
+                {"uid": self.user_id},
             ).one()
         return None if row[0] is None else str(row[0])
 
@@ -1221,8 +1294,11 @@ class Repo:
         with self._tx() as c:
             for job_id in job_ids:
                 c.execute(
-                    text("UPDATE alert SET outcome = :outcome, sent_at = :now WHERE job_id = :job"),
-                    {"job": job_id, "outcome": outcome, "now": self._now()},
+                    text(
+                        "UPDATE alert SET outcome = :outcome, sent_at = :now "
+                        "WHERE user_id = :uid AND job_id = :job"
+                    ),
+                    {"uid": self.user_id, "job": job_id, "outcome": outcome, "now": self._now()},
                 )
 
     # ---- digest -------------------------------------------------------------------------------
@@ -1530,7 +1606,7 @@ class Repo:
                 SELECT job_id, status, changed_at,
                        LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
                            AS next_at
-                FROM status_change
+                FROM status_change WHERE user_id = :uid
             )
             SELECT count(*) FROM (
                 SELECT j.id FROM {JOB_VIEW} j WHERE j.status IN :sts
@@ -1567,7 +1643,7 @@ class Repo:
                 SELECT job_id, status, changed_at,
                        LEAD(changed_at) OVER (PARTITION BY job_id ORDER BY changed_at, id)
                            AS next_at
-                FROM status_change
+                FROM status_change WHERE user_id = :uid
             ),
             kept AS (
                 SELECT job_id, status FROM h
@@ -1603,8 +1679,10 @@ class Repo:
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3]), bool(r[4]), bool(r[5])) for r in rows]
 
     def get_artifact(self, artifact_id: int) -> Artifact | None:
+        """This user's resume or kit by id; None for anyone else's."""
         with Session(self.engine) as s:
-            return s.get(Artifact, artifact_id)
+            found = s.get(Artifact, artifact_id)
+        return found if found is not None and found.user_id == self.user_id else None
 
     def task_waiting(self, task_type: str, key: str) -> bool:
         """A task of this type and key is queued or running."""
@@ -1623,10 +1701,10 @@ class Repo:
         with self._tx() as c:
             rows = c.execute(
                 text(
-                    "SELECT status, changed_at FROM status_change WHERE job_id = :job "
-                    "ORDER BY changed_at, id"
+                    "SELECT status, changed_at FROM status_change "
+                    "WHERE user_id = :uid AND job_id = :job ORDER BY changed_at, id"
                 ),
-                {"job": job_id},
+                {"uid": self.user_id, "job": job_id},
             ).all()
         return [(str(r[0]), str(r[1])) for r in rows]
 
@@ -1635,7 +1713,7 @@ class Repo:
         with Session(self.engine) as s:
             query = (
                 select(Artifact)
-                .where(Artifact.job_id == job_id)
+                .where(Artifact.user_id == self.user_id, Artifact.job_id == job_id)
                 .order_by(col(Artifact.created_at).desc(), col(Artifact.id).desc())
             )
             return list(s.exec(query))

@@ -158,7 +158,7 @@ def test_suggests_a_status_from_a_company_email(
     assert s.scan(imap) == ["Rubrik replied: interview"]  # type: ignore[arg-type]
     assert imap.read_bodies == [1]  # only the company's email was opened
     assert repo.get_setting(UID_SETTING) == "7:3"
-    assert json.loads(repo.get_setting(REPLIED + "a" * 40) or "{}")["kind"] == "interview"
+    assert json.loads(repo.get_user_setting(REPLIED + "a" * 40) or "{}")["kind"] == "interview"
     assert sent[0]["Subject"] == "[JobRadar] Rubrik replied: interview invite?"
     plain = str(sent[0].get_body(("plain",)).get_content())  # type: ignore[union-attr]
     assert "Yes, set Interview: mailto:" in plain and "“Interview invitation”" in plain
@@ -217,5 +217,5 @@ async def test_a_reply_stops_follow_ups(repo: Repo, queue: TaskQueue, clock: Fak
     clock.advance(11 * 86400)
     f = make(repo, queue, clock, tmp_path)
     assert [d.job.id for d in f.due()] == ["d" * 40]
-    repo.set_setting(REPLIED + "d" * 40, json.dumps({"kind": "test"}))
+    repo.set_user_setting(REPLIED + "d" * 40, json.dumps({"kind": "test"}))
     assert f.due() == []

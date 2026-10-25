@@ -87,7 +87,7 @@ async def test_closed_postings_are_not_reminded(
     await make(repo, queue, clock, tmp_path, liveness=liveness).check_now()
     await liveness.aclose()
     assert sent[0]["Subject"] == "[JobRadar] Closes today: Role open @ Acme"
-    assert repo.get_setting("closing_reminder:gone") == "closed"
+    assert repo.get_user_setting("closing_reminder:gone") == "closed"
 
 
 async def test_hourly_and_dry_run(

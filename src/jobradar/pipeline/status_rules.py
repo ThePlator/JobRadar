@@ -96,7 +96,7 @@ def act(
         )  # fmt: skip
     if action == "followed up":
         day = today.isoformat()
-        repo.set_setting(FOLLOWED_UP + job.id, day)
+        repo.set_user_setting(FOLLOWED_UP + job.id, day)
         queue.enqueue(NOTION_STATUS, job.id, {"followed_up": day})
         return Outcome(True, action, job.status, job.status, f"Follow-up noted for {_title(job)}.")
     after = STATUS[action]

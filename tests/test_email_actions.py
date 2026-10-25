@@ -130,7 +130,7 @@ async def test_i_followed_up_sets_the_date(repo: Repo, queue: TaskQueue, clock: 
     add(repo, status=JobStatus.APPLIED)
     r = reader(repo, queue, clock)
     assert r.apply(mail(subject("followed up"))) == "followed up: Software Engineer @ Acme"
-    assert repo.get_setting(FOLLOWED_UP + JOB) == "2026-10-19"  # the email's own date, IST
+    assert repo.get_user_setting(FOLLOWED_UP + JOB) == "2026-10-19"  # the email's own date, IST
     task = queue.claim([NOTION_STATUS])
     assert task is not None and task.payload == {"followed_up": "2026-10-19"}
 
