@@ -21,31 +21,37 @@ from jobradar.sinks.email_template import posting_of
 
 INDEXED = "search_indexed_at"  # setting: when the index was last brought up to date
 POSTS = 3  # posts per job that go into the index
+CHUNK = 500  # jobs read and written per round trip when (re)building the index
 _WORD = re.compile(r"[\w][\w.+#-]*", re.UNICODE)
 
 
-def row(repo: Repo, job: Job) -> tuple[str, str, str, str, str, str]:
+def build_row(
+    job: Job, page_text: str | None, posts: list[str]
+) -> tuple[str, str, str, str, str, str]:
+    """(job id, role, company, places, skills, body): one job's line in the search index."""
     posting = posting_of(job)
     places = list(posting.locations) if posting else []
     if posting and posting.work_mode != "unknown":
         places.append(posting.work_mode)
     skills = (posting.skills_required + posting.skills_preferred) if posting else []
-    page = repo.get_page(job.id)
-    posts = [t for t, _ in repo.job_post_contexts(job.id, limit=POSTS) if t]
-    parts = [posting.summary if posting else "", page.text if page and page.text else "", *posts]
+    parts = [posting.summary if posting else "", page_text or "", *posts]
     body = "\n".join(p for p in parts if p)
     return (job.id, job.role or "", job.company or "", " ".join(places), ", ".join(skills),
             body[:20000])  # fmt: skip
 
 
 def refresh(repo: Repo, now: datetime) -> int:
-    """Bring the index up to date; returns how many jobs were (re)indexed."""
+    """Bring the index up to date; returns how many jobs were (re)indexed. Reads and writes
+    in chunks, a few queries each, so it's quick even on a database far away."""
     stamp = to_iso(now)  # taken first: anything changing while this runs is caught next time
     ids = repo.jobs_to_index(repo.get_setting(INDEXED))
-    rows = [row(repo, job) for i in ids if (job := repo.get_job(i))]
-    repo.index_jobs(rows)
+    done = 0
+    for i in range(0, len(ids), CHUNK):
+        material = repo.index_material(ids[i : i + CHUNK], POSTS)
+        repo.index_jobs([build_row(job, page, posts) for job, page, posts in material])
+        done += len(material)
     repo.set_setting(INDEXED, stamp)
-    return len(rows)
+    return done
 
 
 def match(words: str, place: str = "", remote: bool = False) -> TextQuery | None:

@@ -631,6 +631,35 @@ class Repo:
             s.add(page)
             s.commit()
 
+    def index_material(
+        self, job_ids: list[str], posts: int = 3
+    ) -> list[tuple[Job, str | None, list[str]]]:
+        """For the search index, in three queries however many jobs: each job, its page text
+        and the text of its first `posts` posts (oldest first, empty ones dropped)."""
+        if not job_ids:
+            return []
+        ids: Any = bindparam("ids", expanding=True)
+        with Session(self.engine) as s:
+            jobs = list(s.exec(select(Job).where(col(Job.id).in_(job_ids))))
+        with self._tx() as c:
+            pages: dict[str, str | None] = dict(c.execute(
+                text("SELECT job_id, text FROM fetched_page WHERE job_id IN :ids").bindparams(ids),
+                {"ids": job_ids}).all())  # fmt: skip
+            rows = c.execute(
+                text(
+                    "SELECT js.job_id, m.text FROM job_source js "
+                    "JOIN raw_message m ON m.id = js.raw_message_id "
+                    "WHERE js.job_id IN :ids ORDER BY js.job_id, m.posted_at, m.id"
+                ).bindparams(ids),
+                {"ids": job_ids},
+            ).all()
+        firsts: dict[str, list[str | None]] = {}
+        for job_id, body in rows:
+            seen = firsts.setdefault(job_id, [])
+            if len(seen) < posts:
+                seen.append(body)
+        return [(j, pages.get(j.id), [t for t in firsts.get(j.id, []) if t]) for j in jobs]
+
     def get_page(self, job_id: str) -> FetchedPage | None:
         with Session(self.engine) as s:
             return s.get(FetchedPage, job_id)

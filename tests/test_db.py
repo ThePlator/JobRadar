@@ -163,3 +163,17 @@ def test_claims_skip_rows_another_worker_holds(engine: Engine) -> None:
         assert other is not None and other.key == "b"  # 'a' is locked: skipped, not waited on
         held.execute(text("ROLLBACK"))
     assert row.key == "a"
+
+
+def test_index_material_reads_many_jobs_at_once(repo: Repo) -> None:
+    """The search index's reads: each job, its page, its first posts (oldest first, no blanks)."""
+    src = repo.upsert_source(Platform.TELEGRAM, "-1001", "Chat")
+    assert src.id is not None
+    for job_id in ("a", "b"):
+        repo.get_or_create_job(job_id, f"https://acme.com/{job_id}")
+    repo.save_page("a", "https://acme.com/a", "Role", "Page text of a")
+    for n, body in enumerate(["first", "", "second", "third", "fourth"]):
+        raw, _ = repo.save_raw_message(src.id, str(n), f"2026-10-0{n + 1}T00:00:00Z", body)
+        repo.add_job_source("a", raw)
+    got = {job.id: (page, posts) for job, page, posts in repo.index_material(["a", "b", "x"], 3)}
+    assert got == {"a": ("Page text of a", ["first", "second"]), "b": (None, [])}
