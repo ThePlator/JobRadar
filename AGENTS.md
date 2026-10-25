@@ -73,7 +73,8 @@ Everything runs as tasks on a durable SQLite-backed queue (`queue/`), so a resta
 - `config.py`: `config/config.yaml` + `.env`, validated with pydantic; fails fast with clear messages
 - `db/repo.py`: **every SQL query lives here**, portable between SQLite and Postgres;
   `db/models.py` the SQLModel tables; on `saas/main` also `db/migrations/` (Alembic, Postgres),
-  `db/textsearch.py` (search queries for both databases), `db/transfer.py` (`saas-import`)
+  `db/textsearch.py` (search queries for both databases), `db/transfer.py` (`saas-import`),
+  `db/types.py` (times and JSON: `timestamptz` / `jsonb` on Postgres, read back as text)
   and `job` (the posting, for everyone) apart from `user_jobs` (one user's score and status),
   joined into `Job` by `JOB_VIEW`; `Repo.for_user(id)` scopes per-user queries (also status
   history, alerts, resumes, and `user_settings` for one user's notes; `setting` is the app's);

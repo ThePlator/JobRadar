@@ -10,6 +10,8 @@ from enum import StrEnum
 from sqlalchemy import CheckConstraint, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from jobradar.db.types import IsoTime, JsonText
+
 
 class Platform(StrEnum):
     TELEGRAM = "telegram"
@@ -70,10 +72,10 @@ class RawMessage(SQLModel, table=True):
     source_id: int = Field(foreign_key="source.id")
     message_id: str
     text: str | None = None
-    urls_json: str = "[]"
+    urls_json: str = Field(default="[]", sa_type=JsonText)
     media_path: str | None = None  # saved image for OCR
-    posted_at: str
-    received_at: str
+    posted_at: str = Field(sa_type=IsoTime)
+    received_at: str = Field(sa_type=IsoTime)
     processed: bool = False
 
 
@@ -103,13 +105,13 @@ class JobRow(SQLModel, table=True):
     company: str | None = None
     role: str | None = None
     deadline: str | None = None
-    data_json: str | None = None  # full JobPosting
+    data_json: str | None = Field(default=None, sa_type=JsonText)  # full JobPosting
     scam_risk: str | None = None
     status: str = JobStatus.DISCOVERED.value  # one of CATALOG_STATUSES
     status_reason: str | None = None  # why it needs a look, e.g. "several jobs in one post"
     prompt_version: str | None = None
-    created_at: str
-    updated_at: str
+    created_at: str = Field(sa_type=IsoTime)
+    updated_at: str = Field(sa_type=IsoTime)
 
 
 class UserJob(SQLModel, table=True):
@@ -127,11 +129,13 @@ class UserJob(SQLModel, table=True):
     score: int | None = None
     score_reason: str | None = None
     status: str | None = None  # None: not matched yet, the job's own status shows
-    user_status_at: str | None = None  # you set the Status: JobRadar never overrides it
+    user_status_at: str | None = Field(
+        default=None, sa_type=IsoTime
+    )  # you set the Status: JobRadar never overrides it
     notion_page_id: str | None = None
-    notion_synced_at: str | None = None
-    created_at: str
-    updated_at: str
+    notion_synced_at: str | None = Field(default=None, sa_type=IsoTime)
+    created_at: str = Field(sa_type=IsoTime)
+    updated_at: str = Field(sa_type=IsoTime)
 
 
 class Job(SQLModel):
@@ -178,8 +182,8 @@ class Artifact(SQLModel, table=True):
     version: int = 1
     local_path: str | None = None
     drive_url: str | None = None  # Drive webViewLink, shown in Notion
-    content_json: str | None = None  # tailored content / answers
-    created_at: str
+    content_json: str | None = Field(default=None, sa_type=JsonText)  # tailored content / answers
+    created_at: str = Field(sa_type=IsoTime)
 
 
 class Task(SQLModel, table=True):
@@ -193,11 +197,13 @@ class Task(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     type: str
     key: str  # idempotency key, e.g. job id
-    payload: str = "{}"
+    payload: str = Field(default="{}", sa_type=JsonText)
     status: str = TaskStatus.PENDING.value
     attempts: int = 0
-    run_after: str
-    started_at: str | None = None  # set on claim; finds tasks stuck after a crash
+    run_after: str = Field(sa_type=IsoTime)
+    started_at: str | None = Field(
+        default=None, sa_type=IsoTime
+    )  # set on claim; finds tasks stuck after a crash
     rerun: bool = False  # re-enqueued while running: run again after this attempt
     priority: int | None = None  # higher runs first (FRESH: work for a job that just arrived)
     last_error: str | None = None
@@ -214,8 +220,10 @@ class FetchedPage(SQLModel, table=True):
     title: str | None = None
     text: str | None = None  # None: login wall, blocked, or not HTML; use the post text
     note: str | None = None  # why there is no text
-    structured_json: str | None = None  # schema.org JobPosting embedded in the page
-    fetched_at: str
+    structured_json: str | None = Field(
+        default=None, sa_type=JsonText
+    )  # schema.org JobPosting embedded in the page
+    fetched_at: str = Field(sa_type=IsoTime)
 
 
 class MatchResult(SQLModel, table=True):
@@ -227,8 +235,8 @@ class MatchResult(SQLModel, table=True):
     job_id: str = Field(foreign_key="job.id", primary_key=True)
     profile_version: str = Field(primary_key=True)
     provider: str
-    answers_json: str  # MatchAnswers
-    created_at: str
+    answers_json: str = Field(sa_type=JsonText)  # MatchAnswers
+    created_at: str = Field(sa_type=IsoTime)
 
 
 class StatusChange(SQLModel, table=True):
@@ -241,7 +249,7 @@ class StatusChange(SQLModel, table=True):
     user_id: str = Field(foreign_key="users.id", default=OWNER)  # who set it
     job_id: str = Field(foreign_key="job.id", index=True)
     status: str
-    changed_at: str
+    changed_at: str = Field(sa_type=IsoTime)
 
 
 class FeedBoard(SQLModel, table=True):
@@ -250,15 +258,21 @@ class FeedBoard(SQLModel, table=True):
     __tablename__ = "feed_board"
 
     key: str = Field(primary_key=True)  # "greenhouse:stripe"
-    seen_json: str | None = None  # posting ids at the last good check; None: never checked
+    seen_json: str | None = Field(
+        default=None, sa_type=JsonText
+    )  # posting ids at the last good check; None: never checked
     jobs_on_board: int = 0  # all postings at the last good check, before filters
     new_total: int = 0  # postings JobRadar passed on since it started watching
-    last_checked: str | None = None
-    last_ok: str | None = None
+    last_checked: str | None = Field(default=None, sa_type=IsoTime)
+    last_ok: str | None = Field(default=None, sa_type=IsoTime)
     last_error: str | None = None
     misses: int = 0  # real 404s in a row; other errors never count
-    skip_until: str | None = None  # a board that 404s 3 times is retried after 30 days
-    latest_json: str | None = None  # newest posting seen: title, location, verdict, when
+    skip_until: str | None = Field(
+        default=None, sa_type=IsoTime
+    )  # a board that 404s 3 times is retried after 30 days
+    latest_json: str | None = Field(
+        default=None, sa_type=JsonText
+    )  # newest posting seen: title, location, verdict, when
 
 
 class PageState(StrEnum):
@@ -278,12 +292,12 @@ class WatchedPage(SQLModel, table=True):
     name: str
     state: str = PageState.NEW.value
     text: str | None = None  # cleaned main text at the last good read; None: no baseline yet
-    last_checked: str | None = None
-    last_ok: str | None = None
+    last_checked: str | None = Field(default=None, sa_type=IsoTime)
+    last_ok: str | None = Field(default=None, sa_type=IsoTime)
     last_changed: str | None = None  # last read that posted something
     last_error: str | None = None
     refusals: int = 0  # 403/429 in a row; other errors never count
-    wait_until: str | None = None
+    wait_until: str | None = Field(default=None, sa_type=IsoTime)
     posts_total: int = 0
 
 
@@ -303,8 +317,8 @@ class Alert(SQLModel, table=True):
 
     user_id: str = Field(foreign_key="users.id", primary_key=True, default=OWNER)
     job_id: str = Field(foreign_key="job.id", primary_key=True)
-    queued_at: str
-    sent_at: str | None = None
+    queued_at: str = Field(sa_type=IsoTime)
+    sent_at: str | None = Field(default=None, sa_type=IsoTime)
     outcome: str | None = None  # sent | dry_run | capped (daily limit reached)
 
 
@@ -326,9 +340,9 @@ class Profile(SQLModel, table=True):
     __tablename__ = "profiles"
 
     user_id: str = Field(foreign_key="users.id", primary_key=True)
-    profile_json: str
+    profile_json: str = Field(sa_type=JsonText)
     source: str | None = None  # the owner's: a hash of the profile.yaml it was copied from
-    updated_at: str
+    updated_at: str = Field(sa_type=IsoTime)
 
 
 class PreferencesRow(SQLModel, table=True):
@@ -338,9 +352,9 @@ class PreferencesRow(SQLModel, table=True):
     __tablename__ = "preferences"
 
     user_id: str = Field(foreign_key="users.id", primary_key=True)
-    preferences_json: str
+    preferences_json: str = Field(sa_type=JsonText)
     source: str | None = None  # the owner's: a hash of the config.yaml values it came from
-    updated_at: str
+    updated_at: str = Field(sa_type=IsoTime)
 
 
 class LLMCache(SQLModel, table=True):
@@ -349,7 +363,7 @@ class LLMCache(SQLModel, table=True):
     key: str = Field(primary_key=True)  # sha1(model|prompt_version|input)
     output: str
     cost_inr: float | None = None
-    created_at: str
+    created_at: str = Field(sa_type=IsoTime)
 
 
 class Role(StrEnum):
@@ -393,6 +407,8 @@ class User(SQLModel, table=True):
     name: str | None = None
     role: str = Role.USER.value
     plan_id: str = Field(foreign_key="plans.id", default="free")
-    created_at: str
-    last_seen_at: str | None = None
-    deleted_at: str | None = None  # switched off by the admin: sign-in is refused
+    created_at: str = Field(sa_type=IsoTime)
+    last_seen_at: str | None = Field(default=None, sa_type=IsoTime)
+    deleted_at: str | None = Field(
+        default=None, sa_type=IsoTime
+    )  # switched off by the admin: sign-in is refused

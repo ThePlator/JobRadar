@@ -51,7 +51,7 @@ def test_rereading_a_job_puts_it_back_for_those_who_didnt_move_it(repo: Repo) ->
 
 def test_the_admin_takes_over_the_owner(repo: Repo) -> None:
     add(repo, "j", status=JobStatus.APPLIED, you=True)
-    repo.add_user(User(id="early", auth_uid="firebase-me", role="admin", created_at="x"))
+    repo.add_user(User(id="early", auth_uid="firebase-me", role="admin", created_at="2026-10-08"))
     assert repo.take_over_owner("firebase-me")
     owner = repo.user_by_auth_uid("firebase-me")
     assert owner is not None and owner.id == OWNER  # with every job you applied to
@@ -68,7 +68,7 @@ OLD_JOB = """CREATE TABLE job (id VARCHAR PRIMARY KEY, canonical_url VARCHAR UNI
     user_status_at VARCHAR, created_at VARCHAR NOT NULL, updated_at VARCHAR NOT NULL)"""
 OLD_ROWS = [
     # id, data, score, reason, status, notion page, set by you
-    ("applied", "{}", 88, "Good fit", "applied", "page-1", "2026-10-02"),
+    ("applied", "{}", 88, "Good fit", "applied", "page-1", "2026-10-02T00:00:00.000000Z"),
     ("hidden", "{}", 30, "weak match (30)", "hidden", None, None),
     ("ad", None, None, "an ad", "hidden", None, None),  # hidden before it was read
     ("review", "{}", None, "several jobs in one post", "needs_review", None, None),
@@ -88,7 +88,7 @@ def old_database(path: Path) -> Engine:
             c.execute(
                 text("INSERT INTO job (id, data_json, score, score_reason, status, notion_page_id,"
                      " user_status_at, created_at, updated_at) VALUES (:id, :data, :score,"
-                     " :reason, :status, :page, :yours, '2026-10-01', '2026-10-01')"),
+                     " :reason, :status, :page, :yours, '2026-10-01T00:00:00.000000Z', '2026-10-01T00:00:00.000000Z')"),
                 {"id": id_, "data": data, "score": score, "reason": reason, "status": status,
                  "page": page, "yours": yours},
             )  # fmt: skip
@@ -103,8 +103,8 @@ OLD_OTHERS = [
     "CREATE TABLE IF NOT EXISTS setting (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)",
 ]
 OLD_OTHER_ROWS = [
-    "INSERT INTO alert (job_id, queued_at, sent_at, outcome) VALUES ('applied', 't', 't', 'sent')",
-    "INSERT INTO status_change (job_id, status, changed_at) VALUES ('applied', 'applied', 't')",
+    "INSERT INTO alert (job_id, queued_at, sent_at, outcome) VALUES ('applied', '2026-10-01T00:00:00.000000Z', '2026-10-01T00:00:00.000000Z', 'sent')",
+    "INSERT INTO status_change (job_id, status, changed_at) VALUES ('applied', 'applied', '2026-10-01T00:00:00.000000Z')",
     "INSERT INTO setting (key, value) VALUES ('followed_up:applied', '2026-10-05')",
     "INSERT INTO setting (key, value) VALUES ('web_token', 'app-wide')",
 ]
@@ -112,13 +112,13 @@ OLD_OTHER_ROWS = [
 
 def check_owned(repo: Repo) -> None:
     """Alerts, status history and per-job notes from before user_id are the owner's."""
-    assert repo.status_history("applied") == [("applied", "t")]
-    assert repo.alerts_sent_since("s") == 1 and not repo.queue_alert("applied")
+    assert repo.status_history("applied") == [("applied", "2026-10-01T00:00:00.000000Z")]
+    assert repo.alerts_sent_since("2000-01-01") == 1 and not repo.queue_alert("applied")
     assert repo.get_user_setting("followed_up:applied") == "2026-10-05"
     assert repo.get_setting("followed_up:applied") is None  # moved, not copied
     assert repo.get_setting("web_token") == "app-wide"  # the app's own stay
     other = repo.for_user("u2")
-    assert other.status_history("applied") == [] and other.alerts_sent_since("s") == 0
+    assert other.status_history("applied") == [] and other.alerts_sent_since("2000-01-01") == 0
 
 
 def check_split(repo: Repo) -> None:
@@ -126,7 +126,10 @@ def check_split(repo: Repo) -> None:
     review, fresh = repo.get_job("review"), repo.get_job("fresh")
     assert applied and hidden and ad and review and fresh
     assert (applied.status, applied.score, applied.score_reason) == ("applied", 88, "Good fit")
-    assert (applied.notion_page_id, applied.user_status_at) == ("page-1", "2026-10-02")
+    assert (applied.notion_page_id, applied.user_status_at) == (
+        "page-1",
+        "2026-10-02T00:00:00.000000Z",
+    )
     assert (hidden.status, hidden.score_reason) == ("hidden", "weak match (30)")
     assert (ad.status, ad.score_reason) == ("hidden", "an ad")
     assert (review.status, review.score_reason) == ("needs_review", "several jobs in one post")
@@ -189,7 +192,7 @@ def test_migration_0003_moves_scores_to_the_owner(pg_engine: Engine, clock: Fake
             c.execute(
                 text("INSERT INTO job (id, data_json, score, score_reason, status, notion_page_id,"
                      " user_status_at, created_at, updated_at) VALUES (:id, :data, :score,"
-                     " :reason, :status, :page, :yours, '2026-10-01', '2026-10-01')"),
+                     " :reason, :status, :page, :yours, '2026-10-01T00:00:00.000000Z', '2026-10-01T00:00:00.000000Z')"),
                 {"id": id_, "data": data, "score": score, "reason": reason, "status": status,
                  "page": page, "yours": yours},
             )  # fmt: skip
@@ -228,6 +231,6 @@ def test_each_persons_records_are_their_own(repo: Repo, tmp_path: Path) -> None:
     assert repo.pending_alerts() == ["j"] and other.pending_alerts() == []
     other.set_user_status("j", JobStatus.APPLIED)
     assert repo.status_history("j") == [] and len(other.status_history("j")) == 1
-    assert repo.status_changes_since("2000") == {}
+    assert repo.status_changes_since("2000-01-01") == {}
     other.set_user_setting("followed_up:j", "2026-10-09")
     assert repo.get_user_setting("followed_up:j") is None
