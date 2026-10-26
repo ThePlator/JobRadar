@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -620,11 +621,14 @@ class AuthConfig(BaseSettings):
     def _comma_list(cls, v: Any) -> Any:
         return [w.strip() for w in v.split(",") if w.strip()] if isinstance(v, str) else v
 
-    @field_validator("firebase_api_key", "firebase_auth_domain", "firebase_project_id",
-                     mode="before")  # fmt: skip
+    @field_validator("*", mode="before")
     @classmethod
-    def _blank_is_unset(cls, v: Any) -> Any:
-        return None if isinstance(v, str) and not v.strip() else v
+    def _blank_is_unset(cls, v: Any, info: ValidationInfo) -> Any:
+        # `KEY=` in .env means "not set", as for the other settings: the default applies.
+        if isinstance(v, str) and not v.strip():
+            field = cls.model_fields[info.field_name or ""]
+            return field.get_default(call_default_factory=True)
+        return v
 
     @model_validator(mode="after")
     def _firebase_is_set(self) -> AuthConfig:

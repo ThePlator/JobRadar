@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}API · JobRadar{% endblock %}
+{% block main %}
+<div class="head">
+  <p class="eyebrow">For scripts and apps</p>
+  <h1>The JobRadar API</h1>
+  <p class="lede">Everything these pages show, as JSON, under <code>/api/v1</code>. Sign in here first: requests from this browser carry your session. Errors are <a href="https://www.rfc-editor.org/rfc/rfc9457">problem details</a>; lists come a page at a time, with a <code>next_cursor</code> for the next one. The machine-readable description is at <a href="/api/v1/openapi.json"><code>/api/v1/openapi.json</code></a>.</p>
+</div>
+{% for g in groups %}
+<section class="api-group">
+  <h2>{{ g.name }}</h2>
+  {% for e in g.endpoints %}
+  <article class="api-op">
+    <p class="api-line"><b class="api-method">{{ e.method }}</b> <code>{{ e.path }}</code> <span class="faint">→ {{ e.answer }}</span></p>
+    <p class="api-summary">{{ e.summary }}{% if e.about %} {{ e.about }}{% endif %}</p>
+    {% if e.params %}
+    <ul class="api-params">
+      {% for p in e.params %}<li><code>{{ p.name }}</code> <span class="faint">{{ p.where }}, {{ p.kind }}{% if p.required %}, required{% endif %}</span>{% if p.about %}: {{ p.about }}{% endif %}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endfor %}
+{% endblock %}

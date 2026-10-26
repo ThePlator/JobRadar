@@ -845,3 +845,12 @@ footer .keys kbd + kbd { margin-left: -2px; }
 .signout { margin: 0; }
 .signout .theme { width: 100%; }
 @media (max-width: 480px) { .gate { padding: 22px 18px; } .gate-blip { width: 56px; } }
+
+/* ---- the API reference (/api) ---- */
+.api-group { margin: 28px 0 0; }
+.api-op { padding: 14px 16px; margin: 0 0 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.api-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; overflow-wrap: anywhere; }
+.api-method { font: 700 12px/1 var(--mono); padding: 4px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); }
+.api-summary { margin: 8px 0 0; color: var(--muted); }
+.api-params { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+.api-params li { margin: 2px 0; overflow-wrap: anywhere; }

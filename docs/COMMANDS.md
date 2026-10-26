@@ -365,6 +365,20 @@ On `saas/main`, JobRadar can use Postgres instead of `data/jobradar.db`.
 4. Start as usual (`uv run jobradar run` or `jobradar web`). Remove `DATABASE_URL` to go back to
    SQLite.
 
+## SaaS branch only: the API
+
+Everything the pages show is also JSON under `/api/v1`: open **API** in the dashboard's footer
+for the reference, or `/api/v1/openapi.json` for the machine-readable one. Requests carry your
+session, so sign in on the site first (API tokens for scripts come later). For example, your
+strong new matches:
+```bash
+curl -s "http://127.0.0.1:8080/api/v1/jobs?status=new&min_score=75&limit=5"
+```
+A change to the API changes `tests/snapshots/openapi.json`; after reviewing it:
+```bash
+JOBRADAR_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_api.py
+```
+
 ## SaaS branch only: signing in
 
 With `AUTH_ENABLED=true` in `.env`, every dashboard page needs signing in first: with Google, an email and
