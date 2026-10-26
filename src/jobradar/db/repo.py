@@ -281,6 +281,10 @@ def _add_new_columns(engine: Engine) -> None:
                     extra = ""
                     if column.name == "user_id":  # rows from before users: the owner's
                         extra = f" NOT NULL DEFAULT '{OWNER}'"
+                    elif column.name == "approval":  # rows from before the catalog: already live
+                        extra = " NOT NULL DEFAULT 'approved'"
+                    elif column.name == "origin":
+                        extra = " NOT NULL DEFAULT 'seen'"
                     elif not column.nullable:
                         raise RuntimeError(f"cannot add required column {table.name}.{column.name}")
                     c.execute(
@@ -421,6 +425,88 @@ class Repo:
             s.commit()
             s.refresh(src)
             return src
+
+    def get_source(self, source_id: int) -> Source | None:
+        with Session(self.engine) as s:
+            return s.get(Source, source_id)
+
+    def source_by_key(self, platform: str, chat_id: str) -> Source | None:
+        with Session(self.engine) as s:
+            return s.exec(
+                select(Source).where(Source.platform == platform, Source.chat_id == chat_id)
+            ).first()
+
+    def catalog_sources(
+        self,
+        *,
+        platform: str | None = None,
+        approval: str | None = None,
+        origin: str | None = None,
+    ) -> list[Source]:
+        """Catalog rows, oldest first. No user: a source is everyone's, or no one's yet."""
+        with Session(self.engine) as s:
+            query = select(Source)
+            if platform is not None:
+                query = query.where(Source.platform == platform)
+            if approval is not None:
+                query = query.where(Source.approval == approval)
+            if origin is not None:
+                query = query.where(Source.origin == origin)
+            return list(s.exec(query.order_by(col(Source.id))))
+
+    def put_catalog_source(
+        self,
+        platform: str,
+        chat_id: str,
+        *,
+        title: str | None,
+        approval: str,
+        origin: str,
+        detail_json: str | None,
+        suggested_by: str | None = None,
+    ) -> Source:
+        """Insert a catalog row, or update its catalog fields. Catch-up (`last_msg_id`) stays."""
+        with Session(self.engine) as s:
+            src = s.exec(
+                select(Source).where(Source.platform == platform, Source.chat_id == chat_id)
+            ).first()
+            if src is None:
+                src = Source(
+                    platform=platform,
+                    chat_id=chat_id,
+                    title=title,
+                    approval=approval,
+                    origin=origin,
+                    detail_json=detail_json,
+                    suggested_by=suggested_by,
+                )
+            else:
+                src.title = title if title is not None else src.title
+                src.approval = approval
+                src.origin = origin
+                src.detail_json = detail_json
+                if suggested_by is not None:
+                    src.suggested_by = suggested_by
+            s.add(src)
+            s.commit()
+            s.refresh(src)
+            return src
+
+    def note_source_ok(self, platform: str, chat_id: str, when: str) -> None:
+        """The last read of this source that worked. No row yet (never synced): nothing to mark."""
+        with self._tx() as c:
+            c.execute(
+                text(
+                    f"UPDATE source SET last_ok_at = {self._moment('when')} "  # noqa: S608
+                    "WHERE platform = :p AND chat_id = :id"
+                ),
+                {"when": when, "p": platform, "id": chat_id},
+            )
+
+    def account(self) -> User | None:
+        """This repo's user, read as the login role. `users` is hidden from the app role, so a
+        signed-in request (which runs as that role) can't look itself up on its own connection."""
+        return Repo(self._root, self._clock, self.user_id).get_user(self.user_id)
 
     def set_last_msg_id(self, source_id: int, last_msg_id: int) -> None:
         """Advance the catch-up point; never moves it backwards."""

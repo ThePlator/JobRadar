@@ -49,19 +49,43 @@ def _in(column: str, values: Iterable[StrEnum]) -> str:
     return f"{column} IN ({', '.join(repr(v.value) for v in values)})"
 
 
+class SourceApproval(StrEnum):
+    """Whether the platform reads this source. A suggestion stays pending until an admin says."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class SourceOrigin(StrEnum):
+    """Where the row came from. Only `config`, and an approved `suggestion`, are a watch list.
+    `seen` is a chat or board a message already arrived from: kept for history, not re-read."""
+
+    CONFIG = "config"
+    SUGGESTION = "suggestion"
+    SEEN = "seen"
+
+
 class Source(SQLModel, table=True):
     __tablename__ = "source"
     __table_args__ = (
         UniqueConstraint("platform", "chat_id"),
         CheckConstraint(_in("platform", Platform), name="source_platform"),
+        CheckConstraint(_in("approval", SourceApproval), name="source_approval"),
+        CheckConstraint(_in("origin", SourceOrigin), name="source_origin"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     platform: str
-    chat_id: str
+    chat_id: str  # the catalog key: peer id, "greenhouse:stripe", "page:https://…"
     title: str | None = None
     enabled: bool = True
     last_msg_id: int | None = None  # catch-up point
+    approval: str = SourceApproval.APPROVED.value  # pending until an admin approves a suggestion
+    origin: str = SourceOrigin.SEEN.value  # config and suggestion are watched; seen is history
+    suggested_by: str | None = Field(default=None, foreign_key="users.id")
+    detail_json: str | None = Field(default=None, sa_type=JsonText)  # how to read a suggestion
+    last_ok_at: str | None = Field(default=None, sa_type=IsoTime)  # last read that worked
 
 
 class RawMessage(SQLModel, table=True):

@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
+from jobradar.catalog import watch_boards
 from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import BoardRef, BoardsConfig
 from jobradar.db.models import JobStatus, Platform
@@ -125,20 +126,27 @@ class BoardWatcher:
             # The other key: re-queueing the running task would run it again at once.
             self.schedule(TICK_SECONDS, key="b" if task.key == "a" else "a")
 
+    def watching(self) -> dict[str, BoardRef]:
+        """Config boards plus approved suggestions, minus any an admin has turned down."""
+        return watch_boards(self.boards, self.repo)
+
     def due(self, key: str, now: datetime) -> bool:
+        ref = self.boards.get(key) or self.watching().get(key)
+        if ref is None:
+            return False
         board = self.repo.get_board(key)
         if board.skip_until and from_iso(board.skip_until) > now:
             return False
         if board.last_checked is None:
             return True
-        ats = self.boards[key].ats
+        ats = ref.ats
         every = timedelta(minutes=max(self.config.every_minutes, MIN_EVERY_MINUTES.get(ats, 0)))
         # Spread checks out: each board's turn comes at its own offset within the interval.
         return now - from_iso(board.last_checked) >= every - _offset(key, every) / 4
 
     def queue_due(self) -> int:
         now = self.clock()
-        due = [key for key in self.boards if self.due(key, now)]
+        due = [key for key in self.watching() if self.due(key, now)]
         for key in due:
             self.queue.enqueue(BOARD_CHECK, key)
         return len(due)
@@ -146,7 +154,7 @@ class BoardWatcher:
     # ---- one check ----------------------------------------------------------------------------
 
     async def check(self, task: TaskRecord) -> None:
-        if (ref := self.boards.get(task.key)) is not None:
+        if (ref := self.watching().get(task.key)) is not None:
             await self.check_board(ref)
 
     async def check_board(self, ref: BoardRef) -> None:
@@ -177,6 +185,7 @@ class BoardWatcher:
         seen: dict[str, str] | None = json.loads(board.seen_json) if board.seen_json else None
         board.misses, board.skip_until, board.last_error = 0, None, None
         board.last_ok = to_iso(now)
+        self.repo.note_source_ok(Platform.BOARD.value, ref.key, board.last_ok)
         if seen is None:
             if postings:
                 board.latest_json = latest(postings, now)

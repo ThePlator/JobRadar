@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from jobradar.catalog import has_approved_suggestion
 from jobradar.config import ConfigError, Secrets, Settings
 from jobradar.db.repo import DEFAULT_DB_PATH, Repo, TaskRecord, connect, init_db
 from jobradar.llm import LLM, load_prompt
@@ -47,6 +48,7 @@ from jobradar.providers.skills_rule import SkillsRule
 from jobradar.queue.tasks import TaskQueue
 from jobradar.queue.worker import Handler, Worker
 from jobradar.resume.build import ResumeBuilder
+from jobradar.services.catalog import sync_config
 from jobradar.sinks import notion
 from jobradar.sinks.company_replies import CompanyReplies
 from jobradar.sinks.digest import Digest
@@ -242,12 +244,12 @@ class Pipeline:
             handlers[BUILD_RESUME] = self.resumes.build
         boards = settings.config.sources.boards
         self.boards: BoardWatcher | None = None
-        if boards.enabled and boards.companies:
+        if boards.enabled and (boards.companies or has_approved_suggestion(repo, "board")):
             self.boards = BoardWatcher(boards, repo, queue, make_emit(repo, queue))
             handlers[BOARDS_TICK], handlers[BOARD_CHECK] = self.boards.tick, self.boards.check
         pages = settings.config.sources.pages
         self.pages: PageWatcher | None = None
-        if pages.enabled and pages.watch:
+        if pages.enabled and (pages.watch or has_approved_suggestion(repo, "page")):
             # The shared fetcher: one robots.txt cache and one per-site pace for everything.
             self.pages = PageWatcher(pages, repo, queue, make_emit(repo, queue), self.fetcher)
             handlers[PAGES_TICK], handlers[PAGE_CHECK] = self.pages.tick, self.pages.check
@@ -318,6 +320,8 @@ async def run(settings: Settings) -> None:
     if settings.config.notion.enabled:
         settings.require("notion")
     repo, queue = open_store()
+    if synced := sync_config(repo, settings):
+        log.info("catalog synced from config", extra={"sources": synced})
     if reclaimed := queue.reclaim_stuck():
         log.info("re-queued tasks interrupted by the last shutdown", extra={"count": reclaimed})
 
