@@ -170,7 +170,11 @@ class LLM:
         return content, self._cost_inr(model, response)
 
     async def structured(self, model: str, prompt: Prompt, schema: type[T], **values: str) -> T:
-        """Run a prompt and return the validated object (cached by model, version, input)."""
+        """Run a prompt and return the validated object.
+
+        Cached by model, prompt version and input, with no user in the key: one extraction
+        of a posting is reused for everyone (the shared catalog cache).
+        """
         text = prompt.render(**values)
         key = sha1(f"{model}|{prompt.version}|{text}")
         if (cached := self._repo.llm_cache_get(key)) is not None:

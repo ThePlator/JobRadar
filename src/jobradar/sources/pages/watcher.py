@@ -26,6 +26,7 @@ import logging
 import zlib
 from datetime import datetime, timedelta
 
+from jobradar.catalog import watch_pages
 from jobradar.clock import Clock, from_iso, to_iso, utcnow
 from jobradar.config import PagesConfig
 from jobradar.db.models import JobStatus, PageState, Platform, WatchedPage
@@ -93,8 +94,15 @@ class PageWatcher:
             # The other key: re-queueing the running task would run it again at once.
             self.schedule(TICK_SECONDS, key="b" if task.key == "a" else "a")
 
+    def watching(self) -> dict[str, str]:
+        """Config pages plus approved suggestions, minus any an admin has turned down."""
+        return watch_pages(self.pages, self.repo)
+
     def due(self, url: str, now: datetime) -> bool:
-        page = self.repo.get_watched_page(url, self.pages[url])
+        name = self.pages.get(url) or self.watching().get(url)
+        if name is None:
+            return False
+        page = self.repo.get_watched_page(url, name)
         if page.state in (PageState.PAUSED, PageState.BLOCKED):
             return False
         if page.wait_until and from_iso(page.wait_until) > now:
@@ -106,7 +114,7 @@ class PageWatcher:
 
     def queue_due(self) -> int:
         now = self.clock()
-        due = [url for url in self.pages if self.due(url, now)]
+        due = [url for url in self.watching() if self.due(url, now)]
         for url in due:
             self.queue.enqueue(PAGE_CHECK, url)
         return len(due)
@@ -114,7 +122,7 @@ class PageWatcher:
     # ---- one check ----------------------------------------------------------------------------
 
     async def check(self, task: TaskRecord) -> None:
-        if (name := self.pages.get(task.key)) is not None:
+        if (name := self.watching().get(task.key)) is not None:
             await self.check_page(name, task.key)
 
     async def check_page(self, name: str, url: str) -> int:
@@ -154,6 +162,7 @@ class PageWatcher:
         lines = clean_lines(read.text)
         page.state, page.refusals, page.wait_until = PageState.WATCHING.value, 0, None
         page.last_error, page.last_ok = None, to_iso(now)
+        self.repo.note_source_ok(Platform.PAGE.value, f"page:{url}", page.last_ok)
         posted = 0
         if page.text is None:
             log.info("page baseline: text recorded, no alerts", extra={"page": name})

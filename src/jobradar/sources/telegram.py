@@ -17,6 +17,7 @@ from telethon import TelegramClient, events, utils
 from telethon.errors import FloodWaitError
 from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl
 
+from jobradar.catalog import watch_chats
 from jobradar.config import ConfigError, Settings
 from jobradar.db.models import Platform
 from jobradar.db.repo import Repo
@@ -157,7 +158,8 @@ class TelegramSource:
         if not await self._client.is_user_authorized():
             raise ConfigError("Not logged in to Telegram. Run `jobradar init` first.")
         protect_session()
-        chats = await self._resolve_chats(self._cfg.chats)
+        # Config chats, plus public channels an admin approved. One platform account reads them.
+        chats = await self._resolve_chats(watch_chats(list(self._cfg.chats), self._repo))
 
         # Register the live handler before catching up, so nothing posted meanwhile is missed;
         # duplicates are dropped by the raw_message unique key.

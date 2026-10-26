@@ -1537,6 +1537,20 @@ flowchart LR
 - **What:** catalog tables shared by all users; the platform Telegram account for public
   channels; sources table with an admin approval flow; shared extraction cache.
 - **Done when:** jobs are read and extracted once, with no user involved.
+- **As built:** `source` gained `approval` (`pending`, `approved`, `rejected`), `origin`
+  (`config`, `suggestion`, `seen`), `suggested_by`, `detail_json` and `last_ok_at`
+  (migration `0008`). Rows that already existed stay approved and `seen`: history of a
+  chat a message came from, not a watch list. On `jobradar run`, boards, pages and
+  Telegram chats in `config.yaml` are written as approved `config` sources. Taking one
+  out of config stops reading it; the old messages stay. `services.catalog.suggest`
+  files a public channel, board or page as `pending`. `review` is admin-only; an
+  approved suggestion is read on the next tick, with no user on the job. Rejecting a
+  source stops it even when config still lists it, until an admin approves it again.
+  The platform Telegram account is the one already in `.env` (`TG_API_ID`); users never
+  connect their own, and private groups are refused. Extraction stays in `llm_cache`,
+  keyed by model, prompt and input, with no user. The separate catalog database role
+  waits for PR 12, when catalog work runs in its own process. Follow and unfollow is
+  PR 8. There is no screen for this yet (PR 15).
 
 ### PR 8: `saas/fanout`
 
@@ -1645,7 +1659,10 @@ To decide before or during the named PR. Record answers here.
 3. **Email provider**: Resend (simpler) or SES (cheaper at volume) (PR 13).
 4. **VM provider**: Hetzner, DigitalOcean, Lightsail, or Fly.io (PR 16).
 5. **Free plan limits** (section 17): confirm the starting numbers (PR 10).
-6. **Public Telegram channel list** for the catalog (PR 7).
+6. **Public Telegram channel list** for the catalog. **Answered in PR 7:** it is
+   `sources.telegram.chats` in `config.yaml` (plus the boards and pages there), copied
+   into the catalog on start. More join when an admin approves a suggestion. No separate
+   list file.
 7. **Resume import**: which parser for uploaded PDFs, and how much the user must confirm (PR 15).
 8. **Open-source status of the SaaS branch**: public on GitHub (MIT like `main`) or private (decide
    before PR 4, since it will contain deployment config).

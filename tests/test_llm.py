@@ -43,6 +43,16 @@ async def test_result_is_cached_by_input(repo: Repo, clock: FakeClock) -> None:
     assert repo.llm_spend_since("2000-01-01T00:00:00.000000Z") > 0
 
 
+async def test_extraction_cache_is_shared_by_every_user(repo: Repo, clock: FakeClock) -> None:
+    """The cache key has no user, so the next person doesn't pay for the same posting again."""
+    fake = FakeCompletion(GOOD)
+    await make(repo, clock, fake).structured(MODEL, PROMPT, JobPosting, page_text="shared")
+    await make(repo.for_user("someone-else"), clock, fake).structured(
+        MODEL, PROMPT, JobPosting, page_text="shared"
+    )
+    assert len(fake.calls) == 1
+
+
 async def test_one_repair_then_schema_error(repo: Repo, clock: FakeClock) -> None:
     fake = FakeCompletion("not json at all", "still not json")
     llm = make(repo, clock, fake)
