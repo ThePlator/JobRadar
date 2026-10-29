@@ -152,6 +152,31 @@ def _own_old_rows(engine: Engine) -> None:
             c.execute(
                 text("CREATE UNIQUE INDEX IF NOT EXISTS alert_user_job ON alert (user_id, job_id)")
             )
+        c.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS task_catalog_unique ON task (type, key) "
+                "WHERE user_id IS NULL"
+            )
+        )
+        c.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS task_user_unique ON task (type, key, user_id) "
+                "WHERE user_id IS NOT NULL"
+            )
+        )
+        c.execute(
+            text("CREATE INDEX IF NOT EXISTS task_ready_user ON task (status, run_after, user_id)")
+        )
+        c.execute(
+            text(
+                "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                "SELECT u.id, s.id, strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now') "
+                "FROM users u "
+                "CROSS JOIN source s "
+                "WHERE s.approval = 'approved' AND u.deleted_at IS NULL "
+                "ON CONFLICT DO NOTHING"
+            )
+        )
     move_user_settings(engine)
 
 
@@ -279,7 +304,9 @@ def _add_new_columns(engine: Engine) -> None:
                 if column.name not in have:
                     kind = column.type.compile(engine.dialect)
                     extra = ""
-                    if column.name == "user_id":  # rows from before users: the owner's
+                    if (
+                        column.name == "user_id" and table.name != "task"
+                    ):  # rows from before users: the owner's
                         extra = f" NOT NULL DEFAULT '{OWNER}'"
                     elif column.name == "approval":  # rows from before the catalog: already live
                         extra = " NOT NULL DEFAULT 'approved'"
@@ -330,6 +357,7 @@ class TaskRecord:
     key: str
     payload: dict[str, Any]
     attempts: int  # including the current attempt
+    user_id: str | None = None
 
 
 class Repo:
@@ -353,6 +381,12 @@ class Repo:
         root = self._root
         engine = root.execution_options(jobradar_user=user_id) if self.pg else root
         return Repo(engine, self._clock, user_id, scoped=True, root=root)
+
+    def unscoped(self) -> Repo:
+        """The database without user scoping, using the login role (bypasses RLS)."""
+        if not self.is_scoped:
+            return self
+        return Repo(self._root, self._clock, OWNER, scoped=False, root=self._root)
 
     def for_user(self, user_id: str) -> Repo:
         """The same database for someone else: scoped if this one is."""
@@ -502,6 +536,73 @@ class Repo:
                 ),
                 {"when": when, "p": platform, "id": chat_id},
             )
+
+    # ---- followed sources ---------------------------------------------------------------------
+
+    def follow_source(self, source_id: int, user_id: str | None = None) -> None:
+        """Follow a catalog source."""
+        now = self._now()
+        with self._tx() as c:
+            c.execute(
+                text(
+                    "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                    "VALUES (:uid, :source_id, :now) "
+                    "ON CONFLICT (user_id, source_id) DO NOTHING"
+                ),
+                {"uid": self._uid(user_id), "source_id": source_id, "now": now},
+            )
+
+    def unfollow_source(self, source_id: int, user_id: str | None = None) -> None:
+        """Unfollow a catalog source."""
+        with self._tx() as c:
+            c.execute(
+                text("DELETE FROM user_sources WHERE user_id = :uid AND source_id = :source_id"),
+                {"uid": self._uid(user_id), "source_id": source_id},
+            )
+
+    def followed_sources(self, user_id: str | None = None) -> set[int]:
+        """IDs of sources this user follows."""
+        with self._tx() as c:
+            rows = c.execute(
+                text("SELECT source_id FROM user_sources WHERE user_id = :uid"),
+                {"uid": self._uid(user_id)},
+            ).fetchall()
+        return {r[0] for r in rows}
+
+    def auto_follow_approved_source(self, source_id: int) -> int:
+        """When an admin approves a source into the catalog, all active users follow it.
+
+        Must run on the unscoped (owner) connection to insert across all users.
+        """
+        now = self._now()
+        with self._tx() as c:
+            res = c.execute(
+                text(
+                    "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                    "SELECT id, :source_id, :now "
+                    "FROM users "
+                    "WHERE deleted_at IS NULL "
+                    "ON CONFLICT (user_id, source_id) DO NOTHING"
+                ),
+                {"source_id": source_id, "now": now},
+            )
+        return int(res.rowcount) if res.rowcount and res.rowcount > 0 else 0
+
+    def auto_follow_all_approved_sources(self, user_id: str) -> int:
+        """When a new user signs up, they follow every approved catalog source."""
+        now = self._now()
+        with self._tx() as c:
+            res = c.execute(
+                text(
+                    "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                    "SELECT :uid, id, :now "
+                    "FROM source "
+                    "WHERE approval = 'approved' "
+                    "ON CONFLICT (user_id, source_id) DO NOTHING"
+                ),
+                {"uid": user_id, "now": now},
+            )
+        return int(res.rowcount) if res.rowcount and res.rowcount > 0 else 0
 
     def account(self) -> User | None:
         """This repo's user, read as the login role. `users` is hidden from the app role, so a
@@ -810,41 +911,60 @@ class Repo:
         payload: dict[str, Any] | None = None,
         run_after: str = "",
         priority: int = 0,
+        user_id: str | None = None,
+        do_nothing: bool = False,
     ) -> None:
-        """Insert a task, or merge into the existing (type, key) row:
+        """Insert a task, or merge into the existing (type, key, [user_id]) row:
 
         - pending: payload replaced, keeps the earlier run_after
         - running: payload replaced and the task runs once more after the current attempt
-        - done / failed: reset to pending with a fresh attempt count
+        - done / failed: reset to pending with a fresh attempt count (unless do_nothing is True)
         """
         now = self._now()
+        uid = (
+            user_id
+            if user_id is not None
+            else (self.user_id if self.is_scoped or self.user_id != OWNER else None)
+        )
+        conflict_target = (
+            "(type, key, user_id) WHERE user_id IS NOT NULL"
+            if uid is not None
+            else "(type, key) WHERE user_id IS NULL"
+        )
+        insert = (
+            "INSERT INTO task (type, key, user_id, payload, status, attempts, run_after, rerun,"
+            " priority) VALUES (:type, :key, :uid, :payload, 'pending', 0, :run_after, FALSE,"
+            " :priority) "
+        )
+        if do_nothing:
+            sql = f"{insert}ON CONFLICT {conflict_target} DO NOTHING"
+        else:
+            sql = (
+                f"{insert}ON CONFLICT {conflict_target} DO UPDATE SET "
+                " payload = excluded.payload,"
+                " priority = CASE"
+                "   WHEN coalesce(task.priority, 0) > coalesce(excluded.priority, 0)"
+                "   THEN coalesce(task.priority, 0) ELSE excluded.priority END,"
+                " run_after = CASE task.status"
+                "   WHEN 'pending' THEN CASE WHEN excluded.run_after < task.run_after"
+                "     THEN excluded.run_after ELSE task.run_after END"
+                "   WHEN 'running' THEN task.run_after"
+                "   ELSE excluded.run_after END,"
+                " attempts = CASE WHEN task.status IN ('done', 'failed') THEN 0"
+                "   ELSE task.attempts END,"
+                " last_error = CASE WHEN task.status IN ('done', 'failed') THEN NULL"
+                "   ELSE task.last_error END,"
+                " rerun = CASE WHEN task.status = 'running' THEN TRUE ELSE task.rerun END,"
+                " status = CASE WHEN task.status IN ('done', 'failed') THEN 'pending'"
+                "   ELSE task.status END"
+            )
         with self._tx() as c:
             c.execute(
-                text(
-                    "INSERT INTO task (type, key, payload, status, attempts, run_after, rerun,"
-                    " priority) "
-                    "VALUES (:type, :key, :payload, 'pending', 0, :run_after, FALSE, :priority) "
-                    "ON CONFLICT (type, key) DO UPDATE SET "
-                    " payload = excluded.payload,"
-                    " priority = CASE"
-                    "   WHEN coalesce(task.priority, 0) > coalesce(excluded.priority, 0)"
-                    "   THEN coalesce(task.priority, 0) ELSE excluded.priority END,"
-                    " run_after = CASE task.status"
-                    "   WHEN 'pending' THEN CASE WHEN excluded.run_after < task.run_after"
-                    "     THEN excluded.run_after ELSE task.run_after END"
-                    "   WHEN 'running' THEN task.run_after"
-                    "   ELSE excluded.run_after END,"
-                    " attempts = CASE WHEN task.status IN ('done', 'failed') THEN 0"
-                    "   ELSE task.attempts END,"
-                    " last_error = CASE WHEN task.status IN ('done', 'failed') THEN NULL"
-                    "   ELSE task.last_error END,"
-                    " rerun = CASE WHEN task.status = 'running' THEN TRUE ELSE task.rerun END,"
-                    " status = CASE WHEN task.status IN ('done', 'failed') THEN 'pending'"
-                    "   ELSE task.status END"
-                ),
+                text(sql),
                 {
                     "type": type_,
                     "key": key,
+                    "uid": uid,
                     "payload": json.dumps(payload or {}),
                     "run_after": run_after or now,
                     "priority": priority,
@@ -869,7 +989,7 @@ class Repo:
                 " started_at = :now WHERE id = (SELECT id FROM task"
                 " WHERE status = 'pending' AND run_after <= :now"
                 f"{type_filter} ORDER BY coalesce(priority, 0) DESC, run_after, id LIMIT 1{lock}) "
-                "RETURNING id, type, key, payload, attempts"
+                "RETURNING id, type, key, payload, attempts, user_id"
             )
             row = c.execute(
                 text(sql),
@@ -883,6 +1003,7 @@ class Repo:
             key=row.key,
             payload=json.loads(row.payload),
             attempts=row.attempts,
+            user_id=row.user_id,
         )
 
     def complete(self, task_id: int) -> None:

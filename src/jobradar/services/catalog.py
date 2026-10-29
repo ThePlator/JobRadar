@@ -11,7 +11,15 @@ from jobradar.db.models import Role, Source, SourceApproval, SourceOrigin
 from jobradar.services.context import Ctx
 from jobradar.services.errors import NotFound, Refused
 
-__all__ = ["list_sources", "review", "suggest", "sync_config"]
+__all__ = [
+    "follow",
+    "list_followed",
+    "list_sources",
+    "review",
+    "suggest",
+    "sync_config",
+    "unfollow",
+]
 
 
 def suggest(ctx: Ctx, platform: str, key: str, title: str | None = None) -> Source:
@@ -48,7 +56,7 @@ def review(ctx: Ctx, source_id: int, decision: str) -> Source:
     src = ctx.repo.get_source(source_id)
     if src is None:
         raise NotFound("No source with that id.")
-    return ctx.repo.put_catalog_source(
+    saved = ctx.repo.put_catalog_source(
         src.platform,
         src.chat_id,
         title=src.title,
@@ -57,6 +65,29 @@ def review(ctx: Ctx, source_id: int, decision: str) -> Source:
         detail_json=src.detail_json,
         suggested_by=src.suggested_by,
     )
+    if approval == SourceApproval.APPROVED and saved.id is not None:
+        ctx.repo.unscoped().auto_follow_approved_source(saved.id)
+    return saved
+
+
+def follow(ctx: Ctx, source_id: int) -> None:
+    """Follow an approved catalog source."""
+    src = ctx.repo.get_source(source_id)
+    if src is None:
+        raise NotFound("No source with that id.")
+    if src.approval != SourceApproval.APPROVED.value:
+        raise Refused("Only approved sources can be followed.")
+    ctx.repo.follow_source(source_id)
+
+
+def unfollow(ctx: Ctx, source_id: int) -> None:
+    """Unfollow a catalog source."""
+    ctx.repo.unfollow_source(source_id)
+
+
+def list_followed(ctx: Ctx) -> set[int]:
+    """The set of source IDs this user follows."""
+    return ctx.repo.followed_sources()
 
 
 def list_sources(ctx: Ctx) -> list[Source]:

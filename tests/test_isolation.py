@@ -18,7 +18,7 @@ from tests.test_web import add
 
 SECRET = "Zyxlang"  # noqa: S105 (a skill only A's score reason names: it never reaches B)
 PER_USER = ("user_jobs", "status_change", "alert", "artifact", "user_settings", "profiles",
-            "preferences")  # fmt: skip
+            "preferences", "user_sources", "task")  # fmt: skip
 
 
 def a_has_things(repo: Repo, tmp_path: Path) -> int:
@@ -29,6 +29,12 @@ def a_has_things(repo: Repo, tmp_path: Path) -> int:
     repo.set_user_status("j", JobStatus.APPLIED)
     repo.queue_alert("j")
     repo.set_user_setting("followed_up:j", "2026-10-07")
+    src = repo.put_catalog_source(
+        "telegram", "chat_test", title="Chat", approval="approved", origin="seen", detail_json=None
+    )
+    if src.id is not None:
+        repo.follow_source(src.id)
+    repo.enqueue("build_resume", "j", user_id=OWNER)
     pdf = tmp_path / "out" / "resume.pdf"
     pdf.parent.mkdir()
     pdf.write_bytes(b"%PDF-1.4 A's resume")
@@ -123,6 +129,17 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
     other.set_user_setting("followed_up:j", "2026-10-08")
     other.save_profile({"basics": {"name": "Bo"}})
     other.save_preferences({})
+    src2 = repo.put_catalog_source(
+        "telegram",
+        "chat_test2",
+        title="Chat 2",
+        approval="approved",
+        origin="seen",
+        detail_json=None,
+    )
+    if src2.id is not None:
+        other.follow_source(src2.id)
+    other.enqueue("build_resume", "j")
 
     b = repo.scoped("u2")
     with b.engine.begin() as c:  # queries with no user filter at all
@@ -132,6 +149,12 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
     with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
         c.execute(text("INSERT INTO user_settings (user_id, key, value) "
                        "VALUES (:owner, 'x', 'planted')"), {"owner": OWNER})  # fmt: skip
+    with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
+        c.execute(text("INSERT INTO user_sources (user_id, source_id, followed_at) "
+                       "VALUES (:owner, 999, '2026-10-08T00:00:00+00:00')"), {"owner": OWNER})  # fmt: skip
+    with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
+        c.execute(text("INSERT INTO task (type, key, user_id, payload, status, attempts, run_after, rerun) "
+                       "VALUES ('build_resume', 'j99', :owner, '{}', 'pending', 0, '2026-10-08T00:00:00+00:00', FALSE)"), {"owner": OWNER})  # fmt: skip
     with pytest.raises(DBAPIError, match="permission denied"), b.engine.begin() as c:
         c.execute(text("SELECT * FROM users"))  # accounts are for sign-in code only
     with repo.engine.begin() as c:  # a session that never said who it is sees nothing

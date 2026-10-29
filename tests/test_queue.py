@@ -159,3 +159,46 @@ def test_fresh_work_jumps_the_queue(queue: TaskQueue, clock: FakeClock) -> None:
     assert priority(created, clock()) == FRESH  # 30 minutes old
     clock.advance(3600)
     assert priority(created, clock()) == 0
+
+
+def test_task_uniqueness_and_claiming_with_user_id(queue: TaskQueue, repo: Repo) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    repo.add_user(User(id="u2", auth_uid="fb-u2", created_at="2026-10-08"))
+
+    # Shared task (user_id=None) and per-user tasks (user_id='u1', 'u2') share (type, key)
+    queue.enqueue("match", "job-1", payload={"who": "catalog"})
+    queue.enqueue("match", "job-1", payload={"who": "u1"}, user_id="u1")
+    queue.enqueue("match", "job-1", payload={"who": "u2"}, user_id="u2")
+
+    # Duplicate enqueue for u1 updates payload
+    queue.enqueue("match", "job-1", payload={"who": "u1-updated"}, user_id="u1")
+
+    claimed = []
+    while t := queue.claim():
+        claimed.append((t.key, t.user_id, t.payload.get("who")))
+
+    assert len(claimed) == 3
+    assert ("job-1", None, "catalog") in claimed
+    assert ("job-1", "u1", "u1-updated") in claimed
+    assert ("job-1", "u2", "u2") in claimed
+
+
+def test_enqueue_do_nothing(queue: TaskQueue, repo: Repo) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    queue.enqueue("match", "job-1", payload={"attempt": 1}, user_id="u1")
+    t = queue.claim()
+    assert t is not None
+    queue.complete(t)
+
+    # With do_nothing=True, a completed task is NOT reset to pending
+    queue.enqueue("match", "job-1", payload={"attempt": 2}, user_id="u1", do_nothing=True)
+    assert queue.claim() is None
+
+    # Without do_nothing, a completed task is reset to pending
+    queue.enqueue("match", "job-1", payload={"attempt": 3}, user_id="u1", do_nothing=False)
+    t2 = queue.claim()
+    assert t2 is not None and t2.payload == {"attempt": 3}

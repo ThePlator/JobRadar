@@ -7,7 +7,7 @@ Mirrors the LLD schema. Timestamps are UTC text from `jobradar.clock.to_iso`.
 from collections.abc import Iterable
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, Index, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from jobradar.db.types import IsoTime, JsonText
@@ -162,6 +162,17 @@ class UserJob(SQLModel, table=True):
     updated_at: str = Field(sa_type=IsoTime)
 
 
+class UserSource(SQLModel, table=True):
+    """A catalog source a user follows (SAASPLAN.md PR 8)."""
+
+    __tablename__ = "user_sources"
+    __table_args__ = (Index("user_sources_by_source", "source_id", "user_id"),)
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True)
+    source_id: int = Field(foreign_key="source.id", primary_key=True)
+    followed_at: str = Field(sa_type=IsoTime)
+
+
 class Job(SQLModel):
     """A job as one person sees it: the posting (`job`) with their score and status
     (`user_jobs`). What the rest of JobRadar reads; the repo builds it with one join."""
@@ -213,14 +224,32 @@ class Artifact(SQLModel, table=True):
 class Task(SQLModel, table=True):
     __tablename__ = "task"
     __table_args__ = (
-        UniqueConstraint("type", "key"),
         CheckConstraint(_in("status", TaskStatus), name="task_status_value"),
         Index("task_ready", "status", "run_after"),
+        Index(
+            "task_catalog_unique",
+            "type",
+            "key",
+            unique=True,
+            postgresql_where=text("user_id IS NULL"),
+            sqlite_where=text("user_id IS NULL"),
+        ),
+        Index(
+            "task_user_unique",
+            "type",
+            "key",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+            sqlite_where=text("user_id IS NOT NULL"),
+        ),
+        Index("task_ready_user", "status", "run_after", "user_id"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     type: str
     key: str  # idempotency key, e.g. job id
+    user_id: str | None = Field(default=None, foreign_key="users.id")
     payload: str = Field(default="{}", sa_type=JsonText)
     status: str = TaskStatus.PENDING.value
     attempts: int = 0

@@ -1558,6 +1558,26 @@ flowchart LR
   or preference change; follow/unfollow sources.
 - **Tests:** users with different batches, places and sources get exactly the jobs they should.
 - **Done when:** one new job reaches only the users it could fit.
+- **Split into three PRs** (2026-10-29):
+  - **8a `saas/fanout-schema`:** `user_sources`, `task.user_id`, partial unique indexes, RLS, follow hooks.
+  - **8b `saas/fanout-pipeline`:** `candidate_users_for_job`, `FANOUT` task handler, scoped `match`.
+  - **8c `saas/fanout-rematch`:** `REMATCH_PROFILE`, debounced reverse fan-out query, cold start.
+- **As built, 8a (2026-10-29):**
+  - Migration `0009`: `user_sources` table (`user_id`, `source_id`, `followed_at`) with index
+    `user_sources_by_source` on `(source_id, user_id)`. `task` gained `user_id` (TEXT, nullable,
+    FK to `users.id`). The old `(type, key)` unique constraint was replaced with two partial unique
+    indexes: `(type, key) WHERE user_id IS NULL` (catalog tasks) and `(type, key, user_id) WHERE
+    user_id IS NOT NULL` (per-user tasks), plus `task_ready_user` on `(status, run_after, user_id)`.
+  - Migration backfills all existing active users to follow all approved catalog sources.
+  - Row-level security: enabled on `user_sources` and `task` for `<database>_app` role
+    (`user_id = current_setting('app.user_id', true)`). Table owner/login role used by background
+    workers bypasses RLS.
+  - `Repo.enqueue`: branches conflict target by `user_id IS NULL` vs `IS NOT NULL`, supports
+    `do_nothing` (for `MATCH` idempotency), and respects scoped tenant ID.
+  - `TaskRecord.user_id` populated on `claim()`.
+  - Source follow methods on `Repo` and `services.catalog`: `follow`, `unfollow`, `list_followed`.
+  - Auto-follow hooks: admin approval of a source bulk auto-follows for all active users on the
+    unscoped connection; user signup auto-follows all approved sources.
 
 ### PR 9: `saas/api-write`
 

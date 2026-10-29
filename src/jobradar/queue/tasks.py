@@ -68,8 +68,18 @@ class TaskQueue:
         payload: dict[str, Any] | None = None,
         delay: float = 0,
         priority: int = 0,
+        user_id: str | None = None,
+        do_nothing: bool = False,
     ) -> None:
-        self.repo.enqueue(type_, key, payload, run_after=self._at(delay), priority=priority)
+        self.repo.enqueue(
+            type_,
+            key,
+            payload,
+            run_after=self._at(delay),
+            priority=priority,
+            user_id=user_id,
+            do_nothing=do_nothing,
+        )
 
     def claim(self, types: list[str] | None = None) -> TaskRecord | None:
         return self.repo.claim(types)
