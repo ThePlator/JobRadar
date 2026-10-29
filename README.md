@@ -1,5 +1,7 @@
 # JobRadar
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/ThePlator/badge.svg)](https://hub.xerj.org/contributors/ThePlator)
+
 **One inbox for every new job from company career pages, job boards and the Telegram groups you follow: deduplicated, ranked, and ready to apply.**
 
 **Website:** [jobradar.theplator.dev](https://jobradar.theplator.dev/), see how it works and try the post reader in your browser.

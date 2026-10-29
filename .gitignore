@@ -40,3 +40,6 @@ node_modules/
 .vscode/
 .DS_Store
 data-backup/
+*.pdf
+*.jsonc
+brag-output
