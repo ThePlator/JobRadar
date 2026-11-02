@@ -185,7 +185,7 @@ def test_task_uniqueness_and_claiming_with_user_id(queue: TaskQueue, repo: Repo)
     assert ("job-1", "u2", "u2") in claimed
 
 
-def test_enqueue_do_nothing(queue: TaskQueue, repo: Repo) -> None:
+def test_enqueue_once(queue: TaskQueue, repo: Repo) -> None:
     from jobradar.db.models import User
 
     repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
@@ -194,11 +194,33 @@ def test_enqueue_do_nothing(queue: TaskQueue, repo: Repo) -> None:
     assert t is not None
     queue.complete(t)
 
-    # With do_nothing=True, a completed task is NOT reset to pending
-    queue.enqueue("match", "job-1", payload={"attempt": 2}, user_id="u1", do_nothing=True)
+    # With enqueue_once, a completed task is NOT reset to pending
+    queue.enqueue_once("match", "job-1", payload={"attempt": 2}, user_id="u1")
     assert queue.claim() is None
 
-    # Without do_nothing, a completed task is reset to pending
-    queue.enqueue("match", "job-1", payload={"attempt": 3}, user_id="u1", do_nothing=False)
+    # Normal enqueue resets a completed task to pending
+    queue.enqueue("match", "job-1", payload={"attempt": 3}, user_id="u1")
     t2 = queue.claim()
     assert t2 is not None and t2.payload == {"attempt": 3}
+
+
+def test_scoped_enqueue_stamps_user_and_catalog_forces_null(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    scoped = repo.scoped("u1")
+    q = TaskQueue(scoped, clock=clock)
+
+    # Scoped enqueue stamps user_id
+    q.enqueue("build_resume", "job-1")
+    t1 = repo.claim(["build_resume"])
+    assert t1 is not None
+    assert t1.user_id == "u1"
+    repo.complete(t1.id)
+
+    # catalog=True from scoped repo forces user_id=None
+    q.enqueue("fetch", "job-1", catalog=True)
+    t2 = repo.claim(["fetch"])
+    assert t2 is not None
+    assert t2.user_id is None
+    repo.complete(t2.id)

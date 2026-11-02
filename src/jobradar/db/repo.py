@@ -985,20 +985,70 @@ class Repo:
         run_after: str = "",
         priority: int = 0,
         user_id: str | None = None,
-        do_nothing: bool = False,
+        catalog: bool = False,
     ) -> None:
         """Insert a task, or merge into the existing (type, key, [user_id]) row:
 
         - pending: payload replaced, keeps the earlier run_after
         - running: payload replaced and the task runs once more after the current attempt
-        - done / failed: reset to pending with a fresh attempt count (unless do_nothing is True)
+        - done / failed: reset to pending with a fresh attempt count
         """
-        now = self._now()
-        uid = (
-            user_id
-            if user_id is not None
-            else (self.user_id if self.is_scoped or self.user_id != OWNER else None)
+        self._enqueue(
+            type_,
+            key,
+            payload=payload,
+            run_after=run_after,
+            priority=priority,
+            user_id=user_id,
+            catalog=catalog,
+            do_nothing=False,
         )
+
+    def enqueue_once(
+        self,
+        type_: str,
+        key: str,
+        payload: dict[str, Any] | None = None,
+        run_after: str = "",
+        priority: int = 0,
+        user_id: str | None = None,
+        catalog: bool = False,
+    ) -> None:
+        """Insert a task only if no row exists for (type, key, [user_id]).
+
+        If a row exists in any state (pending, running, done, failed), leaves it untouched.
+        """
+        self._enqueue(
+            type_,
+            key,
+            payload=payload,
+            run_after=run_after,
+            priority=priority,
+            user_id=user_id,
+            catalog=catalog,
+            do_nothing=True,
+        )
+
+    def _enqueue(
+        self,
+        type_: str,
+        key: str,
+        payload: dict[str, Any] | None = None,
+        run_after: str = "",
+        priority: int = 0,
+        user_id: str | None = None,
+        catalog: bool = False,
+        do_nothing: bool = False,
+    ) -> None:
+        now = self._now()
+        if catalog:
+            uid = None
+        elif user_id is not None:
+            uid = user_id
+        elif self.is_scoped:
+            uid = self.user_id
+        else:
+            uid = None
         conflict_target = (
             "(type, key, user_id) WHERE user_id IS NOT NULL"
             if uid is not None
@@ -1031,7 +1081,8 @@ class Repo:
                 " status = CASE WHEN task.status IN ('done', 'failed') THEN 'pending'"
                 "   ELSE task.status END"
             )
-        with self._tx() as c:
+        engine = self._root if catalog else self.engine
+        with engine.begin() as c:
             c.execute(
                 text(sql),
                 {

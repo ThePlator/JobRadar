@@ -122,7 +122,7 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
     a_has_things(repo, tmp_path)
     repo.save_profile({"basics": {"name": "Alice"}})
     repo.save_preferences({})
-    other = repo.for_user("u2")
+    other = repo.scoped("u2")
     other.set_user_status("j", JobStatus.SKIPPED)
     other.queue_alert("j")
     other.save_artifact("j", "resume", 1, "b.pdf", "{}")
@@ -190,3 +190,14 @@ def test_scoped_admin_approves_source_auto_follows_for_all_users(repo: Repo) -> 
 
     assert approved.id in catalog.list_followed(ctx_admin)
     assert approved.id in catalog.list_followed(ctx_u2)
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_scoped_repo_can_enqueue_catalog_task(repo: Repo) -> None:
+    repo.add_user(User(id="u2", auth_uid="firebase-u2", created_at="2026-10-08"))
+    scoped = repo.scoped("u2")
+    scoped.enqueue("fetch", "job-cat", catalog=True)
+    t = repo.claim(["fetch"])
+    assert t is not None
+    assert t.user_id is None
+    repo.complete(t.id)
