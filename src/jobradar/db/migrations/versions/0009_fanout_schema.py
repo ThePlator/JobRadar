@@ -62,7 +62,7 @@ def upgrade() -> None:
     # 3. Backfill: every active user follows every approved catalog source
     op.execute(
         "INSERT INTO user_sources (user_id, source_id, followed_at) "
-        "SELECT u.id, s.id, to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS\"+00:00\"')::timestamptz "
+        "SELECT u.id, s.id, now() "
         "FROM users u "
         "CROSS JOIN source s "
         "WHERE s.approval = 'approved' AND u.deleted_at IS NULL "

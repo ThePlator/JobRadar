@@ -168,16 +168,30 @@ def _own_old_rows(engine: Engine) -> None:
         c.execute(
             text("CREATE INDEX IF NOT EXISTS task_ready_user ON task (status, run_after, user_id)")
         )
-        c.execute(
-            text(
-                "INSERT INTO user_sources (user_id, source_id, followed_at) "
-                "SELECT u.id, s.id, strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now') "
-                "FROM users u "
-                "CROSS JOIN source s "
-                "WHERE s.approval = 'approved' AND u.deleted_at IS NULL "
-                "ON CONFLICT DO NOTHING"
+        backfilled = c.execute(
+            text("SELECT 1 FROM setting WHERE key = 'schema:user_sources_backfilled'")
+        ).first()
+        if not backfilled:
+            now_iso = to_iso(utcnow())
+            c.execute(
+                text(
+                    "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                    "SELECT u.id, s.id, :now "
+                    "FROM users u "
+                    "CROSS JOIN source s "
+                    "WHERE s.approval = 'approved' AND u.deleted_at IS NULL "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"now": now_iso},
             )
-        )
+            c.execute(
+                text(
+                    "INSERT INTO setting (key, value) "
+                    "VALUES ('schema:user_sources_backfilled', :now) "
+                    "ON CONFLICT (key) DO NOTHING"
+                ),
+                {"now": now_iso},
+            )
     move_user_settings(engine)
 
 

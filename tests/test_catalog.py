@@ -233,3 +233,24 @@ def test_new_user_signup_auto_follows_approved_sources(repo: Repo, clock: FakeCl
 
     # The new user automatically follows the approved source
     assert board.id in catalog.list_followed(ctx_newbie)
+
+
+def test_unfollow_survives_db_init_and_restart(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.db.repo import init_db
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    ctx_owner = here(repo, clock, "owner")
+    repo.follow_source(board.id, "owner")
+    assert board.id in catalog.list_followed(ctx_owner)
+
+    catalog.unfollow(ctx_owner, board.id)
+    assert board.id not in catalog.list_followed(ctx_owner)
+
+    # Re-run startup / init_db
+    init_db(repo.engine)
+
+    # The unfollow must stick
+    assert board.id not in catalog.list_followed(ctx_owner)
