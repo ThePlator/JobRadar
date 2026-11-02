@@ -162,3 +162,31 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
         assert c.execute(text("SELECT count(*) FROM user_jobs")).scalar() == 0
     with repo.engine.connect() as c:  # background work (the table owner) still sees all
         assert c.execute(text("SELECT count(DISTINCT user_id) FROM user_jobs")).scalar() == 2
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_scoped_admin_approves_source_auto_follows_for_all_users(repo: Repo) -> None:
+    from jobradar.services import catalog
+    from jobradar.services.context import Ctx
+    from tests.conftest import FakeClock
+    from tests.test_digest import settings as quiet
+
+    repo.add_user(User(id="u2", auth_uid="firebase-u2", created_at="2026-10-08"))
+
+    scoped_admin = repo.scoped(OWNER)
+    clock = FakeClock()
+    ctx_admin = Ctx(scoped_admin, quiet(), clock(), user_id=OWNER)
+    ctx_u2 = Ctx(repo.scoped("u2"), quiet(), clock(), user_id="u2")
+
+    pending = catalog.suggest(
+        ctx_u2, "board", "https://boards.greenhouse.io/scopedtest", "Scoped Test"
+    )
+    assert pending.id is not None
+    assert pending.id not in catalog.list_followed(ctx_admin)
+    assert pending.id not in catalog.list_followed(ctx_u2)
+
+    approved = catalog.review(ctx_admin, pending.id, "approved")
+    assert approved.id is not None
+
+    assert approved.id in catalog.list_followed(ctx_admin)
+    assert approved.id in catalog.list_followed(ctx_u2)

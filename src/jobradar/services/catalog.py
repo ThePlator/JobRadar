@@ -56,7 +56,7 @@ def review(ctx: Ctx, source_id: int, decision: str) -> Source:
     src = ctx.repo.get_source(source_id)
     if src is None:
         raise NotFound("No source with that id.")
-    saved = ctx.repo.put_catalog_source(
+    return ctx.repo.put_catalog_source(
         src.platform,
         src.chat_id,
         title=src.title,
@@ -65,9 +65,6 @@ def review(ctx: Ctx, source_id: int, decision: str) -> Source:
         detail_json=src.detail_json,
         suggested_by=src.suggested_by,
     )
-    if approval == SourceApproval.APPROVED and saved.id is not None:
-        ctx.repo.unscoped().auto_follow_approved_source(saved.id)
-    return saved
 
 
 def follow(ctx: Ctx, source_id: int) -> None:

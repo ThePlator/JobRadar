@@ -243,7 +243,6 @@ def test_unfollow_survives_db_init_and_restart(repo: Repo, clock: FakeClock) -> 
     assert board is not None and board.id is not None
 
     ctx_owner = here(repo, clock, "owner")
-    repo.follow_source(board.id, "owner")
     assert board.id in catalog.list_followed(ctx_owner)
 
     catalog.unfollow(ctx_owner, board.id)
@@ -254,3 +253,58 @@ def test_unfollow_survives_db_init_and_restart(repo: Repo, clock: FakeClock) -> 
 
     # The unfollow must stick
     assert board.id not in catalog.list_followed(ctx_owner)
+
+
+def test_approve_unfollow_reapprove_keeps_unfollow(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_admin = here(repo, clock, "owner")
+    ctx_u2 = here(repo, clock, "u2")
+
+    pending = catalog.suggest(
+        ctx_u2, "board", "https://boards.greenhouse.io/reapprove", "Reapprove"
+    )
+    assert pending.id is not None
+
+    # First approval -> auto-follows
+    approved = catalog.review(ctx_admin, pending.id, "approved")
+    assert approved.id is not None
+    assert approved.id in catalog.list_followed(ctx_u2)
+
+    # u2 unfollows
+    catalog.unfollow(ctx_u2, approved.id)
+    assert approved.id not in catalog.list_followed(ctx_u2)
+
+    # Admin reviews/re-approves already-approved source -> does not re-follow
+    catalog.review(ctx_admin, approved.id, "approved")
+    assert approved.id not in catalog.list_followed(ctx_u2)
+
+
+def test_sync_config_new_approved_source_followed(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_admin = here(repo, clock, "owner")
+    ctx_u2 = here(repo, clock, "u2")
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # Both existing active users follow the newly synced approved source
+    assert board.id in catalog.list_followed(ctx_admin)
+    assert board.id in catalog.list_followed(ctx_u2)
+
+
+def test_already_approved_resync_preserves_unfollow(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_u2 = here(repo, clock, "u2")
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # u2 unfollows
+    catalog.unfollow(ctx_u2, board.id)
+    assert board.id not in catalog.list_followed(ctx_u2)
+
+    # Re-syncing config (already approved) does not undo unfollow
+    sync_config(repo, configured())
+    assert board.id not in catalog.list_followed(ctx_u2)

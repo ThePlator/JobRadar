@@ -35,6 +35,7 @@ from jobradar.db.models import (
     Platform,
     RawMessage,
     Source,
+    SourceApproval,
     TaskStatus,
     User,
     WatchedPage,
@@ -448,7 +449,7 @@ class Repo:
         engine = root.execution_options(jobradar_user=user_id) if self.pg else root
         return Repo(engine, self._clock, user_id, scoped=True, root=root)
 
-    def unscoped(self) -> Repo:
+    def _unscoped(self) -> Repo:
         """The database without user scoping, using the login role (bypasses RLS)."""
         if not self.is_scoped:
             return self
@@ -570,6 +571,8 @@ class Repo:
             src = s.exec(
                 select(Source).where(Source.platform == platform, Source.chat_id == chat_id)
             ).first()
+            was_approved = src is not None and src.approval == SourceApproval.APPROVED.value
+            transition_to_approved = approval == SourceApproval.APPROVED.value and not was_approved
             if src is None:
                 src = Source(
                     platform=platform,
@@ -590,7 +593,11 @@ class Repo:
             s.add(src)
             s.commit()
             s.refresh(src)
-            return src
+
+        if transition_to_approved and src.id is not None:
+            self.auto_follow_approved_source(src.id)
+
+        return src
 
     def note_source_ok(self, platform: str, chat_id: str, when: str) -> None:
         """The last read of this source that worked. No row yet (never synced): nothing to mark."""
@@ -638,10 +645,10 @@ class Repo:
     def auto_follow_approved_source(self, source_id: int) -> int:
         """When an admin approves a source into the catalog, all active users follow it.
 
-        Must run on the unscoped (owner) connection to insert across all users.
+        Runs on the unscoped (root) connection to insert across all users under RLS.
         """
         now = self._now()
-        with self._tx() as c:
+        with self._root.begin() as c:
             res = c.execute(
                 text(
                     "INSERT INTO user_sources (user_id, source_id, followed_at) "
