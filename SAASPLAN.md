@@ -1564,20 +1564,24 @@ flowchart LR
   - **8c `saas/fanout-rematch`:** `REMATCH_PROFILE`, debounced reverse fan-out query, cold start.
 - **As built, 8a (2026-10-29):**
   - Migration `0009`: `user_sources` table (`user_id`, `source_id`, `followed_at`) with index
-    `user_sources_by_source` on `(source_id, user_id)`. `task` gained `user_id` (TEXT, nullable,
-    FK to `users.id`). The old `(type, key)` unique constraint was replaced with two partial unique
-    indexes: `(type, key) WHERE user_id IS NULL` (catalog tasks) and `(type, key, user_id) WHERE
-    user_id IS NOT NULL` (per-user tasks), plus `task_ready_user` on `(status, run_after, user_id)`.
-  - Migration backfills all existing active users to follow all approved catalog sources.
+    `user_sources_by_source` on `(source_id, user_id)` and `ondelete="CASCADE"`. `task` gained
+    `user_id` (TEXT, nullable, FK to `users.id` with `ondelete="CASCADE"`). The old `(type, key)`
+    unique constraint was replaced with two partial unique indexes: `(type, key) WHERE user_id IS NULL`
+    (catalog tasks) and `(type, key, user_id) WHERE user_id IS NOT NULL` (per-user tasks).
+    Existing SQLite databases rebuild the `task` table on start when the old constraint is present.
+  - Migration backfill: active users follow approved catalog sources. SQLite backfill is gated
+    behind `schema:user_sources_backfilled` so it runs once and preserves user unfollows.
   - Row-level security: enabled on `user_sources` and `task` for `<database>_app` role
     (`user_id = current_setting('app.user_id', true)`). Table owner/login role used by background
     workers bypasses RLS.
-  - `Repo.enqueue`: branches conflict target by `user_id IS NULL` vs `IS NOT NULL`, supports
-    `do_nothing` (for `MATCH` idempotency), and respects scoped tenant ID.
+  - `Repo.enqueue` and `TaskQueue.enqueue`: explicit `catalog: bool = False` forces `user_id = NULL`
+    and executes on the root connection from scoped repos. `Repo.enqueue_once` / `TaskQueue.enqueue_once`
+    provides idempotency (replaces `do_nothing`).
   - `TaskRecord.user_id` populated on `claim()`.
   - Source follow methods on `Repo` and `services.catalog`: `follow`, `unfollow`, `list_followed`.
-  - Auto-follow hooks: admin approval of a source bulk auto-follows for all active users on the
-    unscoped connection; user signup auto-follows all approved sources.
+  - Auto-follow hooks: `put_catalog_source` triggers auto-follow on transition to approved using
+    the root connection directly (removing public `unscoped()`), respecting existing unfollows on re-sync.
+    `Repo.create_user_with_follows` atomically creates the user and auto-follows on sign-up in a single transaction.
 
 ### PR 9: `saas/api-write`
 
