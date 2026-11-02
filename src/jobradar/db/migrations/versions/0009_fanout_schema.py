@@ -59,7 +59,6 @@ def upgrade() -> None:
         postgresql_where=sa.text("user_id IS NOT NULL"),
         sqlite_where=sa.text("user_id IS NOT NULL"),
     )
-    op.create_index("task_ready_user", "task", ["status", "run_after", "user_id"], unique=False)
 
     # 3. Backfill: every active user follows every approved catalog source
     op.execute(
@@ -85,9 +84,9 @@ def downgrade() -> None:
     op.execute("DROP POLICY own_rows ON user_sources")
     op.execute("ALTER TABLE user_sources DISABLE ROW LEVEL SECURITY")
 
-    # 2. Revert task table: purge per-user tasks so (type, key) constraint can be restored
+    # 2. Revert task table: purge per-user tasks so (type, key) constraint can be restored.
+    # Note: all per-user tasks (user_id IS NOT NULL) are deleted to restore catalog-only uniqueness.
     op.execute("DELETE FROM task WHERE user_id IS NOT NULL")
-    op.drop_index("task_ready_user", table_name="task")
     op.drop_index("task_user_unique", table_name="task")
     op.drop_index("task_catalog_unique", table_name="task")
     op.create_unique_constraint("task_type_key_key", "task", ["type", "key"])

@@ -243,7 +243,6 @@ class Task(SQLModel, table=True):
             postgresql_where=text("user_id IS NOT NULL"),
             sqlite_where=text("user_id IS NOT NULL"),
         ),
-        Index("task_ready_user", "status", "run_after", "user_id"),
     )
 
     id: int | None = Field(default=None, primary_key=True)

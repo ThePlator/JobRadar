@@ -166,9 +166,6 @@ def _own_old_rows(engine: Engine) -> None:
                 "WHERE user_id IS NOT NULL"
             )
         )
-        c.execute(
-            text("CREATE INDEX IF NOT EXISTS task_ready_user ON task (status, run_after, user_id)")
-        )
         backfilled = c.execute(
             text("SELECT 1 FROM setting WHERE key = 'schema:user_sources_backfilled'")
         ).first()
