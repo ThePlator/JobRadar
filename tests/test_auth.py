@@ -184,6 +184,28 @@ def test_switched_off_accounts_cant_sign_in(repo: Repo, clock: FakeClock) -> Non
         users.sign_in(here, who("uid-9", "x@example.com"), OWNER)
 
 
+def test_atomic_signup_rolls_back_on_follow_failure(
+    repo: Repo, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlmodel import Session
+
+    here = Ctx(repo, auth_settings(), clock())
+
+    original_execute = Session.execute
+
+    def bad_execute(self, statement, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if "INSERT INTO user_sources" in str(statement):
+            raise RuntimeError("simulated follow failure")
+        return original_execute(self, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", bad_execute)
+
+    with pytest.raises(RuntimeError, match="simulated follow failure"):
+        users.sign_in(here, who("uid-fail", "fail@example.com"), OWNER)
+
+    assert repo.user_by_auth_uid("uid-fail") is None
+
+
 def test_signing_in_needs_the_firebase_settings() -> None:
     with pytest.raises(ValidationError, match="FIREBASE_API_KEY"):
         AuthConfig(enabled=True)

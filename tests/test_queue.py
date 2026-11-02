@@ -159,3 +159,68 @@ def test_fresh_work_jumps_the_queue(queue: TaskQueue, clock: FakeClock) -> None:
     assert priority(created, clock()) == FRESH  # 30 minutes old
     clock.advance(3600)
     assert priority(created, clock()) == 0
+
+
+def test_task_uniqueness_and_claiming_with_user_id(queue: TaskQueue, repo: Repo) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    repo.add_user(User(id="u2", auth_uid="fb-u2", created_at="2026-10-08"))
+
+    # Shared task (user_id=None) and per-user tasks (user_id='u1', 'u2') share (type, key)
+    queue.enqueue("match", "job-1", payload={"who": "catalog"})
+    queue.enqueue("match", "job-1", payload={"who": "u1"}, user_id="u1")
+    queue.enqueue("match", "job-1", payload={"who": "u2"}, user_id="u2")
+
+    # Duplicate enqueue for u1 updates payload
+    queue.enqueue("match", "job-1", payload={"who": "u1-updated"}, user_id="u1")
+
+    claimed = []
+    while t := queue.claim():
+        claimed.append((t.key, t.user_id, t.payload.get("who")))
+
+    assert len(claimed) == 3
+    assert ("job-1", None, "catalog") in claimed
+    assert ("job-1", "u1", "u1-updated") in claimed
+    assert ("job-1", "u2", "u2") in claimed
+
+
+def test_enqueue_once(queue: TaskQueue, repo: Repo) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    queue.enqueue("match", "job-1", payload={"attempt": 1}, user_id="u1")
+    t = queue.claim()
+    assert t is not None
+    queue.complete(t)
+
+    # With enqueue_once, a completed task is NOT reset to pending
+    queue.enqueue_once("match", "job-1", payload={"attempt": 2}, user_id="u1")
+    assert queue.claim() is None
+
+    # Normal enqueue resets a completed task to pending
+    queue.enqueue("match", "job-1", payload={"attempt": 3}, user_id="u1")
+    t2 = queue.claim()
+    assert t2 is not None and t2.payload == {"attempt": 3}
+
+
+def test_scoped_enqueue_stamps_user_and_catalog_forces_null(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.db.models import User
+
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    scoped = repo.scoped("u1")
+    q = TaskQueue(scoped, clock=clock)
+
+    # Scoped enqueue stamps user_id
+    q.enqueue("build_resume", "job-1")
+    t1 = repo.claim(["build_resume"])
+    assert t1 is not None
+    assert t1.user_id == "u1"
+    repo.complete(t1.id)
+
+    # catalog=True from scoped repo forces user_id=None
+    q.enqueue("fetch", "job-1", catalog=True)
+    t2 = repo.claim(["fetch"])
+    assert t2 is not None
+    assert t2.user_id is None
+    repo.complete(t2.id)

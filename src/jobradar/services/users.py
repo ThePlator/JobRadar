@@ -36,7 +36,7 @@ def sign_in(ctx: Ctx, who: Identity, admin_email: str | None) -> User:
     user = ctx.repo.user_by_auth_uid(who.uid)
     if user is None:
         now = to_iso(ctx.now)
-        return ctx.repo.add_user(
+        return ctx.repo.create_user_with_follows(
             User(
                 id=uuid4().hex, auth_uid=who.uid, email=who.email, phone=who.phone,
                 name=who.name, role=role.value, created_at=now, last_seen_at=now,

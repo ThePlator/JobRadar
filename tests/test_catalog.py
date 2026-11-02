@@ -156,3 +156,155 @@ def test_a_good_read_marks_the_source(repo: Repo) -> None:
     repo.note_source_ok("board", "greenhouse:stripe", "2026-10-26T10:00:00.000000Z")
     src = repo.source_by_key("board", "greenhouse:stripe")
     assert src is not None and src.last_ok_at == "2026-10-26T10:00:00.000000Z"
+
+
+def test_follow_and_unfollow_sources(repo: Repo, clock: FakeClock) -> None:
+    sync_config(repo, configured())
+    stranger(repo)
+    ctx_u2 = here(repo, clock, "u2")
+
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # Follow
+    catalog.follow(ctx_u2, board.id)
+    assert board.id in catalog.list_followed(ctx_u2)
+
+    # Idempotent follow
+    catalog.follow(ctx_u2, board.id)
+    assert catalog.list_followed(ctx_u2) == {board.id}
+
+    # Unfollow
+    catalog.unfollow(ctx_u2, board.id)
+    assert catalog.list_followed(ctx_u2) == set()
+
+    # Following non-existent raises NotFound
+    with pytest.raises(NotFound):
+        catalog.follow(ctx_u2, 99999)
+
+    # Following pending or rejected raises Refused
+    pending = catalog.suggest(ctx_u2, "board", "https://boards.greenhouse.io/temp", "Temp")
+    assert pending.id is not None
+    with pytest.raises(Refused, match="Only approved"):
+        catalog.follow(ctx_u2, pending.id)
+
+
+def test_approving_a_source_auto_follows_for_all_active_users(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_admin = here(repo, clock, "owner")
+    ctx_u2 = here(repo, clock, "u2")
+
+    pending = catalog.suggest(ctx_u2, "board", "https://boards.greenhouse.io/figma", "Figma")
+    assert pending.id is not None
+    assert pending.id not in catalog.list_followed(ctx_admin)
+    assert pending.id not in catalog.list_followed(ctx_u2)
+
+    # Admin approves it
+    approved = catalog.review(ctx_admin, pending.id, "approved")
+    assert approved.id is not None
+
+    # Both owner and u2 now follow it automatically
+    assert approved.id in catalog.list_followed(ctx_admin)
+    assert approved.id in catalog.list_followed(ctx_u2)
+
+
+def test_new_user_signup_auto_follows_approved_sources(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.saas.auth import Identity
+    from jobradar.services.users import sign_in
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # New user signs up
+    who = Identity(
+        uid="fb-newbie",
+        email="newbie@example.com",
+        email_verified=True,
+        phone=None,
+        name="Newbie",
+        way="google.com",
+        auth_time=1728374400,
+        issued_at=1728374400,
+        admin=False,
+    )
+    user = sign_in(here(repo, clock, "owner"), who, admin_email="admin@example.com")
+    ctx_newbie = here(repo, clock, user.id)
+
+    # The new user automatically follows the approved source
+    assert board.id in catalog.list_followed(ctx_newbie)
+
+
+def test_unfollow_survives_db_init_and_restart(repo: Repo, clock: FakeClock) -> None:
+    from jobradar.db.repo import init_db
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    ctx_owner = here(repo, clock, "owner")
+    assert board.id in catalog.list_followed(ctx_owner)
+
+    catalog.unfollow(ctx_owner, board.id)
+    assert board.id not in catalog.list_followed(ctx_owner)
+
+    # Re-run startup / init_db
+    init_db(repo.engine)
+
+    # The unfollow must stick
+    assert board.id not in catalog.list_followed(ctx_owner)
+
+
+def test_approve_unfollow_reapprove_keeps_unfollow(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_admin = here(repo, clock, "owner")
+    ctx_u2 = here(repo, clock, "u2")
+
+    pending = catalog.suggest(
+        ctx_u2, "board", "https://boards.greenhouse.io/reapprove", "Reapprove"
+    )
+    assert pending.id is not None
+
+    # First approval -> auto-follows
+    approved = catalog.review(ctx_admin, pending.id, "approved")
+    assert approved.id is not None
+    assert approved.id in catalog.list_followed(ctx_u2)
+
+    # u2 unfollows
+    catalog.unfollow(ctx_u2, approved.id)
+    assert approved.id not in catalog.list_followed(ctx_u2)
+
+    # Admin reviews/re-approves already-approved source -> does not re-follow
+    catalog.review(ctx_admin, approved.id, "approved")
+    assert approved.id not in catalog.list_followed(ctx_u2)
+
+
+def test_sync_config_new_approved_source_followed(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_admin = here(repo, clock, "owner")
+    ctx_u2 = here(repo, clock, "u2")
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # Both existing active users follow the newly synced approved source
+    assert board.id in catalog.list_followed(ctx_admin)
+    assert board.id in catalog.list_followed(ctx_u2)
+
+
+def test_already_approved_resync_preserves_unfollow(repo: Repo, clock: FakeClock) -> None:
+    stranger(repo)
+    ctx_u2 = here(repo, clock, "u2")
+
+    sync_config(repo, configured())
+    board = repo.source_by_key("board", "greenhouse:stripe")
+    assert board is not None and board.id is not None
+
+    # u2 unfollows
+    catalog.unfollow(ctx_u2, board.id)
+    assert board.id not in catalog.list_followed(ctx_u2)
+
+    # Re-syncing config (already approved) does not undo unfollow
+    sync_config(repo, configured())
+    assert board.id not in catalog.list_followed(ctx_u2)

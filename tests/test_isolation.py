@@ -18,7 +18,7 @@ from tests.test_web import add
 
 SECRET = "Zyxlang"  # noqa: S105 (a skill only A's score reason names: it never reaches B)
 PER_USER = ("user_jobs", "status_change", "alert", "artifact", "user_settings", "profiles",
-            "preferences")  # fmt: skip
+            "preferences", "user_sources", "task")  # fmt: skip
 
 
 def a_has_things(repo: Repo, tmp_path: Path) -> int:
@@ -29,6 +29,12 @@ def a_has_things(repo: Repo, tmp_path: Path) -> int:
     repo.set_user_status("j", JobStatus.APPLIED)
     repo.queue_alert("j")
     repo.set_user_setting("followed_up:j", "2026-10-07")
+    src = repo.put_catalog_source(
+        "telegram", "chat_test", title="Chat", approval="approved", origin="seen", detail_json=None
+    )
+    if src.id is not None:
+        repo.follow_source(src.id)
+    repo.enqueue("build_resume", "j", user_id=OWNER)
     pdf = tmp_path / "out" / "resume.pdf"
     pdf.parent.mkdir()
     pdf.write_bytes(b"%PDF-1.4 A's resume")
@@ -116,13 +122,24 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
     a_has_things(repo, tmp_path)
     repo.save_profile({"basics": {"name": "Alice"}})
     repo.save_preferences({})
-    other = repo.for_user("u2")
+    other = repo.scoped("u2")
     other.set_user_status("j", JobStatus.SKIPPED)
     other.queue_alert("j")
     other.save_artifact("j", "resume", 1, "b.pdf", "{}")
     other.set_user_setting("followed_up:j", "2026-10-08")
     other.save_profile({"basics": {"name": "Bo"}})
     other.save_preferences({})
+    src2 = repo.put_catalog_source(
+        "telegram",
+        "chat_test2",
+        title="Chat 2",
+        approval="approved",
+        origin="seen",
+        detail_json=None,
+    )
+    if src2.id is not None:
+        other.follow_source(src2.id)
+    other.enqueue("build_resume", "j")
 
     b = repo.scoped("u2")
     with b.engine.begin() as c:  # queries with no user filter at all
@@ -132,6 +149,12 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
     with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
         c.execute(text("INSERT INTO user_settings (user_id, key, value) "
                        "VALUES (:owner, 'x', 'planted')"), {"owner": OWNER})  # fmt: skip
+    with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
+        c.execute(text("INSERT INTO user_sources (user_id, source_id, followed_at) "
+                       "VALUES (:owner, 999, '2026-10-08T00:00:00+00:00')"), {"owner": OWNER})  # fmt: skip
+    with pytest.raises(DBAPIError, match="row-level security"), b.engine.begin() as c:
+        c.execute(text("INSERT INTO task (type, key, user_id, payload, status, attempts, run_after, rerun) "
+                       "VALUES ('build_resume', 'j99', :owner, '{}', 'pending', 0, '2026-10-08T00:00:00+00:00', FALSE)"), {"owner": OWNER})  # fmt: skip
     with pytest.raises(DBAPIError, match="permission denied"), b.engine.begin() as c:
         c.execute(text("SELECT * FROM users"))  # accounts are for sign-in code only
     with repo.engine.begin() as c:  # a session that never said who it is sees nothing
@@ -139,3 +162,42 @@ def test_postgres_keeps_users_apart_even_without_a_filter(repo: Repo, tmp_path: 
         assert c.execute(text("SELECT count(*) FROM user_jobs")).scalar() == 0
     with repo.engine.connect() as c:  # background work (the table owner) still sees all
         assert c.execute(text("SELECT count(DISTINCT user_id) FROM user_jobs")).scalar() == 2
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_scoped_admin_approves_source_auto_follows_for_all_users(repo: Repo) -> None:
+    from jobradar.services import catalog
+    from jobradar.services.context import Ctx
+    from tests.conftest import FakeClock
+    from tests.test_digest import settings as quiet
+
+    repo.add_user(User(id="u2", auth_uid="firebase-u2", created_at="2026-10-08"))
+
+    scoped_admin = repo.scoped(OWNER)
+    clock = FakeClock()
+    ctx_admin = Ctx(scoped_admin, quiet(), clock(), user_id=OWNER)
+    ctx_u2 = Ctx(repo.scoped("u2"), quiet(), clock(), user_id="u2")
+
+    pending = catalog.suggest(
+        ctx_u2, "board", "https://boards.greenhouse.io/scopedtest", "Scoped Test"
+    )
+    assert pending.id is not None
+    assert pending.id not in catalog.list_followed(ctx_admin)
+    assert pending.id not in catalog.list_followed(ctx_u2)
+
+    approved = catalog.review(ctx_admin, pending.id, "approved")
+    assert approved.id is not None
+
+    assert approved.id in catalog.list_followed(ctx_admin)
+    assert approved.id in catalog.list_followed(ctx_u2)
+
+
+@pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
+def test_scoped_repo_can_enqueue_catalog_task(repo: Repo) -> None:
+    repo.add_user(User(id="u2", auth_uid="firebase-u2", created_at="2026-10-08"))
+    scoped = repo.scoped("u2")
+    scoped.enqueue("fetch", "job-cat", catalog=True)
+    t = repo.claim(["fetch"])
+    assert t is not None
+    assert t.user_id is None
+    repo.complete(t.id)
