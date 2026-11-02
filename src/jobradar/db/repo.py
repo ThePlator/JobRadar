@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlalchemy import Engine, bindparam, event, text
 from sqlalchemy.engine import Connection
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlmodel import Session, SQLModel, col, create_engine, select
 
 from jobradar.clock import Clock, to_iso, utcnow
@@ -119,6 +119,7 @@ def init_db(engine: Engine) -> None:
     _add_plans(engine)
     add_owner(engine)
     if engine.dialect.name == "sqlite":
+        _rebuild_task_table_if_needed(engine)
         _split_user_jobs(engine)
         _own_old_rows(engine)
 
@@ -289,6 +290,57 @@ def _refresh_source_platforms(engine: Engine) -> None:
             raise
         finally:
             dbapi.execute("PRAGMA legacy_alter_table = OFF")
+            dbapi.execute("PRAGMA foreign_keys = ON")
+    finally:
+        raw.close()
+
+
+def _rebuild_task_table_if_needed(engine: Engine) -> None:
+    """A SQLite database from before 0009 has an inline UNIQUE(type, key) constraint on task.
+    Drop it by rebuilding the table with partial unique indexes, so catalog and per-user
+    tasks can share a key."""
+    with engine.connect() as c:
+        has_old = False
+        for row in c.execute(text("PRAGMA index_list('task')")):
+            mapping = row._mapping
+            if mapping.get("unique") and not mapping.get("partial"):
+                idx_name = mapping.get("name")
+                cols = [
+                    r._mapping.get("name")
+                    for r in c.execute(text(f"PRAGMA index_info('{idx_name}')"))
+                ]
+                if cols == ["type", "key"]:
+                    has_old = True
+                    break
+    if not has_old:
+        return
+
+    raw = engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection
+        if dbapi is None:
+            raise RuntimeError("no database connection to rebuild `task` with")
+        cols_in_old = {row[1] for row in dbapi.execute("PRAGMA table_info('task')").fetchall()}
+        shared = [c.name for c in models.Task.__table__.columns if c.name in cols_in_old]  # type: ignore[attr-defined]
+        shared_str = ", ".join(f'"{name}"' for name in shared)
+        create = str(CreateTable(models.Task.__table__).compile(engine))  # type: ignore[attr-defined]
+        dbapi.execute("PRAGMA foreign_keys = OFF")
+        try:
+            dbapi.execute("BEGIN")
+            dbapi.execute("ALTER TABLE task RENAME TO task_old")
+            dbapi.execute(create)
+            dbapi.execute(f"INSERT INTO task ({shared_str}) SELECT {shared_str} FROM task_old")  # noqa: S608
+            dbapi.execute("DROP TABLE task_old")
+            for idx in models.Task.__table__.indexes:
+                dbapi.execute(str(CreateIndex(idx).compile(engine)))
+            problems = dbapi.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                raise RuntimeError(f"foreign key problems after rebuilding task: {problems[:3]}")
+            dbapi.execute("COMMIT")
+        except Exception:
+            dbapi.execute("ROLLBACK")
+            raise
+        finally:
             dbapi.execute("PRAGMA foreign_keys = ON")
     finally:
         raw.close()

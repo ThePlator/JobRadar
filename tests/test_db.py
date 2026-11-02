@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 
-from jobradar.db.models import Platform
+from jobradar.db.models import Platform, User
 from jobradar.db.repo import Repo, init_db, make_engine
 from tests.conftest import PG_URL
 
@@ -132,6 +132,47 @@ def test_jobs_from_source(repo: Repo) -> None:
         repo.add_job_source(f"j{n}", raw)
     repo.set_user_status("j1", JobStatus.APPLIED)  # you moved it in Notion: left alone
     assert repo.jobs_from_source("workday · accenture") == ["j0"]
+
+
+@sqlite_only
+def test_task_unique_constraint_upgraded_from_old_schema(tmp_path: Path) -> None:
+    """An old SQLite database with inline UNIQUE(type, key) on task must be upgraded to
+    partial unique indexes so catalog and per-user tasks can share a key."""
+    path = tmp_path / "old_tasks.db"
+    eng = make_engine(path)
+    init_db(eng)
+    with eng.begin() as c:
+        c.execute(text("DROP TABLE task"))
+        c.execute(
+            text(
+                "CREATE TABLE task ("
+                "id INTEGER NOT NULL PRIMARY KEY, "
+                "type VARCHAR NOT NULL, "
+                "key VARCHAR NOT NULL, "
+                "user_id VARCHAR, "
+                "payload VARCHAR NOT NULL, "
+                "status VARCHAR NOT NULL, "
+                "attempts INTEGER NOT NULL, "
+                "run_after VARCHAR NOT NULL, "
+                "started_at VARCHAR, "
+                "rerun BOOLEAN NOT NULL, "
+                "priority INTEGER, "
+                "last_error VARCHAR, "
+                "CONSTRAINT task_status_value CHECK (status IN ('pending', 'running', 'done', 'failed')), "
+                "FOREIGN KEY(user_id) REFERENCES users (id), "
+                "UNIQUE (type, key))"
+            )
+        )
+    eng.dispose()
+
+    eng2 = make_engine(path)
+    init_db(eng2)
+    init_db(eng2)  # idempotent
+    repo = Repo(eng2)
+    repo.add_user(User(id="u1", auth_uid="fb-u1", created_at="2026-10-08"))
+    repo.enqueue("match", "job-1")
+    repo.enqueue("match", "job-1", user_id="u1")
+    eng2.dispose()
 
 
 @pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
