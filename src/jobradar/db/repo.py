@@ -1559,6 +1559,26 @@ class Repo:
             s.refresh(user)
             return user
 
+    def create_user_with_follows(self, user: User) -> User:
+        """Atomically create a user and auto-follow all approved sources in one transaction."""
+        now = self._now()
+        with Session(self.engine) as s:
+            s.add(user)
+            s.flush()
+            s.execute(
+                text(
+                    "INSERT INTO user_sources (user_id, source_id, followed_at) "
+                    "SELECT :uid, id, :now "
+                    "FROM source "
+                    "WHERE approval = 'approved' "
+                    "ON CONFLICT (user_id, source_id) DO NOTHING"
+                ),
+                {"uid": user.id, "now": now},
+            )
+            s.commit()
+            s.refresh(user)
+            return user
+
     def saw_user(
         self, user_id: str, email: str | None, phone: str | None, name: str | None, role: str
     ) -> None:

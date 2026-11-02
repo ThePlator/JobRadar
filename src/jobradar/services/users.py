@@ -36,14 +36,12 @@ def sign_in(ctx: Ctx, who: Identity, admin_email: str | None) -> User:
     user = ctx.repo.user_by_auth_uid(who.uid)
     if user is None:
         now = to_iso(ctx.now)
-        created = ctx.repo.add_user(
+        return ctx.repo.create_user_with_follows(
             User(
                 id=uuid4().hex, auth_uid=who.uid, email=who.email, phone=who.phone,
                 name=who.name, role=role.value, created_at=now, last_seen_at=now,
             )
         )  # fmt: skip
-        ctx.repo.auto_follow_all_approved_sources(created.id)
-        return created
     if user.deleted_at:
         raise Refused("This account is switched off. Write to the JobRadar team if that's wrong.")
     if user.role != Role.ADMIN:  # the admin role is never taken away by a sign-in
