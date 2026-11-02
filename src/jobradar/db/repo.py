@@ -343,7 +343,7 @@ def _rebuild_task_table_if_needed(engine: Engine) -> None:
             dbapi.execute(create)
             dbapi.execute(f"INSERT INTO task ({shared_str}) SELECT {shared_str} FROM task_old")  # noqa: S608
             dbapi.execute("DROP TABLE task_old")
-            for idx in models.Task.__table__.indexes:
+            for idx in models.Task.__table__.indexes:  # type: ignore[attr-defined]
                 dbapi.execute(str(CreateIndex(idx).compile(engine)))
             problems = dbapi.execute("PRAGMA foreign_key_check").fetchall()
             if problems:
