@@ -168,8 +168,8 @@ class UserSource(SQLModel, table=True):
     __tablename__ = "user_sources"
     __table_args__ = (Index("user_sources_by_source", "source_id", "user_id"),)
 
-    user_id: str = Field(foreign_key="users.id", primary_key=True)
-    source_id: int = Field(foreign_key="source.id", primary_key=True)
+    user_id: str = Field(foreign_key="users.id", primary_key=True, ondelete="CASCADE")
+    source_id: int = Field(foreign_key="source.id", primary_key=True, ondelete="CASCADE")
     followed_at: str = Field(sa_type=IsoTime)
 
 
@@ -249,7 +249,7 @@ class Task(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     type: str
     key: str  # idempotency key, e.g. job id
-    user_id: str | None = Field(default=None, foreign_key="users.id")
+    user_id: str | None = Field(default=None, foreign_key="users.id", ondelete="CASCADE")
     payload: str = Field(default="{}", sa_type=JsonText)
     status: str = TaskStatus.PENDING.value
     attempts: int = 0

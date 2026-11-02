@@ -175,6 +175,48 @@ def test_task_unique_constraint_upgraded_from_old_schema(tmp_path: Path) -> None
     eng2.dispose()
 
 
+def test_user_deletion_cascades_to_user_sources_and_tasks(repo: Repo) -> None:
+    from jobradar.db.models import SourceApproval, SourceOrigin
+
+    repo.add_user(User(id="u_cascade", auth_uid="fb-casc", created_at="2026-10-08"))
+    src = repo.upsert_source(Platform.BOARD, "casc:b", "Cascade Board")
+    assert src.id is not None
+    repo.put_catalog_source(
+        src.platform,
+        src.chat_id,
+        title=src.title,
+        approval=SourceApproval.APPROVED.value,
+        origin=SourceOrigin.CONFIG.value,
+        detail_json="{}",
+    )
+
+    repo.follow_source(src.id, "u_cascade")
+    repo.enqueue("build_resume", "job-1", user_id="u_cascade")
+    repo.enqueue("fetch", "job-1", catalog=True)
+
+    assert src.id in repo.followed_sources("u_cascade")
+    with repo._tx() as c:
+        assert (
+            c.execute(text("SELECT count(*) FROM task WHERE user_id = 'u_cascade'")).scalar() == 1
+        )
+
+    # Delete user
+    with repo._tx() as c:
+        c.execute(text("DELETE FROM users WHERE id = 'u_cascade'"))
+
+    assert src.id not in repo.followed_sources("u_cascade")
+    with repo._tx() as c:
+        assert (
+            c.execute(text("SELECT count(*) FROM task WHERE user_id = 'u_cascade'")).scalar() == 0
+        )
+        assert (
+            c.execute(
+                text("SELECT count(*) FROM task WHERE user_id IS NULL AND key = 'job-1'")
+            ).scalar()
+            == 1
+        )
+
+
 @pytest.mark.skipif(not PG_URL, reason="needs JOBRADAR_TEST_DATABASE_URL (Postgres)")
 def test_migrations_match_the_models(engine: Engine) -> None:
     """Every model change needs a migration: compare the migrated database with the models."""

@@ -29,8 +29,8 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(), nullable=False),
         sa.Column("source_id", sa.Integer(), nullable=False),
         sa.Column("followed_at", postgresql.TIMESTAMP(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
-        sa.ForeignKeyConstraint(["source_id"], ["source.id"]),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["source_id"], ["source.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("user_id", "source_id"),
     )
     op.create_index(
@@ -39,7 +39,9 @@ def upgrade() -> None:
 
     # 2. task table: user_id and partial unique indexes
     op.add_column("task", sa.Column("user_id", sa.String(), nullable=True))
-    op.create_foreign_key("task_user_id_fkey", "task", "users", ["user_id"], ["id"])
+    op.create_foreign_key(
+        "task_user_id_fkey", "task", "users", ["user_id"], ["id"], ondelete="CASCADE"
+    )
     op.drop_constraint("task_type_key_key", "task", type_="unique")
     op.create_index(
         "task_catalog_unique",
